@@ -178,10 +178,16 @@ documentation.md).
 | `AuditModule` | `AuditInterceptor` (глобальный) + `AuditService` → Postgres |
 | `WebhooksModule` | приём push-уведомлений MC (mTLS на ингрессе), дедуп |
 | `CrossBorderModule` | бизнес-эндпоинты: quote / payment / retrieve / cancel / confirm |
+| `HealthModule` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД) |
 | `common/` | p12/crypto utils, `TenantThrottlerGuard` |
 
-Rate-limit — нативный `@nestjs/throttler` (`ThrottlerModule.forRoot` в `AppModule`),
-in-memory per-pod.
+Платформенные возможности Nest (взяты готовыми, без самописа):
+- **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot`), in-memory per-pod.
+- **Health-пробы** — `@nestjs/terminus` (`HealthModule`) для k8s.
+- **Валидация ENV** — `ConfigModule.forRoot({ validate })` (class-validator), fail-fast на старте.
+- **Cron** — `@nestjs/schedule` (`KvCleanupService` чистит протухший `kv_store`).
+- **Логи** — `nestjs-pino`: структурный JSON + correlation-id (`x-request-id`), redact секретов.
+- **Миграции** — TypeORM CLI (`data-source.ts`, `migration:*`); `synchronize` off в prod.
 
 ## 11. Безопасность (payment-grade)
 
@@ -206,5 +212,7 @@ in-memory per-pod.
 - ✅ **Фаза 5 — Audit, идемпотентность, rate-limit.**
 - ✅ **Фаза 6 — Полный набор операций** (payment/retrieve/cancel/confirm) + Swagger.
 - ✅ **Миграция на PostgreSQL** (Redis/in-memory как хранилища убраны).
+- ✅ **Платформенные доработки:** health-пробы (terminus), валидация ENV,
+  TypeORM-миграции, cron-очистка `kv_store`, структурные логи (pino) + correlation-id.
 - ⬜ **Перед прод:** per-tenant encryption, приватный Client-ключ, Vault-реализация,
-  observability, RFI — см. [production-questions.md](./production-questions.md).
+  метрики/трейсинг (Prometheus/OTel), RFI — см. [production-questions.md](./production-questions.md).

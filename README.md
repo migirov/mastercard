@@ -8,6 +8,8 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 - Field-level encryption (JWE) и подпись вынесены в axios-интерцептор.
 - Persistence — PostgreSQL (рассчитано на многоподовый деплой в Kubernetes).
 - Два пути доступа: внешний OAuth2 (мерчанты) и внутренний service-token.
+- k8s-готовность: health/readiness-пробы, структурные JSON-логи + correlation-id,
+  TypeORM-миграции, валидация ENV на старте.
 
 ---
 
@@ -124,8 +126,10 @@ src/
   idempotency/    идемпотентность платежей (через KV)
   audit/          журнал операций (Postgres, батч-запись)
   webhooks/       приём push-уведомлений Mastercard
-  store/          KvStore → PostgresKvStore (идемпотентность, дедуп вебхуков)
-  database/       TypeORM: подключение + сущности
+  store/          KvStore → PostgresKvStore + cron-очистка протухшего kv_store
+  database/       TypeORM: подключение, сущности, миграции (data-source + migrations/)
+  health/         health/readiness-пробы (@nestjs/terminus) для k8s
+  config/         валидация ENV на старте (class-validator)
   common/         p12/crypto utils, throttler-гарды
 docs/             документация (см. таблицу выше)
 certs/            криптоматериал Mastercard (НЕ в репозитории)
