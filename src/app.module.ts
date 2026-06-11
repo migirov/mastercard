@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { StoreModule } from './store/store.module';
@@ -16,7 +17,8 @@ import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }), // читает .env из корня проекта
+    // читает .env из корня проекта + валидирует переменные на старте (fail-fast)
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     DatabaseModule,
     HealthModule,
     StoreModule,
