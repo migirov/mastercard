@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
@@ -19,6 +20,7 @@ import { AuditModule } from './audit/audit.module';
   imports: [
     // читает .env из корня проекта + валидирует переменные на старте (fail-fast)
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ScheduleModule.forRoot(), // cron-задачи (очистка kv_store)
     DatabaseModule,
     HealthModule,
     StoreModule,

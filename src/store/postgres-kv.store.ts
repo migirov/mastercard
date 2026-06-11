@@ -52,4 +52,14 @@ export class PostgresKvStore implements KvStore {
   async del(key: string): Promise<void> {
     await this.repo.delete({ key });
   }
+
+  /** Удалить все протухшие записи (периодическая очистка). Возвращает кол-во. */
+  async deleteExpired(): Promise<number> {
+    const res = await this.repo
+      .createQueryBuilder()
+      .delete()
+      .where('"expiresAt" < now()')
+      .execute();
+    return res.affected ?? 0;
+  }
 }
