@@ -48,8 +48,8 @@ idempotency, webhook dedup, persistence after restart (see [tests.md](./tests.md
 ## Architecture (`src/` modules)
 
 ```
-database/                  — TypeORM: DatabaseModule (forRoot) + entities
-                             (tenants, oauth_clients, audit_log, kv_store)
+database/                  — infra ONLY: DatabaseModule (dev forRoot), data-source, migrations
+                             (entities moved into their own modules — co-location, see below)
 store/                     — KvStore → PostgresKvStore (idempotency + webhook dedup, TTL)
 tenants/                   — TenantRegistry over a Postgres repository (async) + seeds
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem CACHE
@@ -260,6 +260,14 @@ warning — the client has the same combo).
    IdempotencyModule→provider of CrossBorderModule; HealthModule→controller in the umbrella.
    Genuine feature modules kept (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
    Secrets/Store/Audit).
+5. ✅ **Entities co-located** (commit `09c4ece`). Removed the central `database/entities/`
+   folder; each entity lives in its module: `TenantEntity`→`tenants/`,
+   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`, `KvEntity`→`store/`. `database/`
+   keeps only infra (DatabaseModule, data-source, migrations). Schema and table names
+   unchanged; typecheck + e2e 10/10.
+6. ✅ **Audit shutdown race fixed** (commit `bb9a6ea`): buffer flush moved to
+   `beforeApplicationShutdown` (an earlier phase than TypeORM closing the connection) —
+   no more "Connection terminated" on shutdown.
 
 **Verified:** typecheck OK; `src/scripts/boot-check.ts` (DI graph) OK;
 `src/scripts/e2e-check.ts` — **8/8 on live sandbox** (quote 201 w/ proposal and string
