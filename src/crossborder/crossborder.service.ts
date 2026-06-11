@@ -119,9 +119,8 @@ export class CrossBorderService {
     });
   }
 
-  /** Статус платежа по transaction id (GET). */
+  /** Статус платежа по transaction id (GET). id уже проверен SafeIdPipe в контроллере. */
   async getPayment(tenantId: string, paymentId: string) {
-    this.assertSafeId(paymentId, 'paymentId');
     const creds = await this.resolveActive(tenantId);
     return this.call(
       creds,
@@ -133,9 +132,8 @@ export class CrossBorderService {
     );
   }
 
-  /** Статус платежа по transaction reference (GET ?ref=). */
+  /** Статус платежа по transaction reference (GET ?ref=). ref проверен SafeIdPipe. */
   async getPaymentByRef(tenantId: string, ref: string) {
-    if (!ref) throw new BadRequestException('ref is required');
     const creds = await this.resolveActive(tenantId);
     return this.call(
       creds,
@@ -147,9 +145,8 @@ export class CrossBorderService {
     );
   }
 
-  /** Отмена платежа (POST). */
+  /** Отмена платежа (POST). id уже проверен SafeIdPipe в контроллере. */
   async cancelPayment(tenantId: string, paymentId: string) {
-    this.assertSafeId(paymentId, 'paymentId');
     const creds = await this.resolveActive(tenantId);
     return this.call(
       creds,
@@ -180,13 +177,6 @@ export class CrossBorderService {
   /** partner-id, безопасно подставляемый в путь (защита от path-injection в OWN). */
   private partner(creds: McCredentials): string {
     return encodeURIComponent(creds.partnerId);
-  }
-
-  /** Защита от манипуляции путём: id не должен менять структуру URL. */
-  private assertSafeId(id: string, label: string): void {
-    if (!id || /[/\\\s]/.test(id) || id.includes('..')) {
-      throw new BadRequestException(`Invalid ${label}`);
-    }
   }
 
   /**

@@ -85,6 +85,7 @@ async function bootstrap() {
       .addBearerAuth({ type: 'http', scheme: 'bearer' }, 'merchant')
       .addApiKey({ type: 'apiKey', name: 'X-Internal-Token', in: 'header' }, 'internal')
       .addApiKey({ type: 'apiKey', name: 'X-Admin-Token', in: 'header' }, 'admin')
+      .addApiKey({ type: 'apiKey', name: 'X-Webhook-Token', in: 'header' }, 'webhook')
       .build();
     SwaggerModule.setup(
       'api-docs',
