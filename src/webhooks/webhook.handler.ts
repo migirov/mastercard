@@ -1,14 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KV_STORE, KvStore } from '../store/kv.types';
-
-export interface McWebhookEvent {
-  eventRef?: string;
-  notificationId?: string;
-  eventType?: string;
-  transactionReference?: string;
-  partnerId?: string;
-  [key: string]: unknown;
-}
+import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
 
 const DEDUP_TTL_SECONDS = 24 * 60 * 60; // сутки
 
@@ -25,7 +17,7 @@ export class WebhookHandler {
   constructor(@Inject(KV_STORE) private readonly kv: KvStore) {}
 
   async handle(
-    event: McWebhookEvent,
+    event: McWebhookEventDto,
   ): Promise<{ status: 'accepted' | 'duplicate' }> {
     const ref = event?.eventRef ?? event?.notificationId;
 

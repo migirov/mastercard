@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Header,
@@ -8,20 +7,18 @@ import {
   Post,
   UnauthorizedException,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
+import { strictDtoPipe } from '../common/validation.pipe';
+import { TokenRequestDto } from './dto/token-request.dto';
 import { OAuthService } from './oauth.service';
-
-interface TokenBody {
-  grant_type?: string;
-  client_id?: string;
-  client_secret?: string;
-}
 
 /** OAuth2 token endpoint (публичный — сам и есть точка аутентификации). */
 @Controller('oauth')
 @UseGuards(OAuthThrottlerGuard) // лимит по client_id — защита от brute-force секретов
+@UsePipes(strictDtoPipe()) // строгая валидация тела на нашей границе
 export class OAuthController {
   constructor(private readonly oauth: OAuthService) {}
 
@@ -32,10 +29,12 @@ export class OAuthController {
   // Токены не должны кэшироваться (RFC 6749 §5.1).
   @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
-  token(@Body() body: TokenBody, @Headers('authorization') authHeader?: string) {
-    if (body?.grant_type !== 'client_credentials') {
-      throw new BadRequestException('unsupported_grant_type');
-    }
+  token(
+    @Body() body: TokenRequestDto,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    // grant_type валидируется DTO (@IsIn). Креды могут прийти из тела или Basic —
+    // их наличие проверяем после извлечения (это auth, не валидация схемы).
     const { clientId, clientSecret } = extractCreds(body, authHeader);
     if (!clientId || !clientSecret) {
       throw new UnauthorizedException('invalid_client');
@@ -46,7 +45,7 @@ export class OAuthController {
 
 /** client_id/secret — из тела или из заголовка Basic (RFC 6749 §2.3.1). */
 function extractCreds(
-  body: TokenBody,
+  body: TokenRequestDto,
   authHeader?: string,
 ): { clientId?: string; clientSecret?: string } {
   if (body.client_id && body.client_secret) {

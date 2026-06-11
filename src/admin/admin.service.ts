@@ -1,7 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ClientRegistry } from '../auth/client-registry';
 import { CreateTenantInput, TenantRegistry } from '../tenants/tenant.registry';
-import { CredentialMode } from '../tenants/tenant.types';
 
 /** Оркестрация admin-операций над партнёрами и их OAuth-клиентами. */
 @Injectable()
@@ -11,16 +10,9 @@ export class AdminService {
     private readonly clients: ClientRegistry,
   ) {}
 
+  // Валидация входа (обязательность полей, secretRef для OWN) — декларативно в
+  // CreateTenantDto + глобальный ValidationPipe. Здесь только бизнес-действие.
   createTenant(input: CreateTenantInput) {
-    if (!input?.name || !input?.credentialMode) {
-      throw new BadRequestException('name and credentialMode are required');
-    }
-    if (!Object.values(CredentialMode).includes(input.credentialMode)) {
-      throw new BadRequestException('credentialMode: PLATFORM | OWN');
-    }
-    if (input.credentialMode === CredentialMode.OWN && !input.secretRef) {
-      throw new BadRequestException('secretRef is required for OWN');
-    }
     return this.tenants.create(input);
   }
 

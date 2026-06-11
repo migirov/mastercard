@@ -6,10 +6,12 @@ import {
   Param,
   Post,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
 import { AuditService } from '../audit/audit.service';
+import { strictDtoPipe } from '../common/validation.pipe';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, Tenant } from '../tenants/tenant.types';
 import { AdminService } from './admin.service';
@@ -18,6 +20,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 /** Admin-API: ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов. */
 @Controller('admin')
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
+@UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
 export class AdminController {
   constructor(
     private readonly admin: AdminService,

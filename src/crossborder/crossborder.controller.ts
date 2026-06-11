@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import {
   CurrentTenant,
@@ -14,6 +15,10 @@ import {
 } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
+import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
+import { mcPassthroughPipe } from './dto/mc-passthrough.pipe';
+import { PaymentRequestDto } from './dto/payment-request.dto';
+import { QuoteRequestDto } from './dto/quote-request.dto';
 import { CrossBorderService } from './crossborder.service';
 
 /**
@@ -38,19 +43,25 @@ export class CrossBorderController {
   }
 
   @Post('quotes')
-  quote(@CurrentTenant() ctx: TenantContext, @Body() body: unknown) {
+  @UsePipes(mcPassthroughPipe())
+  quote(@CurrentTenant() ctx: TenantContext, @Body() body: QuoteRequestDto) {
     return this.svc.createQuote(ctx.tenantId, body);
   }
 
   @Post('quotes/confirmations')
-  confirmQuote(@CurrentTenant() ctx: TenantContext, @Body() body: unknown) {
+  @UsePipes(mcPassthroughPipe())
+  confirmQuote(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: ConfirmationRequestDto,
+  ) {
     return this.svc.confirmQuote(ctx.tenantId, body);
   }
 
   @Post('payments')
+  @UsePipes(mcPassthroughPipe())
   payment(
     @CurrentTenant() ctx: TenantContext,
-    @Body() body: unknown,
+    @Body() body: PaymentRequestDto,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.svc.createPayment(ctx.tenantId, body, idempotencyKey);
