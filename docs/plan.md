@@ -180,6 +180,20 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 - ✅ Все сообщения исключений и `throw new Error` переведены на **английский**
   (клиент-facing + crash-логи). Комментарии и операционные `Logger.*` — русские.
 
+### Платформенные модули Nest (взяли готовое вместо самописа) ✅
+
+Все проверены вживую (boot + функционально):
+- ✅ **`@nestjs/terminus`** — `/health` (liveness), `/ready` (readiness + пинг БД)
+  для k8s. Пробы исключены из audit и pino-autoLogging.
+- ✅ **Валидация ENV** — `ConfigModule.forRoot({ validate })` (class-validator),
+  fail-fast на старте вместо разбросанных ленивых проверок.
+- ✅ **TypeORM-миграции** — `data-source.ts`, скрипты `migration:generate/run/revert`,
+  начальная `InitialSchema` (сгенерирована и прогнана). `synchronize` off в prod.
+- ✅ **`@nestjs/schedule`** — `KvCleanupService` (`@Cron` ежечасно) чистит
+  протухший `kv_store`.
+- ✅ **`nestjs-pino`** — структурный JSON-лог + correlation-id (`x-request-id`),
+  redact секретных заголовков; pino — логгер всего приложения.
+
 ---
 
 ## Открытые вопросы / блокеры

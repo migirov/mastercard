@@ -69,7 +69,9 @@
 ## Доработки по необходимости бизнеса (не блокеры)
 
 - RFI-подсистема (requests for information / documents).
-- Observability: метрики, трейсинг, алерты.
+- Observability: **логи готовы** (структурный JSON pino + correlation-id);
+  остаются **метрики/трейсинг** (Prometheus `/metrics` или OpenTelemetry) + алерты.
+- **Health-пробы готовы** (`/health`, `/ready`) — настроить liveness/readiness в k8s-манифесте.
 - ~~Очистка протухших `kv_store`~~ — **сделано**: `KvCleanupService` (`@Cron`
   ежечасно, `@nestjs/schedule`) удаляет протухшие записи.
 - Расширить Swagger-аннотации для мерчантов.
