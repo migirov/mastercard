@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { join } from 'path';
 import { DataSource } from 'typeorm';
 import { AuditLogEntity } from './entities/audit-log.entity';
 import { KvEntity } from './entities/kv.entity';
@@ -15,6 +16,7 @@ export default new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   entities: [TenantEntity, OAuthClientEntity, AuditLogEntity, KvEntity],
-  migrations: ['src/database/migrations/*.ts'],
+  // от __dirname → работает и в ts-node (.ts), и в скомпилированном dist (.js)
+  migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
   synchronize: false,
 });

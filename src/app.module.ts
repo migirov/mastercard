@@ -34,19 +34,35 @@ import { AuditModule } from './audit/audit.module';
             return u.startsWith('/health') || u.startsWith('/ready');
           },
         },
-        // correlation-id: берём входящий X-Request-Id или генерим; отдаём в ответе
+        // correlation-id: входящий X-Request-Id принимаем ТОЛЬКО если он
+        // безопасного формата (анти log-injection / раздувание), иначе генерим.
         genReqId: (req, res) => {
-          const incoming = req.headers['x-request-id'];
+          const raw = req.headers['x-request-id'];
+          const candidate = Array.isArray(raw) ? raw[0] : raw;
           const id =
-            (Array.isArray(incoming) ? incoming[0] : incoming) || randomUUID();
+            typeof candidate === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(candidate)
+              ? candidate
+              : randomUUID();
           res.setHeader('x-request-id', id);
           return id;
         },
-        // НЕ логируем секреты из заголовков
+        // Slim-логи: только то, что нужно (id/method/url + статус/время). НЕ
+        // дампим заголовки целиком — меньше объём логов и нет риска утечки
+        // секретных заголовков (Authorization/X-*-Token).
+        serializers: {
+          req: (req: { id: unknown; method: string; url: string }) => ({
+            id: req.id,
+            method: req.method,
+            url: req.url,
+          }),
+          res: (res: { statusCode: number }) => ({
+            statusCode: res.statusCode,
+          }),
+        },
+        // подстраховка на случай логирования заголовков где-то ещё
         redact: {
           paths: [
             'req.headers.authorization',
-            'req.headers.cookie',
             'req.headers["x-internal-token"]',
             'req.headers["x-admin-token"]',
             'req.headers["x-webhook-token"]',
