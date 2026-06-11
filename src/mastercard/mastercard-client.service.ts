@@ -163,7 +163,9 @@ export class MastercardClient {
       try {
         response.data = this.encryption.decryptResponse(response.data);
       } catch (e) {
-        this.logger.error(`Расшифровка ответа MC не удалась: ${(e as Error).message}`);
+        this.logger.error(
+          `Расшифровка ответа MC не удалась: ${(e as Error).message}`,
+        );
         throw e; // выше превратится в 502
       }
       return response;

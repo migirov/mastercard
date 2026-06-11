@@ -26,7 +26,9 @@ export class OAuthController {
   constructor(private readonly oauth: OAuthService) {}
 
   @Post('token')
-  @ApiOperation({ summary: 'Выдать access-token (grant_type=client_credentials).' })
+  @ApiOperation({
+    summary: 'Выдать access-token (grant_type=client_credentials).',
+  })
   @ApiResponse({ status: 200, type: TokenResponseDto })
   @ApiResponse({ status: 401, description: 'invalid_client.' })
   @HttpCode(200)
@@ -61,7 +63,10 @@ function extractCreds(
     const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
     const i = decoded.indexOf(':');
     if (i >= 0) {
-      return { clientId: decoded.slice(0, i), clientSecret: decoded.slice(i + 1) };
+      return {
+        clientId: decoded.slice(0, i),
+        clientSecret: decoded.slice(i + 1),
+      };
     }
   }
   return {};

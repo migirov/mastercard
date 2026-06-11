@@ -2,10 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { GatewayConfig } from '../config/gateway-config';
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-  MerchantSecretBundle,
-  SecretStore,
-} from './secret-store.types';
+import { MerchantSecretBundle, SecretStore } from './secret-store.types';
 
 /**
  * Дев-реализация хранилища секретов. Источник (по приоритету):

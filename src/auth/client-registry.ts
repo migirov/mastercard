@@ -21,7 +21,9 @@ export class ClientRegistry {
   ) {}
 
   /** Выпустить клиента для партнёра. Возвращает сырой секрет ОДИН раз. */
-  async issue(tenantId: string): Promise<{ clientId: string; clientSecret: string }> {
+  async issue(
+    tenantId: string,
+  ): Promise<{ clientId: string; clientSecret: string }> {
     const clientId = `mc_${randomToken(9)}`;
     const clientSecret = randomToken(24);
     await this.repo.save(
@@ -37,7 +39,10 @@ export class ClientRegistry {
   }
 
   /** Проверка пары client_id/secret. Возвращает tenantId или null. */
-  async validate(clientId: string, clientSecret: string): Promise<string | null> {
+  async validate(
+    clientId: string,
+    clientSecret: string,
+  ): Promise<string | null> {
     const c = await this.repo.findOne({ where: { clientId } });
     // Хэш-сравнение выполняем ВСЕГДА (против timing-энумерации client_id).
     const providedHash = sha256hex(clientSecret);

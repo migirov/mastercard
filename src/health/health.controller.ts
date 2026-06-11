@@ -21,7 +21,9 @@ export class HealthController {
   ) {}
 
   @Get('health')
-  @ApiOperation({ summary: 'Liveness (процесс жив, без внешних зависимостей).' })
+  @ApiOperation({
+    summary: 'Liveness (процесс жив, без внешних зависимостей).',
+  })
   @HealthCheck()
   live() {
     // Пустой набор проверок: 200, пока процесс отвечает. БД сюда НЕ включаем —

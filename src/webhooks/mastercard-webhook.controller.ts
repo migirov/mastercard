@@ -26,7 +26,9 @@ export class MastercardWebhookController {
   constructor(private readonly handler: WebhookHandler) {}
 
   @Post('mastercard')
-  @ApiOperation({ summary: 'Приём push-уведомлений MC (X-Webhook-Token, fail-closed).' })
+  @ApiOperation({
+    summary: 'Приём push-уведомлений MC (X-Webhook-Token, fail-closed).',
+  })
   @HttpCode(200)
   @UsePipes(mcPassthroughPipe())
   receive(@Body() event: McWebhookEventDto) {

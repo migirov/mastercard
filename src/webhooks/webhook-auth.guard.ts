@@ -35,7 +35,9 @@ export class WebhookAuthGuard implements CanActivate {
 
     // fail-closed: без настроенного токена не доверяем никому.
     if (!expected) {
-      throw new UnauthorizedException('webhook authentication is not configured');
+      throw new UnauthorizedException(
+        'webhook authentication is not configured',
+      );
     }
 
     const token = req.headers['x-webhook-token'];
