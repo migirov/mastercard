@@ -48,8 +48,8 @@ sandbox** — balances/rates/quote (201 с реальным proposal), оба п
 ## Архитектура (модули `src/`)
 
 ```
-database/                  — TypeORM: DatabaseModule (forRoot) + entities
-                             (tenants, oauth_clients, audit_log, kv_store)
+database/                  — ТОЛЬКО инфра: DatabaseModule (dev forRoot), data-source, migrations
+                             (entity вынесены в свои модули — co-location, см. ниже)
 store/                     — KvStore → PostgresKvStore (idempotency + webhook dedup, TTL)
 tenants/                   — TenantRegistry поверх Postgres-репозитория (async) + сиды
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem КЭШ
@@ -262,6 +262,14 @@ class-validator/mapped-types — есть и у клиента).
    IdempotencyModule→провайдер CrossBorderModule; HealthModule→контроллер в зонтичном.
    Настоящие feature-модули (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
    Secrets/Store/Audit) оставлены.
+5. ✅ **Сущности co-located** (коммит `09c4ece`). Убрана общая папка
+   `database/entities/`; каждая entity лежит в своём модуле: `TenantEntity`→`tenants/`,
+   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`, `KvEntity`→`store/`. В
+   `database/` осталась только инфра (DatabaseModule, data-source, migrations). Схема
+   и имена таблиц не изменились; typecheck + e2e 10/10.
+6. ✅ **Фикс shutdown-гонки аудита** (коммит `bb9a6ea`): флаш буфера перенесён в
+   `beforeApplicationShutdown` (фаза раньше, чем TypeORM закрывает коннект) — больше
+   нет «Connection terminated» на остановке.
 
 **Проверено:** typecheck OK; `src/scripts/boot-check.ts` (DI-граф) OK;
 `src/scripts/e2e-check.ts` — **8/8 на живом sandbox** (quote 201 с proposal и
