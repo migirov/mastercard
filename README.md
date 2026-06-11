@@ -15,18 +15,21 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 
 ## Документация (`docs/`)
 
+Доступна на двух языках: **[Русский — `docs/ru/`](docs/ru/)** · **[English — `docs/en/`](docs/en/)**.
+Ссылки ниже ведут на русскую версию.
+
 | Файл | О чём |
 |---|---|
-| [architecture.md](docs/architecture.md) | **Архитектура (as-built)** — схема, модули, потоки, хранение, безопасность, статус фаз. Начать отсюда. |
-| [documentation.md](docs/documentation.md) | **Сущности и концепции** — Tenant, OAuthClient, AuditLog, KvEntry, McCredentials и др.; где БД / где in-memory; шифрование (интерцептор); сценарии OWN/PLATFORM; `tenant_id` vs `partner_id`. |
-| [api.md](docs/api.md) | **Справочник по нашему API** — все эндпоинты (OAuth, Cross-Border, Admin, Webhooks), аутентификация, примеры запросов/ответов, rate-limits. |
-| [api-mastercard.md](docs/api-mastercard.md) | **Официальная дока Mastercard** Cross-Border (полный референс, ~540 КБ). Источник истины по форматам payload. |
-| [plan.md](docs/plan.md) | **План и статус** по фазам 1–6 + миграции/доработки, с историей аудитов. |
-| [tests.md](docs/tests.md) | **Тесты интеграции с Mastercard** — исходящие вызовы в Cross-Border API + входящие webhooks. |
-| [tests-inner.md](docs/tests-inner.md) | **Тесты внутренней логики** — auth/доступ, надёжность, инфраструктура (без обращения к MC). |
-| [production-questions.md](docs/production-questions.md) | **Блокеры и вопросы перед production** (в т.ч. per-tenant encryption, выбор секрет-менеджера, TypeORM-интеграция). |
-| [client-questions.md](docs/client-questions.md) | Открытые вопросы к клиенту по интеграции. |
-| [memory.md](docs/memory.md) | Хендофф-контекст разработки (для восстановления состояния сессии). |
+| [architecture.md](docs/ru/architecture.md) | **Архитектура (as-built)** — схема, модули, потоки, хранение, безопасность, статус фаз. Начать отсюда. |
+| [documentation.md](docs/ru/documentation.md) | **Сущности и концепции** — Tenant, OAuthClient, AuditLog, KvEntry, McCredentials и др.; где БД / где in-memory; шифрование (интерцептор); сценарии OWN/PLATFORM; `tenant_id` vs `partner_id`. |
+| [api.md](docs/ru/api.md) | **Справочник по нашему API** — все эндпоинты (OAuth, Cross-Border, Admin, Webhooks), аутентификация, примеры запросов/ответов, rate-limits. |
+| [api-mastercard.md](docs/ru/api-mastercard.md) | **Официальная дока Mastercard** Cross-Border (полный референс, ~540 КБ). Источник истины по форматам payload. |
+| [plan.md](docs/ru/plan.md) | **План и статус** по фазам 1–6 + миграции/доработки, с историей аудитов. |
+| [tests.md](docs/ru/tests.md) | **Тесты интеграции с Mastercard** — исходящие вызовы в Cross-Border API + входящие webhooks. |
+| [tests-inner.md](docs/ru/tests-inner.md) | **Тесты внутренней логики** — auth/доступ, надёжность, инфраструктура (без обращения к MC). |
+| [production-questions.md](docs/ru/production-questions.md) | **Блокеры и вопросы перед production** (в т.ч. per-tenant encryption, выбор секрет-менеджера, TypeORM-интеграция). |
+| [client-questions.md](docs/ru/client-questions.md) | Открытые вопросы к клиенту по интеграции. |
+| [memory.md](docs/ru/memory.md) | Хендофф-контекст разработки (для восстановления состояния сессии). |
 
 ---
 
