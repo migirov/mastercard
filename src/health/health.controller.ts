@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   HealthCheck,
   HealthCheckService,
@@ -11,6 +12,7 @@ import {
  *   GET /health — liveness: процесс жив (без внешних зависимостей).
  *   GET /ready  — readiness: готов обслуживать (есть коннект к Postgres).
  */
+@ApiTags('health')
 @Controller()
 export class HealthController {
   constructor(
@@ -19,6 +21,7 @@ export class HealthController {
   ) {}
 
   @Get('health')
+  @ApiOperation({ summary: 'Liveness (процесс жив, без внешних зависимостей).' })
   @HealthCheck()
   live() {
     // Пустой набор проверок: 200, пока процесс отвечает. БД сюда НЕ включаем —
@@ -27,6 +30,7 @@ export class HealthController {
   }
 
   @Get('ready')
+  @ApiOperation({ summary: 'Readiness (есть коннект к Postgres).' })
   @HealthCheck()
   ready() {
     // Readiness: пинг БД. Если БД недоступна — под выводится из ротации (503),

@@ -96,6 +96,14 @@ async function main(): Promise<void> {
       { headers: { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' } },
     );
     check('POST /webhooks/mastercard с токеном → 200', wh2.status === 200, `HTTP ${wh2.status}`);
+
+    // 8) SafeIdPipe: пустой ?ref= → 400 (валидация на границе, не в сервисе)
+    const refEmpty = await http.get('/crossborder/payments?ref=', { headers: internal });
+    check('GET /crossborder/payments?ref= (пусто) → 400', refEmpty.status === 400, `HTTP ${refEmpty.status}`);
+
+    // 9) SafeIdPipe: ref со слэшем → 400 (анти path-injection)
+    const refSlash = await http.get('/crossborder/payments?ref=a%2Fb', { headers: internal });
+    check('GET /crossborder/payments?ref=a/b → 400', refSlash.status === 400, `HTTP ${refSlash.status}`);
   } finally {
     await app.close();
   }

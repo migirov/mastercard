@@ -9,13 +9,16 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
 import { strictDtoPipe } from '../common/validation.pipe';
 import { TokenRequestDto } from './dto/token-request.dto';
+import { TokenResponseDto } from './dto/token-response.dto';
 import { OAuthService } from './oauth.service';
 
 /** OAuth2 token endpoint (публичный — сам и есть точка аутентификации). */
+@ApiTags('oauth')
 @Controller('oauth')
 @UseGuards(OAuthThrottlerGuard) // лимит по client_id — защита от brute-force секретов
 @UsePipes(strictDtoPipe()) // строгая валидация тела на нашей границе
@@ -23,6 +26,9 @@ export class OAuthController {
   constructor(private readonly oauth: OAuthService) {}
 
   @Post('token')
+  @ApiOperation({ summary: 'Выдать access-token (grant_type=client_credentials).' })
+  @ApiResponse({ status: 200, type: TokenResponseDto })
+  @ApiResponse({ status: 401, description: 'invalid_client.' })
   @HttpCode(200)
   // Жёсткий лимит на подбор client_secret: 10 запросов / минуту с IP.
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
