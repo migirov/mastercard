@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
@@ -69,15 +69,10 @@ async function bootstrap() {
   // client_credentials как application/x-www-form-urlencoded.
   app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
 
-  // Валидация DTO (где они есть — admin). Тела-passthrough к MC (@Body() unknown)
-  // Pipe не трогает: у них нет DTO-класса, поэтому payload не урезается.
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // ВНИМАНИЕ: глобальный ValidationPipe НЕ ставим — модуль встраиваемый, и каждый
+  // контроллер объявляет свой pipe (строгий strictDtoPipe для admin/oauth, мягкий
+  // mcPassthroughPipe для тел, идущих в Mastercard). Это исключает «двойную»
+  // валидацию, при которой глобальный строгий pipe резал бы поля MC.
 
   // Swagger-доки на /api-docs. По умолчанию ВЫКЛ в production (не палим схему
   // API наружу); включить в проде явно через SWAGGER_ENABLED=true.

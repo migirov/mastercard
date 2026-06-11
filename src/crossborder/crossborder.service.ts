@@ -16,6 +16,9 @@ import {
 } from '../mastercard/mastercard-client.service';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, isActive } from '../tenants/tenant.types';
+import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
+import { PaymentRequestDto } from './dto/payment-request.dto';
+import { QuoteRequestDto } from './dto/quote-request.dto';
 
 /** Бизнес/клиентские статусы Mastercard, которые осмысленно пробрасывать мерчанту. */
 const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
@@ -66,10 +69,7 @@ export class CrossBorderService {
    * Запрос котировки (POST). Шифрование тела (MTF/Prod) и подпись — прозрачно
    * в axios-интерцепторе `MastercardClient`; здесь отдаём чистый объект.
    */
-  async createQuote(tenantId: string, body: unknown) {
-    if (body == null || typeof body !== 'object') {
-      throw new BadRequestException('Quote body must be a JSON object');
-    }
+  async createQuote(tenantId: string, body: QuoteRequestDto) {
     const creds = await this.resolveActive(tenantId);
     return this.call(
       creds,
@@ -89,12 +89,9 @@ export class CrossBorderService {
    */
   async createPayment(
     tenantId: string,
-    body: unknown,
+    body: PaymentRequestDto,
     idempotencyKey?: string,
   ) {
-    if (body == null || typeof body !== 'object') {
-      throw new BadRequestException('Payment body must be a JSON object');
-    }
     // Валидируем Idempotency-Key ДО использования как ключа KV: иначе длинный
     // ключ переполнит kv_store.key (varchar 256) → ошибка БД → 500. Ограничиваем
     // длину и безопасный charset (UUID/токены укладываются).
@@ -165,10 +162,7 @@ export class CrossBorderService {
   }
 
   /** Подтверждение котировки (POST). Шифрование — в интерцепторе. */
-  async confirmQuote(tenantId: string, body: unknown) {
-    if (body == null || typeof body !== 'object') {
-      throw new BadRequestException('Confirmation body must be a JSON object');
-    }
+  async confirmQuote(tenantId: string, body: ConfirmationRequestDto) {
     const creds = await this.resolveActive(tenantId);
     return this.call(
       creds,
