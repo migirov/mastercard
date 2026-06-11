@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import { BeforeApplicationShutdown, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLogEntity } from '../database/entities/audit-log.entity';
@@ -24,7 +24,7 @@ const MAX_BUFFER = 100; // принудительный сброс при зап
  * транзакционные данные). Параллельно — немедленный структурный лог в stdout.
  */
 @Injectable()
-export class AuditService implements OnApplicationShutdown {
+export class AuditService implements BeforeApplicationShutdown {
   private readonly logger = new Logger('Audit');
   private buffer: AuditEntry[] = [];
   private readonly timer: NodeJS.Timeout;
@@ -73,7 +73,10 @@ export class AuditService implements OnApplicationShutdown {
     }
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  // Флашим в beforeApplicationShutdown — это ФАЗА РАНЬШE onApplicationShutdown, в
+  // которой @nestjs/typeorm закрывает соединение. Иначе буфер сбрасывался бы уже
+  // после разрыва коннекта (ошибка «Connection terminated», потеря записей).
+  async beforeApplicationShutdown(): Promise<void> {
     clearInterval(this.timer);
     await this.flush();
   }
