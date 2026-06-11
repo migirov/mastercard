@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mc-gateway-postgres
+    environment:
+      POSTGRES_USER: mc
+      POSTGRES_PASSWORD: mc
+      POSTGRES_DB: mc_gateway
+    ports:
+      - '5432:5432'
+    volumes:
+      - mc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mc -d mc_gateway']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mc_pgdata:
