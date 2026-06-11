@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { JweEncryption } from 'mastercard-client-encryption';
 import { GatewayConfig } from '../config/gateway-config';
 import * as path from 'path';
-// CommonJS-пакет Mastercard, без типов
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { JweEncryption } = require('mastercard-client-encryption');
 
 /** Постоянный ключ конфигурации путей (шифруем тело целиком одинаково для всех). */
 const ENDPOINT = '/crossborder';
+
+/** Форма зашифрованного ответа MC: `{ encrypted_payload: { data: <JWE> } }`. */
+interface EncryptedEnvelope {
+  encrypted_payload?: { data?: unknown };
+}
 
 /**
  * Field-level encryption (JWE) по доке Mastercard.
@@ -20,14 +23,7 @@ const ENDPOINT = '/crossborder';
 export class EncryptionService {
   private readonly logger = new Logger(EncryptionService.name);
   readonly enabled: boolean;
-  private jwe?: {
-    encrypt: (
-      path: string,
-      headers: object,
-      body: unknown,
-    ) => { body: unknown };
-    decrypt: (input: { request: { url: string }; body: unknown }) => unknown;
-  };
+  private jwe?: JweEncryption;
 
   constructor(private readonly config: GatewayConfig) {
     this.enabled = config.encryptionEnabled;
@@ -49,7 +45,8 @@ export class EncryptionService {
   /** Расшифровывает тело ответа, если оно зашифровано; иначе passthrough. */
   decryptResponse<T = unknown>(body: T): T {
     if (!this.enabled || !this.jwe) return body;
-    if (!(body as any)?.encrypted_payload?.data) return body; // уже plain
+    const env = body as unknown as EncryptedEnvelope;
+    if (!env?.encrypted_payload?.data) return body; // уже plain
     return this.jwe.decrypt({ request: { url: ENDPOINT }, body }) as T;
   }
 
