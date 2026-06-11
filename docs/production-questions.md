@@ -60,7 +60,9 @@
 - [ ] **Авторитетный rate-limit на ингрессе** — внутренний throttler per-pod
       (best-effort).
 - [ ] **Personal partner-id и ключи** OWN-партнёров заведены в секрет-менеджере.
-- [ ] **Миграции БД** вместо `synchronize` (`DB_SYNC=false`) + прогон e2e на Postgres.
+- [x] **Миграции БД** — инфраструктура готова (`data-source.ts`, npm-скрипты
+      `migration:generate/run/revert`, начальная `InitialSchema`, `synchronize`
+      off в prod). Осталось: прогон `migration:run` на прод-БД при деплое.
 
 ---
 
