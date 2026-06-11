@@ -2,8 +2,10 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  RawBodyRequest,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { GatewayConfig } from '../config/gateway-config';
 import { safeEqual, sha256hex } from '../common/crypto.util';
 import { WebhookSignatureVerifier } from './webhook-signature.verifier';
@@ -30,7 +32,7 @@ export class WebhookAuthGuard implements CanActivate {
   ) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<RawBodyRequest<Request>>();
     const expected = this.config.webhookToken;
 
     // fail-closed: без настроенного токена не доверяем никому.

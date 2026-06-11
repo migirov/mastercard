@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  UseFilters,
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
 import { AuditService } from '../audit/audit.service';
+import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { strictDtoPipe } from '../common/validation.pipe';
 import { TenantRegistry } from '../tenants/tenant.registry';
@@ -31,6 +33,7 @@ import { TenantViewDto } from './dto/tenant-view.dto';
 @Controller('admin')
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
 @UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
+@UseFilters(GatewayExceptionFilter)
 export class AdminController {
   constructor(
     private readonly admin: AdminService,

@@ -4,6 +4,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
 
@@ -18,12 +19,12 @@ export class AuditInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     if (ctx.getType() !== 'http') return next.handle();
 
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<Request>();
     const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
     if (SKIP_AUDIT.some((p) => path.startsWith(p))) {
       return next.handle(); // health-пробы и Swagger не аудируем
     }
-    const res = ctx.switchToHttp().getResponse();
+    const res = ctx.switchToHttp().getResponse<Response>();
     const start = Date.now();
 
     const finish = (status: number) =>

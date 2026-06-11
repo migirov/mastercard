@@ -5,6 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
 import { JwtService } from '@nestjs/jwt';
 import { safeEqual, sha256hex } from '../../common/crypto.util';
@@ -26,14 +27,14 @@ export class TenantAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<Request>();
     const internalToken = req.headers['x-internal-token'];
     return internalToken
       ? this.internal(req, String(internalToken))
       : this.external(req);
   }
 
-  private async internal(req: any, token: string): Promise<boolean> {
+  private async internal(req: Request, token: string): Promise<boolean> {
     const expected = this.config.internalToken;
     if (!expected || !safeEqual(sha256hex(token), sha256hex(expected))) {
       throw new UnauthorizedException('invalid internal token');
@@ -53,7 +54,7 @@ export class TenantAuthGuard implements CanActivate {
     return true;
   }
 
-  private async external(req: any): Promise<boolean> {
+  private async external(req: Request): Promise<boolean> {
     const auth = req.headers['authorization'];
     if (!auth?.startsWith('Bearer ')) {
       throw new UnauthorizedException('missing bearer token');

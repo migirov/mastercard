@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { Request } from 'express';
 
 /**
  * Rate-limit с ключом по tenantId (а не по IP) — лимит на мерчанта.
@@ -14,7 +15,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  */
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Record<string, any>): Promise<string> {
+  protected async getTracker(req: Request): Promise<string> {
     const tenantId = req.tenantContext?.tenantId;
     if (!tenantId) {
       throw new InternalServerErrorException(
