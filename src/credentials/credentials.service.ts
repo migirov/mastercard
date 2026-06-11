@@ -76,7 +76,10 @@ export class CredentialsService implements OnModuleInit {
     this.platformCache = {
       consumerKey: this.config.require('consumerKey'),
       signingKeyPem,
-      partnerId: this.safePartnerId(this.config.require('partnerId'), 'platform'),
+      partnerId: this.safePartnerId(
+        this.config.require('partnerId'),
+        'platform',
+      ),
       encryptionFingerprint: this.config.encryptionFingerprint,
     };
     this.logger.log('Платформенные credentials загружены и закэшированы');

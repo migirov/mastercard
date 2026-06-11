@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  PipeTransform,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 
 /**
  * Валидация идентификатора из пути/квери (`:id`, `:clientId`, `?ref=`) на ГРАНИЦЕ

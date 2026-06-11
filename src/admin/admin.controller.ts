@@ -8,7 +8,12 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
 import { AuditService } from '../audit/audit.service';
@@ -94,7 +99,9 @@ export class AdminController {
   // --- OAuth-клиенты ---
 
   @Post('tenants/:id/clients')
-  @ApiOperation({ summary: 'Выпустить OAuth-клиента (client_secret показан 1 раз).' })
+  @ApiOperation({
+    summary: 'Выпустить OAuth-клиента (client_secret показан 1 раз).',
+  })
   async issueClient(@Param('id', SafeIdPipe) id: string) {
     const creds = await this.admin.issueClient(id);
     return {

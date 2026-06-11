@@ -16,14 +16,15 @@ function privateKeyPemFromDer(
     // .p12 не проходит strict MAC-проверку forge.
     p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, password);
   } catch {
-    throw new Error(`Failed to open ${label} (wrong password or incompatible p12)`);
+    throw new Error(
+      `Failed to open ${label} (wrong password or incompatible p12)`,
+    );
   }
 
   const bags =
     p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[
       forge.pki.oids.pkcs8ShroudedKeyBag
-    ] ??
-    p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag];
+    ] ?? p12.getBags({ bagType: forge.pki.oids.keyBag })[forge.pki.oids.keyBag];
 
   const keyBag = bags?.[0];
   if (!keyBag?.key) {
@@ -36,7 +37,10 @@ function privateKeyPemFromDer(
  * Загружает приватный ключ из .p12-файла по пути и возвращает PEM.
  * (Режим PLATFORM и локальная разработка.)
  */
-export function loadPrivateKeyFromP12(p12Path: string, password: string): string {
+export function loadPrivateKeyFromP12(
+  p12Path: string,
+  password: string,
+): string {
   const abs = path.isAbsolute(p12Path)
     ? p12Path
     : path.resolve(process.cwd(), p12Path);

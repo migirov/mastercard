@@ -6,7 +6,10 @@ import { IsOptional, IsString } from 'class-validator';
  * `@IsString`, и pipe для MC-тел идёт без `transform`, чтобы не сконвертировать).
  */
 export class McAmountDto {
-  @ApiPropertyOptional({ example: '105.15', description: 'Сумма строкой (не число!).' })
+  @ApiPropertyOptional({
+    example: '105.15',
+    description: 'Сумма строкой (не число!).',
+  })
   @IsOptional()
   @IsString()
   amount?: string;

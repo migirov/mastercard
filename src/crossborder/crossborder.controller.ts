@@ -15,10 +15,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import {
-  CurrentTenant,
-  TenantContext,
-} from '../auth/current-tenant.decorator';
+import { CurrentTenant, TenantContext } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
@@ -36,8 +33,14 @@ import { CrossBorderService } from './crossborder.service';
  */
 @ApiTags('cross-border')
 @ApiBearerAuth('merchant')
-@ApiResponse({ status: 403, description: 'Тенант не ACTIVE (нет двойного одобрения).' })
-@ApiResponse({ status: 502, description: 'Ошибка связи с Mastercard / её ответ скрыт.' })
+@ApiResponse({
+  status: 403,
+  description: 'Тенант не ACTIVE (нет двойного одобрения).',
+})
+@ApiResponse({
+  status: 502,
+  description: 'Ошибка связи с Mastercard / её ответ скрыт.',
+})
 @Controller('crossborder')
 @UseGuards(TenantAuthGuard, TenantThrottlerGuard)
 export class CrossBorderController {
@@ -56,15 +59,22 @@ export class CrossBorderController {
   }
 
   @Post('quotes')
-  @ApiOperation({ summary: 'Запрос котировки. Тело проброса в MC (quoterequest).' })
-  @ApiResponse({ status: 400, description: 'Невалидный формат критичных полей.' })
+  @ApiOperation({
+    summary: 'Запрос котировки. Тело проброса в MC (quoterequest).',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Невалидный формат критичных полей.',
+  })
   @UsePipes(mcPassthroughPipe())
   quote(@CurrentTenant() ctx: TenantContext, @Body() body: QuoteRequestDto) {
     return this.svc.createQuote(ctx.tenantId, body);
   }
 
   @Post('quotes/confirmations')
-  @ApiOperation({ summary: 'Подтверждение котировки (transactionReference + proposalId).' })
+  @ApiOperation({
+    summary: 'Подтверждение котировки (transactionReference + proposalId).',
+  })
   @UsePipes(mcPassthroughPipe())
   confirmQuote(
     @CurrentTenant() ctx: TenantContext,
