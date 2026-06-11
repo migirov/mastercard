@@ -6,11 +6,11 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import * as https from 'https';
+// import = require: типизировано (см. types/mastercard.d.ts), но рантайм идентичен
+// require — getAuthorizationHeader вызывается как метод модуля (нужен this-binding).
+import oauth = require('mastercard-oauth1-signer');
 import { McCredentials } from '../credentials/credentials.types';
 import { EncryptionService } from '../encryption/encryption.service';
-// CommonJS-пакет от Mastercard, без типов
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const oauth = require('mastercard-oauth1-signer');
 
 export interface McRequest {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';

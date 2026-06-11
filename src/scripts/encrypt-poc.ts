@@ -93,7 +93,11 @@ async function main() {
   const plainMode = process.argv.includes('plain');
 
   // 1) Шифруем (или оставляем как есть в plain-режиме для сравнения)
-  let encBody: any = payload;
+  // Тело: либо исходный payload (quoterequest), либо зашифрованный конверт MC.
+  let encBody: {
+    quoterequest?: unknown;
+    encrypted_payload?: { data?: unknown };
+  } = payload;
   if (!plainMode) {
     encBody = jwe.encrypt(endpointPath, {}, payload).body;
     console.log('--- Зашифрованное тело (структура) ---');

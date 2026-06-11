@@ -61,7 +61,7 @@ export class TenantAuthGuard implements CanActivate {
     }
     let tid: string;
     try {
-      tid = this.jwt.verify(auth.slice(7)).tid;
+      tid = this.jwt.verify<{ tid: string }>(auth.slice(7)).tid;
     } catch {
       throw new UnauthorizedException('invalid_token');
     }
