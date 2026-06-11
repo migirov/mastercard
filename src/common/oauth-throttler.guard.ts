@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { Request } from 'express';
 
 /**
  * Rate-limit `/oauth/token` по `client_id`, а НЕ по IP.
@@ -12,14 +13,14 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  */
 @Injectable()
 export class OAuthThrottlerGuard extends ThrottlerGuard {
-  protected async getTracker(req: Record<string, any>): Promise<string> {
+  protected async getTracker(req: Request): Promise<string> {
     const clientId = clientIdFrom(req);
     return clientId ? `cid:${clientId}` : `ip:${req.ip ?? 'unknown'}`;
   }
 }
 
 /** client_id — из тела (form/JSON) или из заголовка Basic (RFC 6749 §2.3.1). */
-function clientIdFrom(req: Record<string, any>): string | undefined {
+function clientIdFrom(req: Request): string | undefined {
   const fromBody = req.body?.client_id;
   if (typeof fromBody === 'string' && fromBody) {
     return fromBody;

@@ -23,5 +23,5 @@ coverage/
 # Логи и временные артефакты
 *.log
 startup*.log
-prettier.out
-eslint.out
+*.out
+*.tmp
