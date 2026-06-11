@@ -1,0 +1,20 @@
+# Секреты — не коммитить
+.env
+.env.*
+
+# Криптоматериал Mastercard (ключи и сертификаты)
+certs/
+*.p12
+*.pem
+*.key
+
+# Локальные секреты мерчантов (dev SecretStore)
+secrets.local.json
+
+# Сборка / зависимости
+dist/
+node_modules/
+
+# Логи и временные артефакты
+*.log
+startup*.log
