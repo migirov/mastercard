@@ -217,10 +217,10 @@ class-validator/mapped-types — есть и у клиента).
 
 ## ОТКРЫТЫЕ ВОПРОСЫ / задачи (важно)
 
-1. **TypeORM: наш сервис отдельный или часть монолита `b24club-api`?**
+1. **TypeORM: отдельный сервис или часть монолита?** → **ОТВЕТ: один модуль в их монолите** (см. «Следующие шаги» п.2).
    - Отдельный → текущая схема верна (свой `DatabaseModule.forRoot` + `DATABASE_URL`).
    - Часть монолита → убрать наш `forRoot`, entity через `forFeature` в их DataSource,
-     схема — их миграциями (не `synchronize`). **Ждём ответа.**
+     схема — их миграциями (не `synchronize`). ← это и делаем.
 2. ~~Удаление `Idempotency-Key`~~ — **РЕШЕНО ОСТАВИТЬ** (клиент подтвердил
    2026-06-10). `IdempotencyService` остаётся на `POST /crossborder/payments`.
 3. 🔴 **БЛОКЕР per-tenant encryption:** интерцептор шифрует **платформенным**
@@ -235,15 +235,54 @@ class-validator/mapped-types — есть и у клиента).
 
 ---
 
+## СЛЕДУЮЩИЕ ШАГИ (запросы клиента 2026-06-11 — делать после compact)
+
+1. **Добавить DTO там, где надо.** Клиент спросил «почему нет DTO нигде?». Сейчас
+   DTO только один (`CreateTenantDto`); cross-border тела — `@Body() unknown`
+   (passthrough в MC). План: **строгие DTO на НАШИХ границах** (admin, `/oauth/token`,
+   webhook); **мягкие на MC-passthrough** (quote/payment/confirm) — валидировать
+   только критичное (`transaction_reference`, `amount/currency`, account URIs,
+   `payment_type`), остальное пропускать, **без `transform`** (суммы у MC — СТРОКИ,
+   transform их испортит!) и **без `forbidNonWhitelisted`** на MC-маршрутах.
+   ⚠️ «Валидировать ВСЁ» = плохо: хрупко при смене схемы MC, transform портит суммы,
+   огромная поддержка, MC и так валидирует сам. + Swagger `@ApiProperty`.
+
+2. **Сделать ОДИН модуль Mastercard.** Клиент: должен быть один импортируемый
+   модуль, а не ~14 top-level. Это ответ на вопрос TypeORM: **встраиваем в их
+   монолит `b24club-api`**. Завести зонтичный `MastercardModule.forRoot()/forRootAsync()`,
+   внутри — наши под-модули (приватные). Убрать своё: `DatabaseModule.forRoot`
+   (→ `forFeature` в ИХ DataSource), глобальные `ValidationPipe`/`Throttler`/`Logger`/
+   helmet/body-limit (этим владеет их app), `ConfigModule`-чтение `.env` (→ конфиг
+   через `forRoot(options)` или их `ConfigService`). Наш `AppModule`+`main.ts`
+   оставить только как dev-харнесс. **Уточнить у клиента:** (а) полное встраивание?
+   (б) конфиг через `forRoot(options)` или их `ConfigService`?
+
+3. **Ингресс — проверить токены/вебхук.** По докам MC аутентификация вебхуков =
+   **mTLS на ингрессе**; наш `X-Webhook-Token` — только dev. Проверить/настроить
+   реальную mTLS-аутентификацию вебхуков MC на ингрессе для прода.
+
+4. **Добавить оставшиеся API MC** (сверено с `api-mastercard.md`; ядро есть, нет):
+   - **Cancel Confirmed Quote** — `POST crossborder/quotes/cancellations`.
+   - **Retrieve Confirmed Quote** — `GET crossborder/quotes/{ref}/proposals/{id}`.
+   - **Account Validation API** — `POST crossborder/accounts/validations` (проверка
+     счёта получателя до платежа: IBAN/card eligibility/account status).
+   - **Bank Information Lookup** — `crossborder/banks/details`.
+   - **Account generation** — `crossborder/accounts/generate`.
+   Это отдельные опт-ин сьюты MC → сперва вопрос E1 клиенту (что нужно). Добавлять
+   легко (тот же паттерн sign+passthrough).
+
+---
+
 ## На чём остановились (последнее действие сессии)
 
 Сервис **протестирован вживую** (sandbox + Postgres в Docker внутри WSL), прошёл
 **10-цикловый аудит + 4 регрессии** (правок нет регрессий), документация дополнена
 (`api.md`, `tests.md`, `production-questions.md`, `README.md`) и **запушен** в
 `github.com/migirov/mastercard` (public; секреты `.env`/`certs/` в `.gitignore`,
-не закоммичены). Добавлен `.env.example` (шаблон без значений). Idempotency-Key —
-оставлен. **Ждём ответа** по TypeORM (отдельный сервис vs монолит) и по решению
-блокера per-tenant encryption перед прод-OWN.
+не закоммичены). Документация разделена на `docs/ru/` и `docs/en/`; README на
+английском (+`README.ru.md`). **Дальше — 4 задачи от клиента** (см. «СЛЕДУЮЩИЕ
+ШАГИ»): DTO, один модуль (встраивание в монолит), mTLS-вебхук на ингрессе,
+оставшиеся API MC. Плюс открыт блокер per-tenant encryption перед прод-OWN.
 
 > Важно про среду: «Bash»-инструмент — Git Bash/MINGW на Windows (видит проект по
 > UNC, НЕ видит `/home`); Docker и git запускать через `wsl -d Ubuntu ...`. Node —
