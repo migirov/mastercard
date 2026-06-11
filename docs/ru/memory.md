@@ -235,54 +235,60 @@ class-validator/mapped-types — есть и у клиента).
 
 ---
 
-## СЛЕДУЮЩИЕ ШАГИ (запросы клиента 2026-06-11 — делать после compact)
+## ЗАМЕЧАНИЯ ТИМЛИДА — СДЕЛАНО (2026-06-11, коммиты e319802 + fe9cd86)
 
-1. **Добавить DTO там, где надо.** Клиент спросил «почему нет DTO нигде?». Сейчас
-   DTO только один (`CreateTenantDto`); cross-border тела — `@Body() unknown`
-   (passthrough в MC). План: **строгие DTO на НАШИХ границах** (admin, `/oauth/token`,
-   webhook); **мягкие на MC-passthrough** (quote/payment/confirm) — валидировать
-   только критичное (`transaction_reference`, `amount/currency`, account URIs,
-   `payment_type`), остальное пропускать, **без `transform`** (суммы у MC — СТРОКИ,
-   transform их испортит!) и **без `forbidNonWhitelisted`** на MC-маршрутах.
-   ⚠️ «Валидировать ВСЁ» = плохо: хрупко при смене схемы MC, transform портит суммы,
-   огромная поддержка, MC и так валидирует сам. + Swagger `@ApiProperty`.
+1. ✅ **Один модуль Mastercard.** Зонтичный `src/mastercard.module.ts`
+   (`MastercardModule`, через `ConfigurableModuleBuilder` → `forRoot/forRootAsync`)
+   — единственный модуль, который импортирует хост. Под-модули стали приватными.
+   Конфиг приходит опциями (`MastercardModuleOptions`) и раздаётся через глобальный
+   `GatewayConfig` (`src/config/gateway-config.ts`) — сервисы больше НЕ читают
+   `process.env`/`ConfigService`. Внутренний клиент переименован в
+   `MastercardClientModule`. БД — host DataSource (`forFeature`); `AppModule`+`main.ts`
+   остались dev-харнессом. Per-pod throttler перенесён ВНУТРЬ модуля.
+2. ✅ **DTO на всех эндпоинтах.** Строгие на наших границах (`TokenRequestDto`,
+   `CreateTenantDto` c `@ValidateIf` для OWN→secretRef, `McWebhookEventDto`); мягкие
+   на MC-passthrough (`QuoteRequestDto`/`PaymentRequestDto`/`ConfirmationRequestDto`,
+   валидируют только формат критичных полей). Глобальный `ValidationPipe` УБРАН
+   (модуль не навязывает его хосту + он давал двойную валидацию и резал поля MC).
+   Каждый контроллер несёт свой pipe: `strictDtoPipe` (admin/oauth) vs
+   `mcPassthroughPipe` (crossborder/webhook, `transform:false` — суммы-строки целы).
+   Ручная валидация (`admin.service`, `typeof body`) удалена.
+3. ✅ **Безопасность вебхука — в сервисе, не на инфре.** `WebhookAuthGuard`
+   fail-closed: токен обязателен ВЕЗДЕ, нет `return true` «в расчёте на mTLS». +
+   каркас `WebhookSignatureVerifier` (Noop до спецификации MC, вопрос C1). `main.ts`
+   prod-гейт требует `MC_WEBHOOK_TOKEN`. Throttler-комментарий «авторитет — ингресс»
+   убран (per-pod лимит самодостаточен).
+4. ✅ **Схлопнуты тонкие модули.** EncryptionModule→провайдер MastercardClientModule;
+   IdempotencyModule→провайдер CrossBorderModule; HealthModule→контроллер в зонтичном.
+   Настоящие feature-модули (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
+   Secrets/Store/Audit) оставлены.
 
-2. **Сделать ОДИН модуль Mastercard.** Клиент: должен быть один импортируемый
-   модуль, а не ~14 top-level. Это ответ на вопрос TypeORM: **встраиваем в их
-   монолит `b24club-api`**. Завести зонтичный `MastercardModule.forRoot()/forRootAsync()`,
-   внутри — наши под-модули (приватные). Убрать своё: `DatabaseModule.forRoot`
-   (→ `forFeature` в ИХ DataSource), глобальные `ValidationPipe`/`Throttler`/`Logger`/
-   helmet/body-limit (этим владеет их app), `ConfigModule`-чтение `.env` (→ конфиг
-   через `forRoot(options)` или их `ConfigService`). Наш `AppModule`+`main.ts`
-   оставить только как dev-харнесс. **Уточнить у клиента:** (а) полное встраивание?
-   (б) конфиг через `forRoot(options)` или их `ConfigService`?
+**Проверено:** typecheck OK; `src/scripts/boot-check.ts` (DI-граф) OK;
+`src/scripts/e2e-check.ts` — **8/8 на живом sandbox** (quote 201 с proposal и
+суммами-строками; amount=number→400 от DTO; OWN без secretRef→400; bad grant_type→400;
+webhook без токена→401, с токеном→200).
 
-3. **Ингресс — проверить токены/вебхук.** По докам MC аутентификация вебхуков =
-   **mTLS на ингрессе**; наш `X-Webhook-Token` — только dev. Проверить/настроить
-   реальную mTLS-аутентификацию вебхуков MC на ингрессе для прода.
-
-4. **Добавить оставшиеся API MC** (сверено с `api-mastercard.md`; ядро есть, нет):
-   - **Cancel Confirmed Quote** — `POST crossborder/quotes/cancellations`.
-   - **Retrieve Confirmed Quote** — `GET crossborder/quotes/{ref}/proposals/{id}`.
-   - **Account Validation API** — `POST crossborder/accounts/validations` (проверка
-     счёта получателя до платежа: IBAN/card eligibility/account status).
-   - **Bank Information Lookup** — `crossborder/banks/details`.
-   - **Account generation** — `crossborder/accounts/generate`.
-   Это отдельные опт-ин сьюты MC → сперва вопрос E1 клиенту (что нужно). Добавлять
-   легко (тот же паттерн sign+passthrough).
+### Осталось (НЕ входило в 5 пунктов тимлида)
+- **Оставшиеся API MC** (сверено с `api-mastercard.md`): Cancel Confirmed Quote
+  (`POST crossborder/quotes/cancellations`), Retrieve Confirmed Quote
+  (`GET crossborder/quotes/{ref}/proposals/{id}`), Account Validation
+  (`POST crossborder/accounts/validations`), Bank Lookup (`crossborder/banks/details`),
+  Account generation (`crossborder/accounts/generate`). Отдельные опт-ин сьюты → сперва
+  вопрос E1 клиенту.
+- **Подпись вебхука** — реализовать `WebhookSignatureVerifier` по спецификации MC (C1).
+- **Встраивание в `b24club-api`:** хост должен включить наши entity в свой DataSource
+  и вести их миграции; предоставить `ScheduleModule.forRoot()` для cron-очистки kv.
+- Открыт блокер **per-tenant encryption** перед прод-OWN.
 
 ---
 
 ## На чём остановились (последнее действие сессии)
 
-Сервис **протестирован вживую** (sandbox + Postgres в Docker внутри WSL), прошёл
-**10-цикловый аудит + 4 регрессии** (правок нет регрессий), документация дополнена
-(`api.md`, `tests.md`, `production-questions.md`, `README.md`) и **запушен** в
-`github.com/migirov/mastercard` (public; секреты `.env`/`certs/` в `.gitignore`,
-не закоммичены). Документация разделена на `docs/ru/` и `docs/en/`; README на
-английском (+`README.ru.md`). **Дальше — 4 задачи от клиента** (см. «СЛЕДУЮЩИЕ
-ШАГИ»): DTO, один модуль (встраивание в монолит), mTLS-вебхук на ингрессе,
-оставшиеся API MC. Плюс открыт блокер per-tenant encryption перед прод-OWN.
+Реализованы **все 5 замечаний тимлида** (см. выше) — 2 коммита (`e319802`,
+`fe9cd86`), запушены в `github.com/migirov/mastercard`. Проверено вживую
+(boot-check + e2e 8/8 на sandbox). Документация (`memory.md`, `architecture.md`,
+`api.md`, README) обновлена под новую структуру (зонтичный `MastercardModule` +
+`GatewayConfig` + per-controller pipes). Секрет-гейт чист перед каждым коммитом.
 
 > Важно про среду: «Bash»-инструмент — Git Bash/MINGW на Windows (видит проект по
 > UNC, НЕ видит `/home`); Docker и git запускать через `wsl -d Ubuntu ...`. Node —

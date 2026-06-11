@@ -121,25 +121,42 @@ DATABASE_URL=... npm run migration:revert
 
 ```
 src/
+  mastercard.module.ts   зонтичный модуль (forRoot/forRootAsync) — ЕДИНСТВЕННЫЙ,
+                         что импортирует хост; внутри — все под-модули (приватные)
+  config/         GatewayConfig (типизированные опции модуля) + валидация ENV (харнесс)
   tenants/        реестр партнёров (Postgres), статусы/одобрения
   credentials/    резолвер ключей (PLATFORM | OWN), кэш
   secrets/        SecretStore: Local (dev) | Vault (prod)
-  auth/           OAuth2, гарды, admin-аутентификация
-  admin/          ввод партнёров, одобрения, выпуск OAuth-клиентов
-  mastercard/     низкоуровневый клиент (axios + интерцепторы encrypt/sign/decrypt)
-  encryption/     EncryptionService (JWE, тумблер по среде)
-  crossborder/    бизнес-эндпоинты: quote/payment/retrieve/cancel/confirm
-  idempotency/    идемпотентность платежей (через KV)
+  auth/           OAuth2, гарды, admin-аутентификация, DTO
+  admin/          ввод партнёров, одобрения, выпуск OAuth-клиентов, DTO
+  mastercard/     низкоуровневый клиент-модуль (axios encrypt/sign/decrypt + EncryptionService)
+  crossborder/    бизнес-эндпоинты + DTO (quote/payment/retrieve/cancel/confirm)
+  idempotency/    идемпотентность платежей (провайдер CrossBorderModule)
   audit/          журнал операций (Postgres, батч-запись)
-  webhooks/       приём push-уведомлений Mastercard
+  webhooks/       push-уведомления + fail-closed auth + каркас подписи + DTO
   store/          KvStore → PostgresKvStore + cron-очистка протухшего kv_store
-  database/       TypeORM: подключение, сущности, миграции (data-source + migrations/)
-  health/         health/readiness-пробы (@nestjs/terminus) для k8s
-  config/         валидация ENV на старте (class-validator)
-  common/         p12/crypto utils, throttler-гарды
+  database/       TypeORM (dev-харнесс; в монолите соединение даёт хост)
+  health/         health/readiness-пробы (@nestjs/terminus) — контроллер в зонтичном
+  common/         p12/crypto utils, throttler-гарды, validation-пайпы
+  app.module.ts / main.ts   dev-харнесс (автономный запуск, e2e, Swagger)
 docs/             документация (см. таблицу выше)
 certs/            криптоматериал Mastercard (НЕ в репозитории)
 ```
+
+### Встраивание в хост-приложение (монолит b24club-api)
+
+```ts
+imports: [
+  MastercardModule.forRootAsync({
+    inject: [ConfigService],
+    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), /* ...опции... */ }),
+  }),
+]
+```
+
+Хост даёт TypeORM-соединение (с нашими entity) и ведёт их миграции, владеет
+своими глобальными pipes/logger/throttler. Модуль берёт конфиг из объекта опций,
+не из `process.env`.
 
 ---
 

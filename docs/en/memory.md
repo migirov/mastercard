@@ -235,54 +235,57 @@ warning — the client has the same combo).
 
 ---
 
-## NEXT STEPS (client requests 2026-06-11 — to do after compact)
+## TEAM-LEAD FEEDBACK — DONE (2026-06-11, commits e319802 + fe9cd86)
 
-1. **Add DTOs where needed.** The client asked "why are there no DTOs anywhere?".
-   Currently only one DTO (`CreateTenantDto`); cross-border bodies are `@Body() unknown`
-   (passthrough to MC). Plan: **strict DTOs on OUR boundaries** (admin, `/oauth/token`,
-   webhook); **soft on MC passthrough** (quote/payment/confirm) — validate only the
-   critical fields (`transaction_reference`, `amount/currency`, account URIs,
-   `payment_type`), pass the rest through, **without `transform`** (MC amounts are
-   STRINGS — transform would corrupt them!) and **without `forbidNonWhitelisted`** on
-   MC routes. ⚠️ "Validate EVERYTHING" = bad: brittle on MC schema changes, transform
-   corrupts amounts, huge maintenance, MC validates itself anyway. + Swagger `@ApiProperty`.
+1. ✅ **One Mastercard module.** Umbrella `src/mastercard.module.ts`
+   (`MastercardModule`, via `ConfigurableModuleBuilder` → `forRoot/forRootAsync`) — the
+   only module the host imports. Sub-modules became private. Config arrives as options
+   (`MastercardModuleOptions`) and is distributed via a global `GatewayConfig`
+   (`src/config/gateway-config.ts`) — services no longer read `process.env`/`ConfigService`.
+   Internal client renamed to `MastercardClientModule`. DB = host DataSource (`forFeature`);
+   `AppModule`+`main.ts` kept as a dev harness. Per-pod throttler moved INTO the module.
+2. ✅ **DTOs on every endpoint.** Strict on our boundaries (`TokenRequestDto`,
+   `CreateTenantDto` with `@ValidateIf` for OWN→secretRef, `McWebhookEventDto`); soft on
+   MC passthrough (`QuoteRequestDto`/`PaymentRequestDto`/`ConfirmationRequestDto`,
+   validate only critical field formats). The global `ValidationPipe` was REMOVED (an
+   embeddable module must not impose one + it double-validated and stripped MC fields).
+   Each controller carries its own pipe: `strictDtoPipe` (admin/oauth) vs
+   `mcPassthroughPipe` (crossborder/webhook, `transform:false` so string amounts survive).
+   Manual validation (`admin.service`, `typeof body`) removed.
+3. ✅ **Webhook security in-service, not infra.** `WebhookAuthGuard` fail-closed: token
+   required everywhere, no `return true` "relying on mTLS". + `WebhookSignatureVerifier`
+   scaffold (Noop until MC spec, C1). `main.ts` prod gate requires `MC_WEBHOOK_TOKEN`.
+   Throttler "authoritative = ingress" comment removed (per-pod limit is self-sufficient).
+4. ✅ **Thin modules collapsed.** EncryptionModule→provider of MastercardClientModule;
+   IdempotencyModule→provider of CrossBorderModule; HealthModule→controller in the umbrella.
+   Genuine feature modules kept (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
+   Secrets/Store/Audit).
 
-2. **Make ONE Mastercard module.** Client: there must be a single importable module,
-   not ~14 top-level ones. This answers the TypeORM question: **embed into their
-   `b24club-api` monolith**. Create an umbrella `MastercardModule.forRoot()/forRootAsync()`
-   with our sub-modules inside (private). Remove our own: `DatabaseModule.forRoot`
-   (→ `forFeature` in THEIR DataSource), global `ValidationPipe`/`Throttler`/`Logger`/
-   helmet/body-limit (the host app owns those), `ConfigModule` reading `.env` (→ config
-   via `forRoot(options)` or their `ConfigService`). Keep our `AppModule`+`main.ts` only
-   as a dev harness. **Clarify with the client:** (a) full embed? (b) config via
-   `forRoot(options)` or their `ConfigService`?
+**Verified:** typecheck OK; `src/scripts/boot-check.ts` (DI graph) OK;
+`src/scripts/e2e-check.ts` — **8/8 on live sandbox** (quote 201 w/ proposal and string
+amounts; amount=number→400 from the DTO; OWN-without-secretRef→400; bad grant_type→400;
+webhook without token→401, with token→200).
 
-3. **Ingress — check webhook tokens.** Per MC docs, webhook authentication = **mTLS at
-   the ingress**; our `X-Webhook-Token` is dev-only. Verify/configure the real mTLS
-   authentication for MC webhooks at the ingress for production.
-
-4. **Add the remaining MC APIs** (compared with `api-mastercard.md`; core exists, missing):
-   - **Cancel Confirmed Quote** — `POST crossborder/quotes/cancellations`.
-   - **Retrieve Confirmed Quote** — `GET crossborder/quotes/{ref}/proposals/{id}`.
-   - **Account Validation API** — `POST crossborder/accounts/validations` (validate the
-     recipient account before payment: IBAN/card eligibility/account status).
-   - **Bank Information Lookup** — `crossborder/banks/details`.
-   - **Account generation** — `crossborder/accounts/generate`.
-   These are separate opt-in MC suites → first ask the client (question E1) what's needed.
-   Easy to add (same sign+passthrough pattern).
+### Remaining (NOT part of the 5 team-lead points)
+- **Remaining MC APIs** (compared with `api-mastercard.md`): Cancel Confirmed Quote
+  (`POST crossborder/quotes/cancellations`), Retrieve Confirmed Quote
+  (`GET crossborder/quotes/{ref}/proposals/{id}`), Account Validation
+  (`POST crossborder/accounts/validations`), Bank Lookup (`crossborder/banks/details`),
+  Account generation (`crossborder/accounts/generate`). Separate opt-in suites → ask E1 first.
+- **Webhook signature** — implement `WebhookSignatureVerifier` per MC spec (C1).
+- **Embedding into `b24club-api`:** host must include our entities in its DataSource and
+  run their migrations; provide `ScheduleModule.forRoot()` for the kv cleanup cron.
+- The **per-tenant encryption** blocker before prod-OWN is still open.
 
 ---
 
 ## Where we stopped (last action of the session)
 
-The service was **tested live** (sandbox + Postgres in Docker inside WSL), passed a
-**10-cycle audit + 4 regressions** (fixes, no regressions), documentation was
-extended (`api.md`, `tests.md`, `production-questions.md`, `README.md`) and **pushed**
-to `github.com/migirov/mastercard` (public; secrets `.env`/`certs/` in `.gitignore`,
-not committed). Docs split into `docs/ru/` and `docs/en/`; README in English
-(+`README.ru.md`). **Next — 4 client tasks** (see "NEXT STEPS"): DTOs, a single module
-(embed into the monolith), mTLS webhook at the ingress, the remaining MC APIs. Plus the
-open per-tenant encryption blocker before prod-OWN.
+All **5 team-lead points** implemented (see above) — 2 commits (`e319802`, `fe9cd86`),
+pushed to `github.com/migirov/mastercard`. Verified live (boot-check + e2e 8/8 on
+sandbox). Docs (`memory.md`, `architecture.md`, `api.md`, README) updated for the new
+structure (umbrella `MastercardModule` + `GatewayConfig` + per-controller pipes).
+Secret-gate clean before every commit.
 
 > Important about the environment: the "Bash" tool is Git Bash/MINGW on Windows (sees
 > the project over UNC, does NOT see `/home`); run Docker and git via `wsl -d Ubuntu ...`.
