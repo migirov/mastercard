@@ -7,7 +7,11 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "ping": "ts-node src/scripts/ping.ts",
-    "encrypt-poc": "ts-node src/scripts/encrypt-poc.ts"
+    "encrypt-poc": "ts-node src/scripts/encrypt-poc.ts",
+    "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
+    "migration:generate": "npm run typeorm -- migration:generate",
+    "migration:run": "npm run typeorm -- migration:run",
+    "migration:revert": "npm run typeorm -- migration:revert"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
