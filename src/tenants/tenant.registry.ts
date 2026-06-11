@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomToken } from '../common/crypto.util';
-import { TenantEntity } from '../database/entities/tenant.entity';
+import { TenantEntity } from './tenant.entity';
 import { CredentialMode, Tenant } from './tenant.types';
 
 export interface CreateTenantInput {

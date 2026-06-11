@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GatewayConfig } from '../config/gateway-config';
-import { OAuthClientEntity } from '../database/entities/oauth-client.entity';
+import { OAuthClientEntity } from './oauth-client.entity';
 import { TenantModule } from '../tenants/tenant.module';
 import { ClientRegistry } from './client-registry';
 import { OAuthService } from './oauth.service';

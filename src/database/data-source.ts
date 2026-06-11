@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { join } from 'path';
 import { DataSource } from 'typeorm';
-import { AuditLogEntity } from './entities/audit-log.entity';
-import { KvEntity } from './entities/kv.entity';
-import { OAuthClientEntity } from './entities/oauth-client.entity';
-import { TenantEntity } from './entities/tenant.entity';
+import { AuditLogEntity } from '../audit/audit-log.entity';
+import { KvEntity } from '../store/kv.entity';
+import { OAuthClientEntity } from '../auth/oauth-client.entity';
+import { TenantEntity } from '../tenants/tenant.entity';
 
 /**
  * Standalone DataSource ТОЛЬКО для TypeORM CLI (migration:generate / run / revert).
