@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import { SECRET_STORE } from './secret-store.types';
 import { LocalSecretStore } from './local-secret-store';
 import { VaultSecretStore } from './vault-secret-store';
 
 /**
- * Выбор реализации хранилища секретов по MC_SECRET_STORE:
+ * Выбор реализации хранилища секретов по опции модуля `secretStore`:
  *   'vault' → VaultSecretStore (прод), иначе → LocalSecretStore (dev, по умолчанию).
  */
 @Module({
@@ -15,12 +15,11 @@ import { VaultSecretStore } from './vault-secret-store';
     {
       provide: SECRET_STORE,
       useFactory: (
-        config: ConfigService,
+        config: GatewayConfig,
         local: LocalSecretStore,
         vault: VaultSecretStore,
-      ) =>
-        config.get<string>('MC_SECRET_STORE') === 'vault' ? vault : local,
-      inject: [ConfigService, LocalSecretStore, VaultSecretStore],
+      ) => (config.secretStore === 'vault' ? vault : local),
+      inject: [GatewayConfig, LocalSecretStore, VaultSecretStore],
     },
   ],
   exports: [SECRET_STORE],

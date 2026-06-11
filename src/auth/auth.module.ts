@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { GatewayConfig } from '../config/gateway-config';
 import { OAuthClientEntity } from '../database/entities/oauth-client.entity';
 import { TenantModule } from '../tenants/tenant.module';
 import { ClientRegistry } from './client-registry';
@@ -16,12 +16,11 @@ import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
     TenantModule,
     TypeOrmModule.forFeature([OAuthClientEntity]),
     JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const secret = config.get<string>('MC_JWT_SECRET');
+      inject: [GatewayConfig],
+      useFactory: (config: GatewayConfig) => {
+        const secret = config.jwtSecret;
         if (!secret) {
-          throw new Error('MC_JWT_SECRET is not set in .env');
+          throw new Error('MastercardModule option "jwtSecret" is not set');
         }
         // Алгоритм пинуется явно (HS256) и на подписи, и на проверке — защита
         // от algorithm-confusion / 'none'. issuer тоже проверяется.

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import axios, {
   AxiosInstance,
   AxiosRequestConfig,
@@ -52,12 +52,12 @@ export class MastercardClient {
   private readonly baseUrl: string;
 
   constructor(
-    config: ConfigService,
+    config: GatewayConfig,
     private readonly encryption: EncryptionService,
   ) {
-    const raw = config.get<string>('MC_BASE_URL') ?? '';
+    const raw = config.baseUrl ?? '';
     if (!raw) {
-      throw new Error('MC_BASE_URL is not set in .env');
+      throw new Error('MastercardModule option "baseUrl" is not set');
     }
     this.baseUrl = raw.replace(/\/+$/, '');
     this.http = axios.create({

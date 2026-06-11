@@ -2,48 +2,50 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import { safeEqual, sha256hex } from '../common/crypto.util';
+import { WebhookSignatureVerifier } from './webhook-signature.verifier';
 
 /**
- * Аутентификация входящих вебхуков Mastercard.
+ * Аутентификация входящих вебхуков Mastercard — В САМОМ СЕРВИСЕ, а не за счёт
+ * доверия к инфраструктуре (ингресс/mTLS).
  *
- * АВТОРИТЕТНО (по докам MC): push-уведомления идут по **mTLS** — взаимная TLS-
- * аутентификация, которая терминируется на ингрессе/LB (там валидируется
- * клиентский сертификат Mastercard). На уровне приложения это уже доверенное
- * соединение.
+ * Два фактора:
+ *   1) shared-token `X-Webhook-Token` — **fail-closed**: если токен не настроен
+ *      (`webhookToken` пуст), приём ВЕБХУКОВ ОТКЛОНЯЕТСЯ (а не пропускается «в
+ *      расчёте на mTLS»). Токен обязателен и в dev, и в prod.
+ *   2) подпись MC по сырому телу — `WebhookSignatureVerifier`. Сейчас заглушка
+ *      (ждём спецификацию подписи MC, вопрос C1); включается без правок здесь.
  *
- * Здесь — лишь app-уровневая dev-заглушка (shared secret X-Webhook-Token), чтобы
- * можно было тестировать локально без mTLS. В production основная защита = mTLS.
+ * mTLS на ингрессе (если есть) — дополнительный сетевой слой, но НЕ замена
+ * аутентификации в приложении.
  */
 @Injectable()
 export class WebhookAuthGuard implements CanActivate {
-  private readonly logger = new Logger(WebhookAuthGuard.name);
-
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: GatewayConfig,
+    private readonly signature: WebhookSignatureVerifier,
+  ) {}
 
   canActivate(ctx: ExecutionContext): boolean {
     const req = ctx.switchToHttp().getRequest();
-    const expected = this.config.get<string>('MC_WEBHOOK_TOKEN');
-    const isProd =
-      (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) ===
-      'production';
+    const expected = this.config.webhookToken;
 
+    // fail-closed: без настроенного токена не доверяем никому.
     if (!expected) {
-      // В проде защита — mTLS на ингрессе; здесь не блокируем, но предупреждаем.
-      if (!isProd) return true;
-      this.logger.warn(
-        'MC_WEBHOOK_TOKEN не задан — полагаемся на mTLS на ингрессе',
-      );
-      return true;
+      throw new UnauthorizedException('webhook authentication is not configured');
     }
 
     const token = req.headers['x-webhook-token'];
     if (!token || !safeEqual(sha256hex(String(token)), sha256hex(expected))) {
       throw new UnauthorizedException('invalid webhook token');
+    }
+
+    // Второй фактор — криптоподпись MC по сырому телу (заглушка до C1).
+    if (!this.signature.verify(req.headers ?? {}, req.rawBody)) {
+      throw new UnauthorizedException('invalid webhook signature');
     }
     return true;
   }
