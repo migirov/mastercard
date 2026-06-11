@@ -5,7 +5,7 @@ import {
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { CredentialMode, Tenant } from '../../tenants/tenant.types';
+import { CredentialMode, Tenant } from './tenant.types';
 
 /** Партнёр/мерчант. Источник истины — Postgres (общий для всех подов). */
 @Entity('tenants')

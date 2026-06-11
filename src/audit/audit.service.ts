@@ -1,7 +1,7 @@
 import { BeforeApplicationShutdown, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AuditLogEntity } from '../database/entities/audit-log.entity';
+import { AuditLogEntity } from './audit-log.entity';
 
 export interface AuditEntry {
   ts: string;

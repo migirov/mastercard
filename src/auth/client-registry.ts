@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomToken, safeEqual, sha256hex } from '../common/crypto.util';
-import { OAuthClientEntity } from '../database/entities/oauth-client.entity';
+import { OAuthClientEntity } from './oauth-client.entity';
 
 /** Фиктивный хэш для выравнивания времени, когда client_id не найден. */
 const DUMMY_HASH = sha256hex('');

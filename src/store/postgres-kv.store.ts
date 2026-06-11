@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { KvEntity } from '../database/entities/kv.entity';
+import { KvEntity } from './kv.entity';
 import { KvStore } from './kv.types';
 
 /** KV поверх PostgreSQL с TTL. Согласован между подами. */

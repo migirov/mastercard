@@ -2,10 +2,10 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantEntity } from './entities/tenant.entity';
-import { OAuthClientEntity } from './entities/oauth-client.entity';
-import { AuditLogEntity } from './entities/audit-log.entity';
-import { KvEntity } from './entities/kv.entity';
+import { TenantEntity } from '../tenants/tenant.entity';
+import { OAuthClientEntity } from '../auth/oauth-client.entity';
+import { AuditLogEntity } from '../audit/audit-log.entity';
+import { KvEntity } from '../store/kv.entity';
 
 /** Подключение к PostgreSQL (TypeORM). Схема — synchronize в dev, миграции в проде. */
 @Module({
