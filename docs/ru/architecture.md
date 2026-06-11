@@ -6,6 +6,20 @@
 [production-questions.md](./production-questions.md) (блокеры перед прод),
 [memory.md](./memory.md) (контекст сессии).
 
+> **ОБНОВЛЕНИЕ 2026-06-11 (рефактор по замечаниям тимлида).** Топология модулей
+> изменена: вся интеграция теперь — ОДИН встраиваемый зонтичный
+> `MastercardModule` (`src/mastercard.module.ts`, через `ConfigurableModuleBuilder`,
+> `forRoot/forRootAsync`), который хост-приложение (монолит `b24club-api` или
+> dev-харнесс `AppModule`) импортирует одной строкой. Конфиг приходит опциями и
+> раздаётся через глобальный `GatewayConfig` (`src/config/gateway-config.ts`) —
+> сервисы НЕ читают `process.env`/`ConfigService`. Глобального `ValidationPipe`
+> больше нет: каждый контроллер несёт свой pipe (`strictDtoPipe` для admin/oauth,
+> `mcPassthroughPipe` без `transform` для тел, идущих в MC). Аутентификация вебхука
+> — fail-closed в сервисе (+ каркас проверки подписи), а не «доверие к ингрессу».
+> Тонкие модули (Encryption/Idempotency/Health) свёрнуты в провайдеры/контроллер.
+> Детали — в [memory.md](./memory.md), раздел «ЗАМЕЧАНИЯ ТИМЛИДА — СДЕЛАНО».
+> Разделы ниже про «standalone» и список модулей описывают прежнюю раскладку.
+
 ## 1. Цель
 
 Отдельный (standalone) сервис-шлюз к Mastercard Cross-Border Services для

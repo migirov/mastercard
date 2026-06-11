@@ -121,25 +121,42 @@ Auto-run at startup — `DB_MIGRATIONS_RUN=true` (in multi-pod prefer an init-co
 
 ```
 src/
+  mastercard.module.ts   umbrella module (forRoot/forRootAsync) — the ONLY module a
+                         host app imports; wires all sub-modules privately
+  config/         GatewayConfig (typed module options) + ENV validation (harness)
   tenants/        partner registry (Postgres), statuses/approvals
   credentials/    key resolver (PLATFORM | OWN), cache
   secrets/        SecretStore: Local (dev) | Vault (prod)
-  auth/           OAuth2, guards, admin authentication
-  admin/          onboarding partners, approvals, issuing OAuth clients
-  mastercard/     low-level client (axios + encrypt/sign/decrypt interceptors)
-  encryption/     EncryptionService (JWE, env toggle)
-  crossborder/    business endpoints: quote/payment/retrieve/cancel/confirm
-  idempotency/    payment idempotency (via KV)
+  auth/           OAuth2, guards, admin authentication, DTOs
+  admin/          onboarding partners, approvals, issuing OAuth clients, DTOs
+  mastercard/     low-level client module (axios encrypt/sign/decrypt + EncryptionService)
+  crossborder/    business endpoints + DTOs (quote/payment/retrieve/cancel/confirm)
+  idempotency/    payment idempotency (provider on CrossBorderModule)
   audit/          operation log (Postgres, batched writes)
-  webhooks/       receiving Mastercard push notifications
+  webhooks/       push notifications + fail-closed auth + signature scaffold + DTO
   store/          KvStore → PostgresKvStore + cron cleanup of expired kv_store
-  database/       TypeORM: connection, entities, migrations (data-source + migrations/)
-  health/         health/readiness probes (@nestjs/terminus) for k8s
-  config/         ENV validation at startup (class-validator)
-  common/         p12/crypto utils, throttler guards
+  database/       TypeORM (dev harness; a host provides its own DataSource)
+  health/         health/readiness probes (@nestjs/terminus) — controller in umbrella
+  common/         p12/crypto utils, throttler guards, validation pipes
+  app.module.ts / main.ts   dev harness (standalone run, e2e, Swagger)
 docs/             documentation (see the table above)
 certs/            Mastercard crypto material (NOT in the repo)
 ```
+
+### Embedding into a host app (e.g. the b24club-api monolith)
+
+```ts
+imports: [
+  MastercardModule.forRootAsync({
+    inject: [ConfigService],
+    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), /* ...options... */ }),
+  }),
+]
+```
+
+The host provides the TypeORM connection (including our entities) and runs their
+migrations, and owns its global pipes/logger/throttler. The module reads config from
+the options object, not `process.env`.
 
 ---
 
