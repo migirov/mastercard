@@ -1,3 +1,4 @@
+import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -33,6 +34,11 @@ import { KvEntity } from './entities/kv.entity';
           // потери данных при auto-alter) — только миграции. В dev: по умолчанию
           // вкл, можно выключить DB_SYNC=false.
           synchronize: !isProd && config.get<string>('DB_SYNC') !== 'false',
+          // Миграции (.ts через ts-node / .js в dist). Прогон — явно через
+          // `npm run migration:run` (или DB_MIGRATIONS_RUN=true для авто на старте;
+          // в multi-pod лучше отдельным Job/init-container, а не на каждом поде).
+          migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
+          migrationsRun: config.get<string>('DB_MIGRATIONS_RUN') === 'true',
         };
       },
     }),
