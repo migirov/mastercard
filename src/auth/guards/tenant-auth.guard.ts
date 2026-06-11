@@ -5,7 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../../config/gateway-config';
 import { JwtService } from '@nestjs/jwt';
 import { safeEqual, sha256hex } from '../../common/crypto.util';
 import { TenantRegistry } from '../../tenants/tenant.registry';
@@ -22,7 +22,7 @@ export class TenantAuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly registry: TenantRegistry,
-    private readonly config: ConfigService,
+    private readonly config: GatewayConfig,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -34,7 +34,7 @@ export class TenantAuthGuard implements CanActivate {
   }
 
   private async internal(req: any, token: string): Promise<boolean> {
-    const expected = this.config.get<string>('MC_INTERNAL_TOKEN');
+    const expected = this.config.internalToken;
     if (!expected || !safeEqual(sha256hex(token), sha256hex(expected))) {
       throw new UnauthorizedException('invalid internal token');
     }

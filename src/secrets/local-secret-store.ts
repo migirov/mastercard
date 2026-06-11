@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -20,7 +20,7 @@ export class LocalSecretStore implements SecretStore {
   private readonly logger = new Logger(LocalSecretStore.name);
   private cache?: Record<string, MerchantSecretBundle>;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: GatewayConfig) {}
 
   async getMerchantSecrets(secretRef: string): Promise<MerchantSecretBundle> {
     const all = this.load();
@@ -37,25 +37,21 @@ export class LocalSecretStore implements SecretStore {
     if (this.cache) return this.cache;
 
     const seed: Record<string, MerchantSecretBundle> = {};
-    const isProd =
-      (this.config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) ===
-      'production';
+    const isProd = this.config.isProduction;
 
     // Демо-сид (ТОЛЬКО не в production): OWN-тенант в sandbox переиспользует
-    // платформенные ключи из .env. В проде это утечка ключей платформы OWN-
-    // тенанту, поэтому сид отключён — секреты должны приходить из Vault/файла.
-    const consumerKey = this.config.get<string>('MC_CONSUMER_KEY');
-    const partnerId = this.config.get<string>('MC_PARTNER_ID');
-    const p12Path = this.config.get<string>('MC_SIGNING_KEY_PATH');
-    const p12Password = this.config.get<string>('MC_SIGNING_KEY_PASSWORD');
+    // платформенные ключи. В проде это утечка ключей платформы OWN-тенанту,
+    // поэтому сид отключён — секреты должны приходить из Vault/файла.
+    const consumerKey = this.config.consumerKey;
+    const partnerId = this.config.partnerId;
+    const p12Path = this.config.signingKeyPath;
+    const p12Password = this.config.signingKeyPassword;
     if (!isProd && consumerKey && partnerId && p12Path && p12Password) {
       seed['mc/tenants/own-sandbox'] = {
         consumerKey,
         partnerId,
         signing: { p12Path, password: p12Password },
-        encryptionFingerprint: this.config.get<string>(
-          'MC_ENCRYPTION_FINGERPRINT',
-        ),
+        encryptionFingerprint: this.config.encryptionFingerprint,
       };
     } else if (isProd) {
       this.logger.warn(
