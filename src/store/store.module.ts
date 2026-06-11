@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { KvEntity } from '../database/entities/kv.entity';
+import { KvEntity } from './kv.entity';
 import { KvCleanupService } from './kv-cleanup.service';
 import { PostgresKvStore } from './postgres-kv.store';
 import { KV_STORE } from './kv.types';
