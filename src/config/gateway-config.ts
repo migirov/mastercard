@@ -1,0 +1,112 @@
+import { Injectable } from '@nestjs/common';
+
+/**
+ * Конфиг встраиваемого модуля. Хост-приложение (b24club-api или dev-харнесс)
+ * передаёт его через `MastercardModule.forRootAsync({ useFactory })`. Модуль НЕ
+ * читает `process.env` напрямую — поэтому переносится в чужой монолит без
+ * завязки на конкретные имена env-переменных.
+ */
+export interface MastercardModuleOptions {
+  /** Базовый URL Mastercard (sandbox/MTF/prod). */
+  baseUrl: string;
+  /** Платформенные креды (режим PLATFORM; демо-сид OWN в dev). */
+  consumerKey: string;
+  partnerId: string;
+  signingKeyPath?: string;
+  signingKeyPassword?: string;
+  /** Field-level encryption (JWE): включается в MTF/Prod. */
+  encryptionEnabled?: boolean;
+  encryptionCertPath?: string;
+  encryptionFingerprint?: string;
+  decryptionKeyPath?: string;
+  /** Источник секретов мерчантов: 'local' (dev) | 'vault' (prod). */
+  secretStore?: 'local' | 'vault';
+  /** TTL кэша OWN-кредов, мс. */
+  credsCacheTtlMs?: number;
+  /** Секрет подписи внутренних JWT мерчантов. */
+  jwtSecret: string;
+  /** Токен внутренних (service-to-service) вызовов. */
+  internalToken: string;
+  /** Токен admin-API. */
+  adminToken: string;
+  /** Shared-secret аутентификации вебхуков MC (обязателен — guard fail-closed). */
+  webhookToken?: string;
+  /** Окружение хоста ('production' включает прод-гейты). */
+  nodeEnv?: string;
+}
+
+const DEFAULT_CREDS_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Типизированный доступ к опциям модуля. Заменяет точечные `ConfigService.get(...)`
+ * во внутренних сервисах — единый источник конфигурации модуля. Предоставляется
+ * глобально зонтичным `MastercardModule`, поэтому доступен всем под-сервисам.
+ */
+@Injectable()
+export class GatewayConfig {
+  constructor(private readonly opts: MastercardModuleOptions) {}
+
+  get baseUrl(): string {
+    return this.opts.baseUrl;
+  }
+  get consumerKey(): string {
+    return this.opts.consumerKey;
+  }
+  get partnerId(): string {
+    return this.opts.partnerId;
+  }
+  get signingKeyPath(): string | undefined {
+    return this.opts.signingKeyPath;
+  }
+  get signingKeyPassword(): string | undefined {
+    return this.opts.signingKeyPassword;
+  }
+  get encryptionEnabled(): boolean {
+    return this.opts.encryptionEnabled ?? false;
+  }
+  get encryptionCertPath(): string | undefined {
+    return this.opts.encryptionCertPath;
+  }
+  get encryptionFingerprint(): string | undefined {
+    return this.opts.encryptionFingerprint;
+  }
+  get decryptionKeyPath(): string | undefined {
+    return this.opts.decryptionKeyPath;
+  }
+  get secretStore(): 'local' | 'vault' {
+    return this.opts.secretStore ?? 'local';
+  }
+  get credsCacheTtlMs(): number {
+    return this.opts.credsCacheTtlMs && this.opts.credsCacheTtlMs > 0
+      ? this.opts.credsCacheTtlMs
+      : DEFAULT_CREDS_TTL_MS;
+  }
+  get jwtSecret(): string {
+    return this.opts.jwtSecret;
+  }
+  get internalToken(): string {
+    return this.opts.internalToken;
+  }
+  get adminToken(): string {
+    return this.opts.adminToken;
+  }
+  get webhookToken(): string | undefined {
+    return this.opts.webhookToken;
+  }
+  get isProduction(): boolean {
+    return (this.opts.nodeEnv ?? process.env.NODE_ENV) === 'production';
+  }
+
+  /** Обязательное значение или громкая ошибка (для ключей, нужных в конкретном режиме). */
+  require<K extends keyof MastercardModuleOptions>(
+    key: K,
+  ): NonNullable<MastercardModuleOptions[K]> {
+    const v = this.opts[key];
+    if (v === undefined || v === null || v === '') {
+      throw new Error(
+        `MastercardModule option '${String(key)}' is required but not set`,
+      );
+    }
+    return v as NonNullable<MastercardModuleOptions[K]>;
+  }
+}

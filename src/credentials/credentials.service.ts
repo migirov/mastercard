@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import {
   loadPrivateKeyFromP12,
   loadPrivateKeyFromP12Base64,
@@ -13,7 +13,6 @@ import {
 } from '../secrets/secret-store.types';
 import { McCredentials } from './credentials.types';
 
-const DEFAULT_TTL_MS = 10 * 60 * 1000;
 /** Символы, которые ломают URL-путь — partnerId с ними запрещён (+ `\`). */
 const UNSAFE_PARTNER_ID = /[\s/\\?#%]/;
 
@@ -37,11 +36,10 @@ export class CredentialsService implements OnModuleInit {
   private readonly ttlMs: number;
 
   constructor(
-    private readonly config: ConfigService,
+    private readonly config: GatewayConfig,
     @Inject(SECRET_STORE) private readonly secrets: SecretStore,
   ) {
-    this.ttlMs =
-      Number(this.config.get<string>('MC_CREDS_CACHE_TTL_MS')) || DEFAULT_TTL_MS;
+    this.ttlMs = this.config.credsCacheTtlMs;
   }
 
   /** Прогреваем платформенные credentials на старте: fail-fast (кривой .p12/
@@ -72,14 +70,14 @@ export class CredentialsService implements OnModuleInit {
     if (this.platformCache) return this.platformCache;
 
     const signingKeyPem = loadPrivateKeyFromP12(
-      this.req('MC_SIGNING_KEY_PATH'),
-      this.req('MC_SIGNING_KEY_PASSWORD'),
+      this.config.require('signingKeyPath'),
+      this.config.require('signingKeyPassword'),
     );
     this.platformCache = {
-      consumerKey: this.req('MC_CONSUMER_KEY'),
+      consumerKey: this.config.require('consumerKey'),
       signingKeyPem,
-      partnerId: this.safePartnerId(this.req('MC_PARTNER_ID'), 'platform'),
-      encryptionFingerprint: this.config.get<string>('MC_ENCRYPTION_FINGERPRINT'),
+      partnerId: this.safePartnerId(this.config.require('partnerId'), 'platform'),
+      encryptionFingerprint: this.config.encryptionFingerprint,
     };
     this.logger.log('Платформенные credentials загружены и закэшированы');
     return this.platformCache;
@@ -166,13 +164,5 @@ export class CredentialsService implements OnModuleInit {
       return loadPrivateKeyFromP12(key.p12Path, key.password);
     }
     throw new Error('KeyMaterial: neither p12Base64 nor p12Path is set');
-  }
-
-  private req(name: string): string {
-    const v = this.config.get<string>(name);
-    if (!v) {
-      throw new Error(`Environment variable ${name} is not set`);
-    }
-    return v;
   }
 }

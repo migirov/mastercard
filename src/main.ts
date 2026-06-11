@@ -11,16 +11,14 @@ function assertProdSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
   const weak = (v?: string) =>
     !v || v.length < 24 || v.includes('change-me') || v.startsWith('dev-');
-  const bad = ['MC_JWT_SECRET', 'MC_INTERNAL_TOKEN', 'MC_ADMIN_TOKEN'].filter(
-    (k) => weak(process.env[k]),
-  );
-  // MC_WEBHOOK_TOKEN: в проде защита вебхука = mTLS на ингрессе, поэтому ПУСТОЙ
-  // токен допустим. Но если он ЗАДАН — не должен быть дефолтным/слабым: иначе
-  // app-гард примет форжнутый вебхук с известным из репозитория dev-токеном.
-  const wh = process.env.MC_WEBHOOK_TOKEN;
-  if (wh && weak(wh)) {
-    bad.push('MC_WEBHOOK_TOKEN (set a strong one or leave empty — mTLS protects it)');
-  }
+  // MC_WEBHOOK_TOKEN — теперь ОБЯЗАТЕЛЕН и должен быть сильным: аутентификация
+  // вебхука fail-closed в самом сервисе (не полагаемся на mTLS на ингрессе).
+  const bad = [
+    'MC_JWT_SECRET',
+    'MC_INTERNAL_TOKEN',
+    'MC_ADMIN_TOKEN',
+    'MC_WEBHOOK_TOKEN',
+  ].filter((k) => weak(process.env[k]));
   if (bad.length) {
     throw new Error(
       `production: weak/default secrets — set strong values: ${bad.join(', ')}`,
@@ -45,6 +43,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     bufferLogs: true,
+    // сырое тело — для будущей проверки подписи вебхука MC по байтам (вопрос C1)
+    rawBody: true,
   });
   // Структурный логгер (pino) для всего приложения + correlation-id.
   app.useLogger(app.get(PinoLogger));

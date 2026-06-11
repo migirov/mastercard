@@ -1,28 +1,24 @@
 import { randomUUID } from 'crypto';
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation';
+import { MastercardModuleOptions } from './config/gateway-config';
 import { DatabaseModule } from './database/database.module';
-import { HealthModule } from './health/health.module';
-import { StoreModule } from './store/store.module';
-import { TenantModule } from './tenants/tenant.module';
-import { CredentialsModule } from './credentials/credentials.module';
-import { MastercardModule } from './mastercard/mastercard.module';
-import { CrossBorderModule } from './crossborder/crossborder.module';
-import { AuthModule } from './auth/auth.module';
-import { AdminModule } from './admin/admin.module';
-import { WebhooksModule } from './webhooks/webhooks.module';
-import { IdempotencyModule } from './idempotency/idempotency.module';
-import { AuditModule } from './audit/audit.module';
+import { MastercardModule } from './mastercard.module';
 
+/**
+ * Dev-харнесс (standalone-запуск, e2e, Swagger). В production-монолите хост
+ * импортирует ТОЛЬКО `MastercardModule.forRootAsync(...)`, а инфраструктуру
+ * (ConfigModule, БД-соединение, логгер, ScheduleModule) предоставляет сам.
+ * Здесь мы поднимаем эту инфраструктуру локально, чтобы прогонять сервис автономно.
+ */
 @Module({
   imports: [
     // читает .env из корня проекта + валидирует переменные на старте (fail-fast)
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ScheduleModule.forRoot(), // cron-задачи (очистка kv_store)
+    ScheduleModule.forRoot(), // cron-задачи модуля (очистка kv_store)
     // Структурные JSON-логи + correlation-id (x-request-id) сквозь все логи.
     LoggerModule.forRoot({
       pinoHttp: {
@@ -71,21 +67,32 @@ import { AuditModule } from './audit/audit.module';
         },
       },
     }),
+    // Dev-БД: TypeORM-соединение (в монолите его даёт хост).
     DatabaseModule,
-    HealthModule,
-    StoreModule,
-    // Rate-limit: нативный @nestjs/throttler, штатный in-memory storage (per-pod).
-    // Авторитетный глобальный лимит — на ингрессе/API-gateway.
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
-    AuditModule,
-    IdempotencyModule,
-    TenantModule,
-    CredentialsModule,
-    MastercardModule,
-    AuthModule,
-    AdminModule,
-    CrossBorderModule,
-    WebhooksModule,
+    // Вся интеграция Mastercard — одним модулем. Конфиг берём из .env через
+    // ConfigService (в монолите хост передаёт свой useFactory).
+    MastercardModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (c: ConfigService): MastercardModuleOptions => ({
+        baseUrl: c.getOrThrow<string>('MC_BASE_URL'),
+        consumerKey: c.getOrThrow<string>('MC_CONSUMER_KEY'),
+        partnerId: c.getOrThrow<string>('MC_PARTNER_ID'),
+        signingKeyPath: c.get<string>('MC_SIGNING_KEY_PATH'),
+        signingKeyPassword: c.get<string>('MC_SIGNING_KEY_PASSWORD'),
+        encryptionEnabled: c.get<string>('MC_ENCRYPTION_ENABLED') === 'true',
+        encryptionCertPath: c.get<string>('MC_ENCRYPTION_CERT_PATH'),
+        encryptionFingerprint: c.get<string>('MC_ENCRYPTION_FINGERPRINT'),
+        decryptionKeyPath: c.get<string>('MC_DECRYPTION_KEY_PATH'),
+        secretStore:
+          (c.get<string>('MC_SECRET_STORE') as 'local' | 'vault') ?? 'local',
+        credsCacheTtlMs: Number(c.get<string>('MC_CREDS_CACHE_TTL_MS')) || undefined,
+        jwtSecret: c.getOrThrow<string>('MC_JWT_SECRET'),
+        internalToken: c.getOrThrow<string>('MC_INTERNAL_TOKEN'),
+        adminToken: c.getOrThrow<string>('MC_ADMIN_TOKEN'),
+        webhookToken: c.get<string>('MC_WEBHOOK_TOKEN'),
+        nodeEnv: c.get<string>('NODE_ENV'),
+      }),
+    }),
   ],
 })
 export class AppModule {}

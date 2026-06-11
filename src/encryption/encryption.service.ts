@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { GatewayConfig } from '../config/gateway-config';
 import * as path from 'path';
 // CommonJS-пакет Mastercard, без типов
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -22,9 +22,8 @@ export class EncryptionService {
   readonly enabled: boolean;
   private jwe?: { encrypt: Function; decrypt: Function };
 
-  constructor(private readonly config: ConfigService) {
-    this.enabled =
-      (config.get<string>('MC_ENCRYPTION_ENABLED') ?? 'false') === 'true';
+  constructor(private readonly config: GatewayConfig) {
+    this.enabled = config.encryptionEnabled;
     if (this.enabled) {
       this.jwe = this.buildJwe();
       this.logger.log('Field-level encryption ВКЛЮЧЕНА (MTF/Production)');
@@ -48,13 +47,6 @@ export class EncryptionService {
   }
 
   private buildJwe() {
-    const req = (name: string) => {
-      const v = this.config.get<string>(name);
-      if (!v) {
-        throw new Error(`MC_ENCRYPTION_ENABLED=true but ${name} is not set`);
-      }
-      return v;
-    };
     const cwd = process.cwd();
     return new JweEncryption({
       paths: [
@@ -67,10 +59,15 @@ export class EncryptionService {
       mode: 'JWE',
       encryptedValueFieldName: 'data',
       // Mastercard Encryption Key (публичный cert) — им шифруем запрос.
-      encryptionCertificate: path.resolve(cwd, req('MC_ENCRYPTION_CERT_PATH')),
-      publicKeyFingerprint: req('MC_ENCRYPTION_FINGERPRINT').toLowerCase(),
+      encryptionCertificate: path.resolve(
+        cwd,
+        this.config.require('encryptionCertPath'),
+      ),
+      publicKeyFingerprint: this.config
+        .require('encryptionFingerprint')
+        .toLowerCase(),
       // Наш Client Encryption private key (PEM) — им расшифровываем ответ.
-      privateKey: path.resolve(cwd, req('MC_DECRYPTION_KEY_PATH')),
+      privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
     });
   }
 }
