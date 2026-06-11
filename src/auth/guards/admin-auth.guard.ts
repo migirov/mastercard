@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
 import { safeEqual, sha256hex } from '../../common/crypto.util';
 
@@ -13,7 +14,7 @@ export class AdminAuthGuard implements CanActivate {
   constructor(private readonly config: GatewayConfig) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<Request>();
     const token = req.headers['x-admin-token'];
     const expected = this.config.adminToken;
     if (

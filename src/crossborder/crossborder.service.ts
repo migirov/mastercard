@@ -2,10 +2,10 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
-  HttpException,
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { UpstreamHttpException } from '../common/upstream.exception';
 import { CredentialsService } from '../credentials/credentials.service';
 import { McCredentials } from '../credentials/credentials.types';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -209,7 +209,9 @@ export class CrossBorderService {
     }
     if (FORWARDABLE_STATUSES.has(res.status)) {
       // Тело уже расшифровано интерцептором (для plain — без изменений).
-      throw new HttpException(res.data as Record<string, unknown>, res.status);
+      // UpstreamHttpException → фильтр вложит тело MC под `upstream`, сохранив
+      // единый контракт ошибки (а не подменив его схемой MC).
+      throw new UpstreamHttpException(res.data, res.status);
     }
     // 401/403 — это проблема НАШИХ credentials, а не мерчанта; не вводим его в
     // заблуждение и не палим, что ключи невалидны. 5xx — тоже наружу не отдаём.

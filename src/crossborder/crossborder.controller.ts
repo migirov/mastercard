@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Query,
+  UseFilters,
   UseGuards,
   UsePipes,
 } from '@nestjs/common';
@@ -17,6 +18,8 @@ import {
 } from '@nestjs/swagger';
 import { CurrentTenant, TenantContext } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
+import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
@@ -35,14 +38,17 @@ import { CrossBorderService } from './crossborder.service';
 @ApiBearerAuth('merchant')
 @ApiResponse({
   status: 403,
+  type: ErrorResponseDto,
   description: 'Тенант не ACTIVE (нет двойного одобрения).',
 })
 @ApiResponse({
   status: 502,
+  type: ErrorResponseDto,
   description: 'Ошибка связи с Mastercard / её ответ скрыт.',
 })
 @Controller('crossborder')
 @UseGuards(TenantAuthGuard, TenantThrottlerGuard)
+@UseFilters(GatewayExceptionFilter)
 export class CrossBorderController {
   constructor(private readonly svc: CrossBorderService) {}
 
