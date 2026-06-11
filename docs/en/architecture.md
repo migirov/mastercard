@@ -6,6 +6,20 @@ Reflects the **actually implemented** state of the service. Related documents:
 [production-questions.md](./production-questions.md) (pre-prod blockers),
 [memory.md](./memory.md) (session context).
 
+> **UPDATE 2026-06-11 (refactor per team-lead feedback).** The module topology
+> changed: the whole integration is now ONE embeddable umbrella `MastercardModule`
+> (`src/mastercard.module.ts`, via `ConfigurableModuleBuilder`, `forRoot/forRootAsync`)
+> that the host app (the `b24club-api` monolith or the dev-harness `AppModule`)
+> imports in one line. Config arrives as options and is distributed via a global
+> `GatewayConfig` (`src/config/gateway-config.ts`) — services do NOT read
+> `process.env`/`ConfigService`. There is no global `ValidationPipe` anymore: each
+> controller carries its own pipe (`strictDtoPipe` for admin/oauth, `mcPassthroughPipe`
+> without `transform` for bodies going to MC). Webhook auth is fail-closed in-service
+> (+ a signature-verifier scaffold), not "trust the ingress". Thin modules
+> (Encryption/Idempotency/Health) were collapsed into providers/a controller. Details
+> in [memory.md](./memory.md), section "TEAM-LEAD FEEDBACK — DONE". The sections below
+> about "standalone" and the module list describe the previous layout.
+
 ## 1. Goal
 
 A standalone gateway service to Mastercard Cross-Border Services for a
