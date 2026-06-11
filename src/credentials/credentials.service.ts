@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   loadPrivateKeyFromP12,
@@ -30,7 +30,7 @@ interface CacheEntry {
  *   OWN      — собственные ключи мерчанта из SecretStore (Vault/KMS), кэш с TTL.
  */
 @Injectable()
-export class CredentialsService {
+export class CredentialsService implements OnModuleInit {
   private readonly logger = new Logger(CredentialsService.name);
   private platformCache?: McCredentials;
   private readonly ownCache = new Map<string, CacheEntry>();
@@ -42,6 +42,12 @@ export class CredentialsService {
   ) {
     this.ttlMs =
       Number(this.config.get<string>('MC_CREDS_CACHE_TTL_MS')) || DEFAULT_TTL_MS;
+  }
+
+  /** Прогреваем платформенные credentials на старте: fail-fast (кривой .p12/
+   *  пароль валит boot, а не первый запрос) + первый PLATFORM-запрос не ждёт парс. */
+  onModuleInit(): void {
+    this.platformCredentials();
   }
 
   async resolve(tenant: Tenant): Promise<McCredentials> {

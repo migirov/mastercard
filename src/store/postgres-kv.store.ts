@@ -53,13 +53,29 @@ export class PostgresKvStore implements KvStore {
     await this.repo.delete({ key });
   }
 
-  /** Удалить все протухшие записи (периодическая очистка). Возвращает кол-во. */
+  /**
+   * Удалить все протухшие записи (периодическая очистка). Возвращает кол-во.
+   * Под advisory xact-lock: в multi-pod реально чистит только ОДИН под за цикл,
+   * остальные сразу выходят (0) — без N конкурентных DELETE. Лок снимается на
+   * commit транзакции.
+   */
   async deleteExpired(): Promise<number> {
-    const res = await this.repo
-      .createQueryBuilder()
-      .delete()
-      .where('"expiresAt" < now()')
-      .execute();
-    return res.affected ?? 0;
+    return this.repo.manager.transaction(async (em) => {
+      const lock: Array<{ locked: boolean }> = await em.query(
+        'SELECT pg_try_advisory_xact_lock($1) AS locked',
+        [KV_CLEANUP_LOCK_KEY],
+      );
+      if (!lock?.[0]?.locked) return 0; // другой под уже чистит
+      const res = await em
+        .createQueryBuilder()
+        .delete()
+        .from(KvEntity)
+        .where('"expiresAt" < now()')
+        .execute();
+      return res.affected ?? 0;
+    });
   }
 }
+
+/** Произвольный ключ advisory-лока для координации очистки между подами. */
+const KV_CLEANUP_LOCK_KEY = 4242;
