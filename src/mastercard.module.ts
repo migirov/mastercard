@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { GatewayConfig, MastercardModuleOptions } from './config/gateway-config';
+import {
+  GatewayConfig,
+  MastercardModuleOptions,
+} from './config/gateway-config';
 import {
   ConfigurableModuleClass,
   MODULE_OPTIONS_TOKEN,

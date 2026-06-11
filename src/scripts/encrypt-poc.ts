@@ -49,13 +49,11 @@ async function main() {
       '   → тест только ШИФРОВАНИЯ; расшифровка ответа недоступна ' +
         '(нужен верный MC_ENCRYPTION_KEY_PASSWORD).',
     );
-    decryptPem = require('crypto')
-      .generateKeyPairSync('rsa', {
-        modulusLength: 2048,
-        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-        publicKeyEncoding: { type: 'spki', format: 'pem' },
-      })
-      .privateKey;
+    decryptPem = require('crypto').generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    }).privateKey;
   }
   const tmpKey = path.resolve(process.cwd(), 'certs/.poc-decrypt-key.pem');
   fs.writeFileSync(tmpKey, decryptPem, { mode: 0o600 });

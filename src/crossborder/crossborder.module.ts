@@ -9,7 +9,12 @@ import { CrossBorderService } from './crossborder.service';
 import { CrossBorderController } from './crossborder.controller';
 
 @Module({
-  imports: [TenantModule, CredentialsModule, MastercardClientModule, AuthModule],
+  imports: [
+    TenantModule,
+    CredentialsModule,
+    MastercardClientModule,
+    AuthModule,
+  ],
   // IdempotencyService — приватный провайдер (единственный потребитель —
   // CrossBorderService); работает поверх глобального KV_STORE.
   providers: [CrossBorderService, IdempotencyService, TenantThrottlerGuard],

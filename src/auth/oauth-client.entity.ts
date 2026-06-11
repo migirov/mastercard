@@ -1,4 +1,10 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  PrimaryColumn,
+} from 'typeorm';
 
 /** OAuth2-клиент партнёра. Секрет хранится только хэшем. */
 @Entity('oauth_clients')

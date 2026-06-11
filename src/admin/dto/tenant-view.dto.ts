@@ -15,7 +15,9 @@ export class TenantViewDto {
   @ApiProperty({ enum: CredentialMode })
   credentialMode!: CredentialMode;
 
-  @ApiPropertyOptional({ description: 'Только для OWN: собственный partner-id.' })
+  @ApiPropertyOptional({
+    description: 'Только для OWN: собственный partner-id.',
+  })
   partnerId?: string;
 
   @ApiProperty()
@@ -27,6 +29,9 @@ export class TenantViewDto {
   @ApiProperty()
   suspended!: boolean;
 
-  @ApiProperty({ enum: TenantStatus, description: 'Вычисляемый эффективный статус.' })
+  @ApiProperty({
+    enum: TenantStatus,
+    description: 'Вычисляемый эффективный статус.',
+  })
   status!: TenantStatus;
 }

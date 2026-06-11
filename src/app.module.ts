@@ -36,7 +36,8 @@ import { MastercardModule } from './mastercard.module';
           const raw = req.headers['x-request-id'];
           const candidate = Array.isArray(raw) ? raw[0] : raw;
           const id =
-            typeof candidate === 'string' && /^[A-Za-z0-9._-]{1,128}$/.test(candidate)
+            typeof candidate === 'string' &&
+            /^[A-Za-z0-9._-]{1,128}$/.test(candidate)
               ? candidate
               : randomUUID();
           res.setHeader('x-request-id', id);
@@ -85,7 +86,8 @@ import { MastercardModule } from './mastercard.module';
         decryptionKeyPath: c.get<string>('MC_DECRYPTION_KEY_PATH'),
         secretStore:
           (c.get<string>('MC_SECRET_STORE') as 'local' | 'vault') ?? 'local',
-        credsCacheTtlMs: Number(c.get<string>('MC_CREDS_CACHE_TTL_MS')) || undefined,
+        credsCacheTtlMs:
+          Number(c.get<string>('MC_CREDS_CACHE_TTL_MS')) || undefined,
         jwtSecret: c.getOrThrow<string>('MC_JWT_SECRET'),
         internalToken: c.getOrThrow<string>('MC_INTERNAL_TOKEN'),
         adminToken: c.getOrThrow<string>('MC_ADMIN_TOKEN'),

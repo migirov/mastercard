@@ -17,6 +17,11 @@ secrets.local.json
 dist/
 node_modules/
 
+# Тестовое покрытие
+coverage/
+
 # Логи и временные артефакты
 *.log
 startup*.log
+prettier.out
+eslint.out

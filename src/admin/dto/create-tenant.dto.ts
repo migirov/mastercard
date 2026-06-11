@@ -35,7 +35,10 @@ export class CreateTenantDto {
   // Для режима OWN secretRef ОБЯЗАТЕЛЕН (ключи мерчанта из секрет-стора); для
   // PLATFORM — не валидируется (используются платформенные ключи). Раньше эта
   // условная проверка была ручной в AdminService — теперь декларативно в DTO.
-  @ApiPropertyOptional({ maxLength: 256, description: 'Обязателен для credentialMode=OWN.' })
+  @ApiPropertyOptional({
+    maxLength: 256,
+    description: 'Обязателен для credentialMode=OWN.',
+  })
   @ValidateIf((o) => o.credentialMode === CredentialMode.OWN)
   @IsString()
   @IsNotEmpty({ message: 'secretRef is required for OWN' })

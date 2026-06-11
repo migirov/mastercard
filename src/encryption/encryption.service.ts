@@ -20,7 +20,14 @@ const ENDPOINT = '/crossborder';
 export class EncryptionService {
   private readonly logger = new Logger(EncryptionService.name);
   readonly enabled: boolean;
-  private jwe?: { encrypt: Function; decrypt: Function };
+  private jwe?: {
+    encrypt: (
+      path: string,
+      headers: object,
+      body: unknown,
+    ) => { body: unknown };
+    decrypt: (input: { request: { url: string }; body: unknown }) => unknown;
+  };
 
   constructor(private readonly config: GatewayConfig) {
     this.enabled = config.encryptionEnabled;
