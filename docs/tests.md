@@ -342,6 +342,37 @@ SELECT count(*) FROM tenants, oauth_clients, audit_log, kv_store;
 
 ---
 
+## Прогон 4 — финальный (после 5 нативных модулей + 5 аудитов)
+
+Полный ре-прогон на сервере с финальным кодом (terminus/env-validation/migrations/
+schedule/pino + 5 аудит-правок). Все зелёные:
+
+| # | Тест | Результат |
+|---|---|---|
+| 1–2 | `/health`, `/ready` (terminus) | ✅ 200 / 200 |
+| 3 | admin/tenants (Postgres) | ✅ 200, 4 тенанта |
+| 4–5 | auth-негативы (no/bad token) | ✅ 401 / 401 |
+| 6–7 | balances/rates own-sandbox (реальный MC) | ✅ 200 / 200 |
+| 8–9 | gating own-demo / unknown | ✅ 403 / 404 |
+| 10–13 | OAuth: issue→token→Bearer; bad secret | ✅ 200 / 401 |
+| 14 | quote (реальный MC) | ✅ 201 + proposal |
+| 15–17 | идемпотентность (long key / dup×2) | ✅ 400 / 400 / 400 |
+| 18–19 | webhook accepted / duplicate | ✅ |
+| 20 | rate-limit /oauth/token ×12 | ✅ 10×401 → 429 |
+| 21 | Postgres counts | ✅ tenants=4, oauth, audit↑, kv |
+| 22 | reqId-санитайз: валидный X-Request-Id | ✅ отражён как есть |
+| 23 | reqId-санитайз: вредоносный (200 симв.) | ✅ заменён на UUID (аудит 4) |
+| — | pino slim-логи (аудит 2) | ✅ только id/method/url + status, без дампа заголовков, токен не утёк |
+| — | platform-creds preload (аудит 1) | ✅ загружены в onModuleInit на старте (boot без ошибок) |
+
+**Аудит-правки (5):** (1) прогрев platform-credentials на старте; (2) slim pino-логи
+(без дампа заголовков); (3) glob миграций от `__dirname` (ts+js); (4) санитайз
+входящего `X-Request-Id` (анти log-injection); (5) advisory-lock на cron-очистке
+`kv_store` (один под за цикл). KV-очистка с advisory-lock — DELETE-часть совпадает
+с проверенной ранее SQL; cron ежечасный (вживую не триггерился).
+
+---
+
 ## Не покрыто
 
 - **Шифрование (JWE)** — только в MTF/Prod (sandbox FLE не поддерживает, плюс
