@@ -22,7 +22,8 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 | [api.md](docs/api.md) | **Справочник по нашему API** — все эндпоинты (OAuth, Cross-Border, Admin, Webhooks), аутентификация, примеры запросов/ответов, rate-limits. |
 | [api-mastercard.md](docs/api-mastercard.md) | **Официальная дока Mastercard** Cross-Border (полный референс, ~540 КБ). Источник истины по форматам payload. |
 | [plan.md](docs/plan.md) | **План и статус** по фазам 1–6 + миграции/доработки, с историей аудитов. |
-| [tests.md](docs/tests.md) | **Отчёт о тестировании** — что прогонялось на живом sandbox + Postgres, команды и фактические ответы. |
+| [tests.md](docs/tests.md) | **Тесты интеграции с Mastercard** — исходящие вызовы в Cross-Border API + входящие webhooks. |
+| [tests-inner.md](docs/tests-inner.md) | **Тесты внутренней логики** — auth/доступ, надёжность, инфраструктура (без обращения к MC). |
 | [production-questions.md](docs/production-questions.md) | **Блокеры и вопросы перед production** (в т.ч. per-tenant encryption, выбор секрет-менеджера, TypeORM-интеграция). |
 | [client-questions.md](docs/client-questions.md) | Открытые вопросы к клиенту по интеграции. |
 | [memory.md](docs/memory.md) | Хендофф-контекст разработки (для восстановления состояния сессии). |
