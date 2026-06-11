@@ -187,6 +187,8 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 
 | Метод | Путь | Что делает |
 |---|---|---|
+| `GET` | `/health` | **Liveness** (k8s): процесс жив → `200 {"status":"ok"}`. Без auth. |
+| `GET` | `/ready` | **Readiness** (k8s): готов обслуживать (пинг Postgres) → `200`/`503`. Без auth. |
 | `GET` | `/api-docs` | Swagger UI (выключен в production без `SWAGGER_ENABLED`) |
 
 ---

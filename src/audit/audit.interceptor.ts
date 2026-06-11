@@ -7,6 +7,9 @@ import {
 import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
 
+/** Пути, которые не пишем в audit (частые пробы/служебное — иначе шум в БД). */
+const SKIP_AUDIT = ['/health', '/ready', '/api-docs'];
+
 /** Глобальный интерсептор: пишет audit-запись на каждый HTTP-запрос. */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -16,6 +19,10 @@ export class AuditInterceptor implements NestInterceptor {
     if (ctx.getType() !== 'http') return next.handle();
 
     const req = ctx.switchToHttp().getRequest();
+    const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
+    if (SKIP_AUDIT.some((p) => path.startsWith(p))) {
+      return next.handle(); // health-пробы и Swagger не аудируем
+    }
     const res = ctx.switchToHttp().getResponse();
     const start = Date.now();
 
@@ -25,7 +32,7 @@ export class AuditInterceptor implements NestInterceptor {
         tenantId: req.tenantContext?.tenantId,
         source: req.tenantContext?.source,
         method: req.method,
-        path: (req.originalUrl ?? req.url ?? '').split('?')[0],
+        path,
         status,
         ms: Date.now() - start,
       });

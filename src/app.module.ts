@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DatabaseModule } from './database/database.module';
+import { HealthModule } from './health/health.module';
 import { StoreModule } from './store/store.module';
 import { TenantModule } from './tenants/tenant.module';
 import { CredentialsModule } from './credentials/credentials.module';
@@ -17,6 +18,7 @@ import { AuditModule } from './audit/audit.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }), // читает .env из корня проекта
     DatabaseModule,
+    HealthModule,
     StoreModule,
     // Rate-limit: нативный @nestjs/throttler, штатный in-memory storage (per-pod).
     // Авторитетный глобальный лимит — на ингрессе/API-gateway.
