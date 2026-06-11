@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { KvEntity } from '../database/entities/kv.entity';
+import { KvCleanupService } from './kv-cleanup.service';
 import { PostgresKvStore } from './postgres-kv.store';
 import { KV_STORE } from './kv.types';
 
@@ -10,6 +11,7 @@ import { KV_STORE } from './kv.types';
   imports: [TypeOrmModule.forFeature([KvEntity])],
   providers: [
     PostgresKvStore,
+    KvCleanupService,
     { provide: KV_STORE, useExisting: PostgresKvStore },
   ],
   exports: [KV_STORE],

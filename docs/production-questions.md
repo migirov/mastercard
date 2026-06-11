@@ -70,8 +70,8 @@
 
 - RFI-подсистема (requests for information / documents).
 - Observability: метрики, трейсинг, алерты.
-- Очистка протухших `kv_store` (cron через `@nestjs/schedule`) — иначе таблица
-  растёт (записи живут по TTL, но физически не удаляются до обращения).
+- ~~Очистка протухших `kv_store`~~ — **сделано**: `KvCleanupService` (`@Cron`
+  ежечасно, `@nestjs/schedule`) удаляет протухшие записи.
 - Расширить Swagger-аннотации для мерчантов.
 
 ---
