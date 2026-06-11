@@ -1,7 +1,7 @@
 # Session Memory — Mastercard Cross-Border Gateway
 
 Хендофф-документ для восстановления контекста (если диалог был сжат/compact).
-Дополняет [README.md](../README.md) (точка входа), [plan.md](./plan.md) (статус
+Дополняет [README.md](../../README.md) (точка входа), [plan.md](./plan.md) (статус
 по фазам), [architecture.md](./architecture.md) (дизайн), [documentation.md](./documentation.md)
 (сущности), [api.md](./api.md) (эндпоинты), [tests.md](./tests.md) (отчёт о
 тестах), [production-questions.md](./production-questions.md) (блокеры перед прод).
