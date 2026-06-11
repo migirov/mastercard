@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -40,9 +41,13 @@ async function bootstrap() {
   assertProdSecrets();
 
   // bodyParser отключаем, чтобы зарегистрировать JSON-парсер со своим лимитом.
+  // bufferLogs: копим логи старта, пока не подключим pino-логгер.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
+    bufferLogs: true,
   });
+  // Структурный логгер (pino) для всего приложения + correlation-id.
+  app.useLogger(app.get(PinoLogger));
 
   // trust proxy: за обратным прокси/LB нужно, чтобы req.ip и X-Forwarded-*
   // отражали реального клиента (иначе IP-rate-limit некорректен). По умолчанию
