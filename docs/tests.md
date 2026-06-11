@@ -362,6 +362,8 @@ schedule/pino + 5 аудит-правок). Все зелёные:
 | 21 | Postgres counts | ✅ tenants=4, oauth, audit↑, kv |
 | 22 | reqId-санитайз: валидный X-Request-Id | ✅ отражён как есть |
 | 23 | reqId-санитайз: вредоносный (200 симв.) | ✅ заменён на UUID (аудит 4) |
+| 24 | `GET /admin/audit` (батч-писатель + flush) | ✅ 102 записи, свежая сверху |
+| 25 | **персистентность после рестарта пода** | ✅ тенанты=4 (без дублей сидов), webhook `fin-evt-1` → duplicate (kv пережил), audit не обнулился |
 | — | pino slim-логи (аудит 2) | ✅ только id/method/url + status, без дампа заголовков, токен не утёк |
 | — | platform-creds preload (аудит 1) | ✅ загружены в onModuleInit на старте (boot без ошибок) |
 
