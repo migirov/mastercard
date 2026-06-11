@@ -217,10 +217,10 @@ warning — the client has the same combo).
 
 ## OPEN QUESTIONS / tasks (important)
 
-1. **TypeORM: is our service standalone or part of the `b24club-api` monolith?**
-   - Standalone → the current setup is correct (own `DatabaseModule.forRoot` + `DATABASE_URL`).
-   - Part of the monolith → drop our `forRoot`, entities via `forFeature` in their
-     DataSource, schema via their migrations (not `synchronize`). **Awaiting an answer.**
+1. **TypeORM: standalone or part of the monolith?** → **ANSWERED:** the client wants
+   **a single module** in their `b24club-api` monolith (see "NEXT STEPS" #2). So: drop
+   our `forRoot`, entities via `forFeature` in THEIR DataSource, their migrations (not
+   `synchronize`). ← this is what we do.
 2. ~~Removing `Idempotency-Key`~~ — **DECIDED TO KEEP** (client confirmed 2026-06-10).
    `IdempotencyService` stays on `POST /crossborder/payments`.
 3. 🔴 **per-tenant encryption BLOCKER:** the interceptor encrypts with the **platform**
@@ -235,15 +235,54 @@ warning — the client has the same combo).
 
 ---
 
+## NEXT STEPS (client requests 2026-06-11 — to do after compact)
+
+1. **Add DTOs where needed.** The client asked "why are there no DTOs anywhere?".
+   Currently only one DTO (`CreateTenantDto`); cross-border bodies are `@Body() unknown`
+   (passthrough to MC). Plan: **strict DTOs on OUR boundaries** (admin, `/oauth/token`,
+   webhook); **soft on MC passthrough** (quote/payment/confirm) — validate only the
+   critical fields (`transaction_reference`, `amount/currency`, account URIs,
+   `payment_type`), pass the rest through, **without `transform`** (MC amounts are
+   STRINGS — transform would corrupt them!) and **without `forbidNonWhitelisted`** on
+   MC routes. ⚠️ "Validate EVERYTHING" = bad: brittle on MC schema changes, transform
+   corrupts amounts, huge maintenance, MC validates itself anyway. + Swagger `@ApiProperty`.
+
+2. **Make ONE Mastercard module.** Client: there must be a single importable module,
+   not ~14 top-level ones. This answers the TypeORM question: **embed into their
+   `b24club-api` monolith**. Create an umbrella `MastercardModule.forRoot()/forRootAsync()`
+   with our sub-modules inside (private). Remove our own: `DatabaseModule.forRoot`
+   (→ `forFeature` in THEIR DataSource), global `ValidationPipe`/`Throttler`/`Logger`/
+   helmet/body-limit (the host app owns those), `ConfigModule` reading `.env` (→ config
+   via `forRoot(options)` or their `ConfigService`). Keep our `AppModule`+`main.ts` only
+   as a dev harness. **Clarify with the client:** (a) full embed? (b) config via
+   `forRoot(options)` or their `ConfigService`?
+
+3. **Ingress — check webhook tokens.** Per MC docs, webhook authentication = **mTLS at
+   the ingress**; our `X-Webhook-Token` is dev-only. Verify/configure the real mTLS
+   authentication for MC webhooks at the ingress for production.
+
+4. **Add the remaining MC APIs** (compared with `api-mastercard.md`; core exists, missing):
+   - **Cancel Confirmed Quote** — `POST crossborder/quotes/cancellations`.
+   - **Retrieve Confirmed Quote** — `GET crossborder/quotes/{ref}/proposals/{id}`.
+   - **Account Validation API** — `POST crossborder/accounts/validations` (validate the
+     recipient account before payment: IBAN/card eligibility/account status).
+   - **Bank Information Lookup** — `crossborder/banks/details`.
+   - **Account generation** — `crossborder/accounts/generate`.
+   These are separate opt-in MC suites → first ask the client (question E1) what's needed.
+   Easy to add (same sign+passthrough pattern).
+
+---
+
 ## Where we stopped (last action of the session)
 
 The service was **tested live** (sandbox + Postgres in Docker inside WSL), passed a
 **10-cycle audit + 4 regressions** (fixes, no regressions), documentation was
 extended (`api.md`, `tests.md`, `production-questions.md`, `README.md`) and **pushed**
 to `github.com/migirov/mastercard` (public; secrets `.env`/`certs/` in `.gitignore`,
-not committed). Added `.env.example` (a values-free template). Idempotency-Key — kept.
-**Awaiting an answer** on TypeORM (standalone service vs monolith) and on resolving
-the per-tenant encryption blocker before prod-OWN.
+not committed). Docs split into `docs/ru/` and `docs/en/`; README in English
+(+`README.ru.md`). **Next — 4 client tasks** (see "NEXT STEPS"): DTOs, a single module
+(embed into the monolith), mTLS webhook at the ingress, the remaining MC APIs. Plus the
+open per-tenant encryption blocker before prod-OWN.
 
 > Important about the environment: the "Bash" tool is Git Bash/MINGW on Windows (sees
 > the project over UNC, does NOT see `/home`); run Docker and git via `wsl -d Ubuntu ...`.
