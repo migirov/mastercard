@@ -26,6 +26,7 @@ import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
+import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { mcPassthroughPipe } from './dto/mc-passthrough.pipe';
 import { PaymentRequestDto } from './dto/payment-request.dto';
@@ -81,6 +82,19 @@ export class CrossBorderController {
   @UsePipes(mcPassthroughPipe())
   quote(@CurrentTenant() ctx: TenantContext, @Body() body: QuoteRequestDto) {
     return this.svc.createQuote(ctx.tenantId, body);
+  }
+
+  @Post('address-validations')
+  @HttpCode(200) // валидация — вычисление, не создание ресурса
+  @ApiOperation({
+    summary: 'Валидация адреса получателя до платежа (MC Address Validation).',
+  })
+  @UsePipes(mcPassthroughPipe())
+  validateAddress(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: AddressValidationRequestDto,
+  ) {
+    return this.svc.validateAddress(ctx.tenantId, body);
   }
 
   @Post('quotes/confirmations')
