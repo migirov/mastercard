@@ -1,6 +1,5 @@
 import {
   BadGatewayException,
-  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -93,17 +92,8 @@ export class CrossBorderService {
     body: PaymentRequestDto,
     idempotencyKey?: string,
   ) {
-    // Валидируем Idempotency-Key ДО использования как ключа KV: иначе длинный
-    // ключ переполнит kv_store.key (varchar 256) → ошибка БД → 500. Ограничиваем
-    // длину и безопасный charset (UUID/токены укладываются).
-    if (
-      idempotencyKey !== undefined &&
-      (idempotencyKey.length > 128 || !/^[\w.\-:]+$/.test(idempotencyKey))
-    ) {
-      throw new BadRequestException(
-        'Idempotency-Key: up to 128 chars from [A-Za-z0-9._-:]',
-      );
-    }
+    // Idempotency-Key уже провалидирован на границе (IdempotencyKeyPipe: длина
+    // ≤128 + безопасный charset для kv_store.key). Здесь — только бизнес-логика.
     // Резолвим credentials (gating + возможный медленный SecretStore) ДО захвата
     // замка идемпотентности: producer внутри замка должен быть ограничен только
     // 30-сек таймаутом MC (≪ LOCK_TTL 120с), иначе медленный Vault может растянуть

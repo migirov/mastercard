@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   Param,
   Post,
@@ -21,6 +20,8 @@ import { CurrentTenant, TenantContext } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
+import { IdempotencyKey } from '../common/idempotency-key.decorator';
+import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
@@ -98,7 +99,7 @@ export class CrossBorderController {
   payment(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: PaymentRequestDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
+    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey?: string,
   ) {
     return this.svc.createPayment(ctx.tenantId, body, idempotencyKey);
   }
