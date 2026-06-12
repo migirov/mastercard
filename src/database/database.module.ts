@@ -2,10 +2,7 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TenantEntity } from '../tenants/tenant.entity';
-import { OAuthClientEntity } from '../auth/oauth-client.entity';
-import { AuditLogEntity } from '../audit/audit-log.entity';
-import { KvEntity } from '../store/kv.entity';
+import { MASTERCARD_ENTITIES } from '../mastercard.entities';
 
 /** Подключение к PostgreSQL (TypeORM). Схема — synchronize в dev, миграции в проде. */
 @Module({
@@ -28,7 +25,7 @@ import { KvEntity } from '../store/kv.entity';
         return {
           type: 'postgres',
           url,
-          entities: [TenantEntity, OAuthClientEntity, AuditLogEntity, KvEntity],
+          entities: [...MASTERCARD_ENTITIES],
           extra: { max: poolMax },
           // В production авто-синхронизацию схемы НЕ включаем НИКОГДА (риск
           // потери данных при auto-alter) — только миграции. В dev: по умолчанию
