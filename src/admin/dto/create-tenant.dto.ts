@@ -4,12 +4,13 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateIf,
 } from 'class-validator';
 import { CredentialMode } from '../../tenants/tenant.types';
 
-/** Тело POST /admin/tenants — валидируется глобальным ValidationPipe. */
+/** Тело POST /admin/tenants — валидируется strictDtoPipe на AdminController. */
 export class CreateTenantDto {
   @ApiProperty({ maxLength: 120 })
   @IsString()
@@ -20,10 +21,14 @@ export class CreateTenantDto {
   @IsEnum(CredentialMode)
   credentialMode!: CredentialMode;
 
+  // id становится первичным ключом тенанта и потом фигурирует в путях admin
+  // `:id` (через SafeIdPipe). Ограничиваем тем же безопасным charset, иначе можно
+  // создать тенанта с id, который SafeIdPipe затем отвергнет (станет неадресуемым).
   @ApiPropertyOptional({ maxLength: 64 })
   @IsOptional()
   @IsString()
   @MaxLength(64)
+  @Matches(/^[A-Za-z0-9._-]+$/, { message: 'id: only [A-Za-z0-9._-]' })
   id?: string;
 
   @ApiPropertyOptional({ maxLength: 128 })

@@ -35,15 +35,11 @@ export class GatewayExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    // OAuth2 token endpoint — формат ошибки по RFC 6749 §5.2 (`{error}`).
+    // OAuth2 token endpoint — формат ошибки по RFC 6749 §5.2 (`{error}`), с КОДОМ
+    // из фиксированного набора (не утекаем сообщения валидатора и не маскируем
+    // 5xx под клиентский invalid_request).
     if (req.path?.endsWith('/oauth/token')) {
-      const m =
-        exception instanceof HttpException
-          ? messageOf(exception.getResponse())
-          : undefined;
-      res
-        .status(status)
-        .json({ error: typeof m === 'string' ? m : 'invalid_request' });
+      res.status(status).json({ error: oauthErrorCode(exception, status) });
       return;
     }
 
@@ -51,7 +47,8 @@ export class GatewayExceptionFilter implements ExceptionFilter {
       statusCode: status,
       path: req.url,
       timestamp: new Date().toISOString(),
-      requestId: req.id ?? (req.headers['x-request-id'] as string | undefined),
+      requestId:
+        req.id ?? (req.headers['x-request-id'] as string | undefined) ?? null,
     };
 
     if (exception instanceof UpstreamHttpException) {
@@ -90,6 +87,33 @@ export class GatewayExceptionFilter implements ExceptionFilter {
       message: 'Internal server error',
     });
   }
+}
+
+/** Допустимые коды ошибок OAuth2 (RFC 6749 §5.2). */
+const OAUTH_ERROR_CODES = new Set([
+  'invalid_request',
+  'invalid_client',
+  'invalid_grant',
+  'unauthorized_client',
+  'unsupported_grant_type',
+  'invalid_scope',
+]);
+
+/**
+ * Код ошибки для /oauth/token: 5xx → `server_error` (не маскируем сбой под
+ * клиентскую ошибку); 401 → `invalid_client`; иначе — сообщение, если это
+ * валидный RFC-код, иначе `invalid_request` (не утекаем фразы валидатора).
+ */
+function oauthErrorCode(exception: unknown, status: number): string {
+  if (status >= 500) return 'server_error';
+  if (status === 401) return 'invalid_client';
+  const m =
+    exception instanceof HttpException
+      ? messageOf(exception.getResponse())
+      : undefined;
+  return typeof m === 'string' && OAUTH_ERROR_CODES.has(m)
+    ? m
+    : 'invalid_request';
 }
 
 /** Достаёт message из тела HttpException (строка / объект Nest). */

@@ -14,7 +14,18 @@ describe('SafeIdPipe', () => {
   it.each(['', 'a/b', 'a\\b', 'a b', 'x..y', '..'])(
     'rejects unsafe value %p with BadRequest',
     (bad) => {
-      expect(() => pipe.transform(bad as string)).toThrow(BadRequestException);
+      expect(() => pipe.transform(bad)).toThrow(BadRequestException);
     },
   );
+
+  // ?ref[x]=1 → объект, ?ref=a&ref=b → массив; не-строка не должна ронять pipe в 500.
+  it.each([
+    ['array', ['a', 'b']],
+    ['object', { x: '1' }],
+    ['number', 42],
+    ['null', null],
+    ['undefined', undefined],
+  ])('rejects non-string %s with BadRequest (no crash)', (_label, bad) => {
+    expect(() => pipe.transform(bad)).toThrow(BadRequestException);
+  });
 });
