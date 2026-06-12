@@ -150,6 +150,23 @@ async function main(): Promise<void> {
       refSlash.status === 400,
       `HTTP ${refSlash.status}`,
     );
+
+    // 10) #3: представление партнёра НЕ отдаёт secretRef (own-sandbox = OWN со
+    // секретом), но отдаёт вычисленный status. Whitelist через TenantViewDto +
+    // @Exclude на сущности + ClassSerializerInterceptor.
+    const view = await http.get('/admin/tenants/own-sandbox', {
+      headers: admin,
+    });
+    const noSecret =
+      view.status === 200 &&
+      view.data != null &&
+      !('secretRef' in view.data) &&
+      typeof view.data.status === 'string';
+    check(
+      'GET /admin/tenants/own-sandbox → 200 без secretRef, со status',
+      noSecret,
+      `HTTP ${view.status}, keys=${Object.keys(view.data ?? {}).join(',')}`,
+    );
   } finally {
     await app.close();
   }
