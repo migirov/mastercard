@@ -3,6 +3,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
@@ -40,6 +41,10 @@ export class TenantEntity implements Tenant {
   @Column({ type: 'boolean', default: false })
   suspended!: boolean;
 
+  // list() сортирует по createdAt ASC — индекс под этот порядок. В dev создаётся
+  // через synchronize; в проде хост подхватывает его из метаданных entity при
+  // migration:generate (схему в проде ведёт хост, не synchronize).
+  @Index()
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
