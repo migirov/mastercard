@@ -1,5 +1,6 @@
 import {
   Body,
+  ClassSerializerInterceptor,
   Controller,
   Delete,
   Get,
@@ -9,6 +10,7 @@ import {
   Post,
   UseFilters,
   UseGuards,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import {
@@ -18,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { plainToInstance } from 'class-transformer';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
 import { AuditService } from '../audit/audit.service';
 import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
@@ -27,6 +30,7 @@ import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, Tenant } from '../tenants/tenant.types';
 import { AdminService } from './admin.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
+import { IssuedClientDto } from './dto/issued-client.dto';
 import { TenantViewDto } from './dto/tenant-view.dto';
 
 /** Admin-API: ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов. */
@@ -36,6 +40,10 @@ import { TenantViewDto } from './dto/tenant-view.dto';
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
 @UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
 @UseFilters(GatewayExceptionFilter)
+// Per-controller (не глобально — модуль встраиваемый, не навязывает хосту):
+// чтит class-transformer-декораторы при сериализации ответа. Страхует @Exclude
+// на TenantEntity.secretRef, если какой-то хендлер вернёт сущность напрямую.
+@UseInterceptors(ClassSerializerInterceptor)
 export class AdminController {
   constructor(
     private readonly admin: AdminService,
@@ -113,12 +121,19 @@ export class AdminController {
   @ApiOperation({
     summary: 'Выпустить OAuth-клиента (client_secret показан 1 раз).',
   })
-  async issueClient(@Param('id', SafeIdPipe) id: string) {
+  @ApiResponse({ status: 201, type: IssuedClientDto })
+  async issueClient(
+    @Param('id', SafeIdPipe) id: string,
+  ): Promise<IssuedClientDto> {
     const creds = await this.admin.issueClient(id);
-    return {
-      ...creds,
-      note: 'client_secret показан один раз — сохраните его сейчас',
-    };
+    return plainToInstance(
+      IssuedClientDto,
+      {
+        ...creds,
+        note: 'client_secret показан один раз — сохраните его сейчас',
+      },
+      { excludeExtraneousValues: true },
+    );
   }
 
   @Delete('clients/:clientId')
@@ -133,11 +148,18 @@ export class AdminController {
     return res;
   }
 
-  /** Представление без secretRef, с вычисленным статусом. */
+  /**
+   * Представление партнёра наружу. Whitelist через class-transformer:
+   * `excludeExtraneousValues` копирует ТОЛЬКО `@Expose`-поля TenantViewDto, так
+   * что `secretRef` (и любая будущая колонка сущности) не попадёт в ответ по
+   * умолчанию — раньше ручной `{ secretRef, ...pub }` был blacklist'ом и новая
+   * чувствительная колонка «протекла» бы через `...pub`.
+   */
   private view(t: Tenant): TenantViewDto {
-    const { secretRef: _secretRef, ...pub } = t as Tenant & {
-      secretRef?: string;
-    };
-    return { ...pub, status: effectiveStatus(t) };
+    return plainToInstance(
+      TenantViewDto,
+      { ...t, status: effectiveStatus(t) },
+      { excludeExtraneousValues: true },
+    );
   }
 }
