@@ -81,7 +81,7 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
 |---|---|
 | tenants, oauth_clients, audit_log | **Postgres** (TypeORM) |
 | idempotency, webhook-дедуп | **Postgres** (KvStore→PG, TTL, атомарный `INSERT … ON CONFLICT … WHERE expired`) |
-| rate-limit | нативный `@nestjs/throttler` v5, **in-memory per-pod** (авторитетный лимит — ингресс) |
+| rate-limit | самодостаточный per-pod `@nestjs/throttler` v5 (корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative) |
 | кэш креды | **in-memory per-pod** (кэш из Vault, не источник истины) |
 | секреты партнёров | SecretStore (Vault) |
 
@@ -99,7 +99,7 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (выпуск), `GET /admin/audit`.
-- **Webhook:** `POST /webhooks/mastercard` (прод: mTLS на ингрессе; dev: `X-Webhook-Token`).
+- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, обязателен в prod и dev; mTLS на ингрессе — опциональный доп. слой, не аутентификация).
 - **Swagger:** `GET /api-docs` (выключен в production, если нет `SWAGGER_ENABLED`).
 
 ---

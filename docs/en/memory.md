@@ -81,7 +81,7 @@ ephemeral. Full table — in `documentation.md`. In short:
 |---|---|
 | tenants, oauth_clients, audit_log | **Postgres** (TypeORM) |
 | idempotency, webhook dedup | **Postgres** (KvStore→PG, TTL, atomic `INSERT … ON CONFLICT … WHERE expired`) |
-| rate-limit | native `@nestjs/throttler` v5, **in-memory per-pod** (authoritative limit — ingress) |
+| rate-limit | self-standing per-pod `@nestjs/throttler` v5 (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
 | credentials cache | **in-memory per-pod** (cache from Vault, not the source of truth) |
 | partner secrets | SecretStore (Vault) |
 
@@ -99,7 +99,7 @@ an exact global rate-limit is ever needed, it can be reused.
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (issue), `GET /admin/audit`.
-- **Webhook:** `POST /webhooks/mastercard` (prod: mTLS at ingress; dev: `X-Webhook-Token`).
+- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, required in prod and dev; mTLS at the ingress optional, additional — not the authentication).
 - **Swagger:** `GET /api-docs` (off in production unless `SWAGGER_ENABLED`).
 
 ---

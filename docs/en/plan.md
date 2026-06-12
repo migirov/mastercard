@@ -75,8 +75,10 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
 - ✅ **Rate-limit** (`@nestjs/throttler`): crossborder 120/min by tenantId,
   `/oauth/token` 10/min by client_id, admin 120/min. *(Improved later — see below.)*
 - ✅ MC **webhook** scaffold (`POST /webhooks/mastercard`): dedup by `eventRef`,
-  always 200. **Authentication = mTLS at the ingress** (not HMAC); app-level — dev
-  `X-Webhook-Token`.
+  always 200. **Authentication = in-service fail-closed token (`X-Webhook-Token`),
+  required in prod and dev**; JWS/HMAC signature verification is the planned
+  authoritative factor (pending MC spec, C1). mTLS at the ingress is optional,
+  additional — not the authentication.
 
 ## Phase 4 — JWE field-level encryption ✅ (sandbox plain; ready for MTF/Prod)
 
@@ -140,8 +142,9 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
   `PostgresKvStore` (atomic `setIfAbsent`).
 - ✅ Tenant seeding — atomic `INSERT … ON CONFLICT DO NOTHING` (no races when many
   pods start at once).
-- ✅ Rate-limit — native `@nestjs/throttler` **in-memory per-pod** (authority —
-  ingress); credentials cache — in-memory per-pod (cache from Vault).
+- ✅ Rate-limit — self-standing per-pod `@nestjs/throttler` (correctness independent
+  of the ingress; an ingress limit, if any, is optional defense-in-depth, not
+  authoritative); credentials cache — in-memory per-pod (cache from Vault).
 - ✅ `DATABASE_URL` + `DB_SYNC`; `docker-compose.yml` (Postgres 16).
 - 📝 Typecheck OK; e2e on a live Postgres later run successfully (see tests-inner.md).
 

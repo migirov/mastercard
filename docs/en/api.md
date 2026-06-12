@@ -19,7 +19,7 @@ Four independent methods — each endpoint group has its own:
 | `Authorization: Bearer <JWT>` | **external merchant** (partner) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | **internal** platform service/UI | `/crossborder/*` |
 | `X-Admin-Token` | **platform operator** | `/admin/*` |
-| mTLS at the ingress (dev: `X-Webhook-Token`) | **Mastercard** | `/webhooks/*` |
+| in-service `X-Webhook-Token` (fail-closed; mTLS at the ingress is optional, additional) | **Mastercard** | `/webhooks/*` |
 | — (public) | anyone with client_id/secret | `/oauth/token` |
 
 **Important:** `tenantId` is NEVER taken from the body/query — only from
@@ -176,7 +176,7 @@ no suspension.
 |---|---|---|
 | `POST` | `/webhooks/mastercard` | Receive push notifications (transaction statuses, etc.) |
 
-- **Authentication:** prod — **mTLS at the ingress**; dev — `X-Webhook-Token`.
+- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod and dev; JWS/HMAC signature verification is the planned authoritative factor (pending MC spec, C1). mTLS at the ingress is optional, additional — not the authentication.
 - **Always responds `200`** (otherwise MC retries).
 - **Dedup** by `eventRef` (MC retries up to 3 times): repeat → `{"status":"duplicate"}`,
   otherwise `{"status":"accepted"}`.
@@ -201,5 +201,4 @@ no suspension.
 | `/oauth/token` | 10 / min | `client_id` (not bypassable by IP rotation) |
 | `/admin/*` | 120 / min | IP |
 
-The in-app throttler is per-pod (best-effort); the authoritative limit is at the
-ingress. Exceeding it → `429`.
+Rate-limiting is a self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is optional defense-in-depth, not authoritative. Exceeding it → `429`.

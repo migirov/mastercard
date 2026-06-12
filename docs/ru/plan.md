@@ -75,8 +75,10 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 - ✅ **Rate-limit** (`@nestjs/throttler`): crossborder 120/мин по tenantId,
   `/oauth/token` 10/мин по client_id, admin 120/мин. *(Доработано позже — см. ниже.)*
 - ✅ Каркас **вебхука** MC (`POST /webhooks/mastercard`): дедуп по `eventRef`,
-  всегда 200. **Аутентификация = mTLS на ингрессе** (не HMAC); app-уровень —
-  dev `X-Webhook-Token`.
+  всегда 200. **Аутентификация = in-service fail-closed токен (`X-Webhook-Token`),
+  обязателен в prod и dev**; проверка подписи JWS/HMAC — планируемый
+  authoritative-фактор (ждёт спеку MC, C1). mTLS на ингрессе — опциональный доп.
+  слой, не аутентификация.
 
 ## Фаза 4 — JWE field-level encryption ✅ (sandbox plain; готово к MTF/Prod)
 
@@ -142,8 +144,9 @@ partnerId; санитизация `secretRef`; passthrough строкового 
   `KvStore` → `PostgresKvStore` (атомарный `setIfAbsent`).
 - ✅ Засев тенантов — атомарный `INSERT … ON CONFLICT DO NOTHING` (без гонок при
   одновременном старте многих подов).
-- ✅ Rate-limit — нативный `@nestjs/throttler` **in-memory per-pod** (авторитет —
-  ингресс); кэш credentials — in-memory per-pod (кэш из Vault).
+- ✅ Rate-limit — самодостаточный per-pod `@nestjs/throttler` (корректность не
+  зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не
+  authoritative); кэш credentials — in-memory per-pod (кэш из Vault).
 - ✅ `DATABASE_URL` + `DB_SYNC`; `docker-compose.yml` (Postgres 16).
 - 📝 Typecheck OK; **e2e на живом Postgres — не прогнан** (нужен `docker compose up`).
 

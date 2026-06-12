@@ -40,12 +40,13 @@ The service is deployed to Docker/Kubernetes on **many pods**. Hence the rule:
 | `audit_log` | **Postgres** (TypeORM) | domain | aggregated across all pods |
 | `idempotency` | **Postgres** (`KvStore`→PG, TTL) | domain | payment retry on another pod → otherwise a double charge |
 | webhook dedup | **Postgres** (`KvStore`→PG, TTL) | domain | MC webhook retry on another pod → otherwise a duplicate |
-| rate-limit | native `@nestjs/throttler`, **in-memory per-pod** | ephemeral | authoritative limit — at the ingress; in-app a coarse per-pod mesh |
+| rate-limit | self-standing per-pod `@nestjs/throttler` | ephemeral | correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative |
 | credentials cache | **in-memory per-pod** | cache | source of truth — Vault/env; pods cache independently from one source, TTL bounds staleness |
 | partner secrets | SecretStore (Vault) | external | managed by the secret manager, not our layer |
 
 **Redis is NOT used** — Postgres is chosen for consistent state; for ephemeral
-rate-limit — the native in-memory throttler (per-pod) + the ingress.
+rate-limit — the self-standing per-pod `@nestjs/throttler` (correctness independent
+of the ingress); an ingress limit, if any, is optional defense-in-depth, not authoritative.
 
 **Storage stack:** PostgreSQL + TypeORM (`@nestjs/typeorm`), `synchronize` in dev
 (auto-schema), migrations in prod. Connection via `DATABASE_URL`.
@@ -529,8 +530,9 @@ Code: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts)
 
 ## Behavior
 
-- **Authentication:** prod — **mTLS at the ingress** (authoritative); app-level — a
-  dev shared secret `X-Webhook-Token` (for local testing).
+- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod
+  and dev; JWS/HMAC signature verification is the planned authoritative factor (pending MC
+  spec, C1). mTLS at the ingress is optional, additional — not the authentication.
 - **Dedup:** `setIfAbsent('wh:<eventRef>')` with a one-day TTL — MC retries up to 3
   times. Repeat → `{status:'duplicate'}`, otherwise `{status:'accepted'}`.
 - **Always responds 200** (otherwise MC retries). Dispatch by `eventType` (status

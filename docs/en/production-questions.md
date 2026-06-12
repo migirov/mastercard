@@ -54,11 +54,11 @@ Is our service **standalone** or **part of the `b24club-api` monolith**?
 - [ ] **`MC_SECRET_STORE=vault`** + an implemented `VaultSecretStore` (currently a
       `NotImplemented` stub). The prod gate in `main.ts` already requires `vault` and fails without it.
 - [ ] **Strong secrets** instead of dev defaults: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
-      `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (or an empty webhook token with mTLS).
+      `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (mandatory — the webhook guard is fail-closed).
       The prod gate checks this at startup.
-- [ ] **`TRUST_PROXY`** = number of ingress hops (not `true`) — for a correct `req.ip`.
-- [ ] **mTLS at the ingress** for Mastercard webhooks (authoritative authentication).
-- [ ] **Authoritative rate-limit at the ingress** — the in-app throttler is per-pod (best-effort).
+- [ ] **`TRUST_PROXY`** = number of ingress hops (not `true`) — only for deriving a correct `req.ip` behind a proxy (used by the rate-limit IP fallback); not related to authentication.
+- [ ] **mTLS at the ingress** for Mastercard webhooks — optional, additional network layer; not the authentication. Authentication is the in-service fail-closed token (`X-Webhook-Token`); JWS/HMAC signature verification is the planned authoritative factor (pending MC spec, C1).
+- [ ] **Optional ingress rate-limit** as defense-in-depth — the authoritative limit is the in-service self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is not authoritative.
 - [ ] **Personal partner-id and keys** of OWN partners loaded into the secret manager.
 - [x] **DB migrations** — infrastructure is ready (`data-source.ts`, npm scripts
       `migration:generate/run/revert`, initial `InitialSchema`, `synchronize`
