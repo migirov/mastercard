@@ -158,6 +158,27 @@ The host provides the TypeORM connection (including our entities) and runs their
 migrations, and owns its global pipes/logger/throttler. The module reads config from
 the options object, not `process.env`.
 
+**Host integration checklist** — the module deliberately does not set these up; if
+the host omits them, the affected feature silently degrades (the module logs a
+startup `WARN` for the first two — see `HostIntegrityService`):
+
+1. **TypeORM DataSource with our entities** — `TypeOrmModule.forRoot({ entities:
+   [...MASTERCARD_ENTITIES] })` (or `autoLoadEntities: true`). Missing → repositories
+   throw on the first query.
+2. **`ScheduleModule.forRoot()`** — required for the `@Cron` cleanup of `kv_store`.
+   Missing → cleanup never runs (rows are still lazily TTL-deleted on read, so this
+   is optional if you accept slower table growth). Not self-imported to avoid a
+   double `forRoot()` collision with the host's scheduler.
+3. **`app.enableShutdownHooks()`** — required so the audit buffer is flushed on
+   `SIGTERM` (`beforeApplicationShutdown`). This one cannot be introspected from a
+   provider, so it is documented here only.
+
+> **Convention (module code):** there is no global `ValidationPipe` — every
+> controller declares its own pipe (`strictDtoPipe` for our boundaries,
+> `mcPassthroughPipe` for bodies forwarded to Mastercard). Any new controller MUST
+> declare a pipe explicitly; without one its input is unvalidated (per-route binding
+> is fail-open, unlike a global pipe).
+
 ---
 
 ## Status

@@ -38,7 +38,8 @@ export class OAuthController {
   @ApiResponse({ status: 200, type: TokenResponseDto })
   @ApiResponse({ status: 401, description: 'invalid_client.' })
   @HttpCode(200)
-  // Жёсткий лимит на подбор client_secret: 10 запросов / минуту с IP.
+  // Жёсткий лимит на подбор client_secret: 10 запросов/мин по client_id
+  // (OAuthThrottlerGuard трекает по client_id, IP — лишь фолбэк для кривых запросов).
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   // Токены не должны кэшироваться (RFC 6749 §5.1).
   @Header('Cache-Control', 'no-store')
