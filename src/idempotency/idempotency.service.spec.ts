@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   HttpException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { KV_STORE, KvStore } from '../store/kv.types';
@@ -110,6 +111,23 @@ describe('IdempotencyService', () => {
       }),
     ).rejects.toThrow('socket hang up');
     expect(kv.del).not.toHaveBeenCalled();
+  });
+
+  it('rejects reuse of the key with a different body (422)', async () => {
+    kv.get.mockResolvedValue(
+      JSON.stringify({ done: true, result: 'first', fp: 'fpA' }),
+    );
+    await expect(
+      svc.run('tenant', 'key', async () => 'second', 'fpB'),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('returns the cached result when the body fingerprint matches', async () => {
+    kv.get.mockResolvedValue(
+      JSON.stringify({ done: true, result: 'first', fp: 'fpA' }),
+    );
+    const r = await svc.run('tenant', 'key', async () => 'second', 'fpA');
+    expect(r).toBe('first');
   });
 
   it('a result-cache failure does not turn a settled result into an error', async () => {

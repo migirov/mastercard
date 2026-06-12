@@ -9,6 +9,16 @@ const opts: MastercardModuleOptions = {
   adminToken: 'admin-token',
 };
 
+// Сильные секреты + vault — чтобы пройти прод-гейты конструктора GatewayConfig.
+const prod: Partial<MastercardModuleOptions> = {
+  nodeEnv: 'production',
+  jwtSecret: 'x'.repeat(32),
+  internalToken: 'y'.repeat(32),
+  adminToken: 'z'.repeat(32),
+  webhookToken: 'w'.repeat(32),
+  secretStore: 'vault',
+};
+
 describe('GatewayConfig', () => {
   it('exposes options via typed getters', () => {
     const c = new GatewayConfig(opts);
@@ -39,11 +49,31 @@ describe('GatewayConfig', () => {
   });
 
   it('isProduction reflects the nodeEnv option', () => {
-    expect(
-      new GatewayConfig({ ...opts, nodeEnv: 'production' }).isProduction,
-    ).toBe(true);
+    expect(new GatewayConfig({ ...opts, ...prod }).isProduction).toBe(true);
     expect(
       new GatewayConfig({ ...opts, nodeEnv: 'development' }).isProduction,
     ).toBe(false);
+  });
+
+  it('throws when a required option is missing', () => {
+    expect(() => new GatewayConfig({ ...opts, baseUrl: '' })).toThrow(
+      /baseUrl/,
+    );
+    expect(() => new GatewayConfig({ ...opts, jwtSecret: '' })).toThrow(
+      /jwtSecret/,
+    );
+  });
+
+  it('rejects weak secrets in production', () => {
+    // base opts have short (dev) secrets → must fail the prod gate
+    expect(
+      () => new GatewayConfig({ ...opts, ...prod, jwtSecret: 'short' }),
+    ).toThrow(/weak\/default/);
+  });
+
+  it('requires vault secret store in production', () => {
+    expect(
+      () => new GatewayConfig({ ...opts, ...prod, secretStore: 'local' }),
+    ).toThrow(/vault/);
   });
 });

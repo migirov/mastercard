@@ -8,8 +8,13 @@ import { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
 
-/** Пути, которые не пишем в audit (частые пробы/служебное — иначе шум в БД). */
-const SKIP_AUDIT = ['/health', '/ready', '/api-docs'];
+/**
+ * Префиксы маршрутов ЭТОГО модуля. Аудируем только их (allowlist), а не всё
+ * подряд: интерцептор зарегистрирован как APP_INTERCEPTOR (глобальный), и при
+ * встраивании в монолит он иначе писал бы в audit_log трафик всего хоста (чужие
+ * роуты с tenantId=undefined). Заодно отсекает health/ready/api-docs.
+ */
+const AUDIT_PREFIXES = ['/crossborder', '/admin', '/oauth', '/webhooks'];
 
 /** Глобальный интерсептор: пишет audit-запись на каждый HTTP-запрос. */
 @Injectable()
@@ -21,8 +26,8 @@ export class AuditInterceptor implements NestInterceptor {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
-    if (SKIP_AUDIT.some((p) => path.startsWith(p))) {
-      return next.handle(); // health-пробы и Swagger не аудируем
+    if (!AUDIT_PREFIXES.some((p) => path.startsWith(p))) {
+      return next.handle(); // не маршрут модуля (или health/ready/api-docs) — не аудируем
     }
     const res = ctx.switchToHttp().getResponse<Response>();
     const start = Date.now();

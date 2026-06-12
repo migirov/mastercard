@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { sha256hex } from '../common/crypto.util';
 import { UpstreamHttpException } from '../common/upstream.exception';
 import { CredentialsService } from '../credentials/credentials.service';
 import { McCredentials } from '../credentials/credentials.types';
@@ -109,17 +110,23 @@ export class CrossBorderService {
     // producer за TTL → второй под перезахватит замок → двойной POST.
     const creds = await this.resolveActive(tenantId);
     // Идемпотентность: тот же Idempotency-Key → тот же результат, без повторного
-    // вызова MC (защита от двойных списаний при ретрае).
-    return this.idempotency.run(tenantId, idempotencyKey, () =>
-      this.call(
-        creds,
-        {
-          method: 'POST',
-          path: `/send/v1/partners/${this.partner(creds)}/crossborder/payment`,
-          body,
-        },
-        'createPayment',
-      ),
+    // вызова MC (защита от двойных списаний при ретрае). Fingerprint тела: тот же
+    // ключ с ДРУГИМ телом → 422 (не молчаливый возврат результата первого платежа).
+    const fingerprint = sha256hex(JSON.stringify(body));
+    return this.idempotency.run(
+      tenantId,
+      idempotencyKey,
+      () =>
+        this.call(
+          creds,
+          {
+            method: 'POST',
+            path: `/send/v1/partners/${this.partner(creds)}/crossborder/payment`,
+            body,
+          },
+          'createPayment',
+        ),
+      fingerprint,
     );
   }
 

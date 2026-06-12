@@ -102,9 +102,6 @@ export class TenantRegistry implements OnModuleInit {
 
   async create(input: CreateTenantInput): Promise<Tenant> {
     const id = input.id ?? `t_${randomToken(6)}`;
-    if (await this.repo.findOne({ where: { id } })) {
-      throw new ConflictException(`Tenant '${id}' already exists`);
-    }
     const entity = this.repo.create({
       id,
       name: input.name,
@@ -115,7 +112,18 @@ export class TenantRegistry implements OnModuleInit {
       mcApproved: false,
       suspended: false,
     });
-    return this.repo.save(entity);
+    try {
+      // INSERT (а не save): при коллизии PK Postgres бросит unique-violation
+      // (23505), а не молча сделает UPDATE поверх существующего тенанта — иначе
+      // повторный/гоночный create с тем же id затёр бы запись и СБРОСИЛ одобрения.
+      await this.repo.insert(entity);
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') {
+        throw new ConflictException(`Tenant '${id}' already exists`);
+      }
+      throw e;
+    }
+    return entity;
   }
 
   async setPlatformApproved(id: string, value: boolean): Promise<Tenant> {
@@ -134,11 +142,13 @@ export class TenantRegistry implements OnModuleInit {
     id: string,
     fields: Partial<TenantEntity>,
   ): Promise<Tenant> {
-    const t = await this.repo.findOne({ where: { id } });
-    if (!t) {
+    // Колоночный UPDATE (а не read-modify-write всей строки через save): иначе
+    // два конкурентных тогла одобрения с разных подов читали бы один снимок и
+    // перезаписывали друг друга (потеря mcApproved/suspended — security-релевантно).
+    const res = await this.repo.update({ id }, fields);
+    if (!res.affected) {
       throw new NotFoundException(`Tenant '${id}' not found`);
     }
-    Object.assign(t, fields);
-    return this.repo.save(t);
+    return this.get(id);
   }
 }

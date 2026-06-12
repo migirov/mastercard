@@ -20,6 +20,22 @@ import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { HealthController } from './health/health.controller';
+import { TenantEntity } from './tenants/tenant.entity';
+import { OAuthClientEntity } from './auth/oauth-client.entity';
+import { AuditLogEntity } from './audit/audit-log.entity';
+import { KvEntity } from './store/kv.entity';
+
+/**
+ * Entity модуля. Хост при встраивании ДОЛЖЕН включить их в свой TypeORM DataSource
+ * (`forRoot({ entities: [...MASTERCARD_ENTITIES] })` или `autoLoadEntities: true`),
+ * иначе репозитории резолвятся, но первый запрос падает EntityMetadataNotFoundError.
+ */
+export const MASTERCARD_ENTITIES = [
+  TenantEntity,
+  OAuthClientEntity,
+  AuditLogEntity,
+  KvEntity,
+];
 
 /**
  * Зонтичный модуль интеграции Mastercard Cross-Border — ЕДИНСТВЕННЫЙ модуль,
