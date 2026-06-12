@@ -64,7 +64,7 @@ MC_DECRYPTION_KEY_PATH                  # for MTF/Prod
 DATABASE_URL, DB_SYNC, DB_POOL_MAX      # PostgreSQL
 MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
 MC_SECRET_STORE                         # local (dev) | vault (prod)
-TRUST_PROXY                             # number of ingress hops behind a proxy
+TRUST_PROXY                             # number of ingress hops behind a proxy (only for a correct req.ip; used by the rate-limit IP fallback — not related to auth)
 ```
 
 In production, gates apply (`main.ts`): refuse to start with weak/default secrets,

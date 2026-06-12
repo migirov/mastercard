@@ -82,12 +82,14 @@ across pods; everything domain-related is in **PostgreSQL**. Full breakdown in
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
 | payment idempotency, webhook dedup | **PostgreSQL** (`kv_store`, TTL, atomic `setIfAbsent`) |
-| rate-limit | native `@nestjs/throttler`, **in-memory per-pod** (authority — ingress) |
+| rate-limit | self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
 | credentials cache | **in-memory per-pod** (cache from Vault, TTL) |
 | partner secrets | **Vault/KMS** (via `SecretStore`) |
 
 **Redis is not used** — consistent state lives in Postgres; ephemeral rate-limiting
-is the native per-pod throttler + the ingress limit.
+is the self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress).
+A cross-pod global limit would need a shared store, which the project intentionally does
+not use; an ingress limit, if any, is optional defense-in-depth, not authoritative.
 
 ## 5. Tenant model
 
@@ -190,7 +192,7 @@ in documentation.md).
 | `EncryptionModule` | `EncryptionService` (JWE, env toggle) |
 | `IdempotencyModule` | `IdempotencyService` (via `KvStore`) |
 | `AuditModule` | `AuditInterceptor` (global) + `AuditService` → Postgres |
-| `WebhooksModule` | receive MC push notifications (mTLS at ingress), dedup |
+| `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup |
 | `CrossBorderModule` | business endpoints: quote / payment / retrieve / cancel / confirm |
 | `HealthModule` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping) |
 | `common/` | p12/crypto utils, `TenantThrottlerGuard` |
