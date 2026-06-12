@@ -1,3 +1,4 @@
+import { Exclude } from 'class-transformer';
 import {
   Column,
   CreateDateColumn,
@@ -22,6 +23,11 @@ export class TenantEntity implements Tenant {
   @Column({ type: 'varchar', length: 128, nullable: true })
   partnerId?: string;
 
+  // Секрет наружу не отдаём НИКОГДА. @Exclude — защита у источника: при любой
+  // сериализации сущности (ClassSerializerInterceptor / instanceToPlain) поле
+  // выпадает. Не влияет на TypeORM-персистентность и чтение в бизнес-логике
+  // (CredentialsService по-прежнему видит secretRef в памяти).
+  @Exclude()
   @Column({ type: 'varchar', length: 256, nullable: true })
   secretRef?: string;
 
