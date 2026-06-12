@@ -6,8 +6,8 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { HttpException, Logger } from '@nestjs/common';
-import { AppModule } from '../app.module';
-import { CrossBorderService } from '../crossborder/crossborder.service';
+import { AppModule } from '../src/app.module';
+import { CrossBorderService } from '../src/crossborder/crossborder.service';
 
 async function main() {
   const log = new Logger('ping');

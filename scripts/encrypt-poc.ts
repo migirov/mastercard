@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
-import { loadPrivateKeyFromP12 } from '../common/p12.util';
+import { loadPrivateKeyFromP12 } from '../src/common/p12.util';
 // CommonJS-пакеты Mastercard
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('dotenv').config();
