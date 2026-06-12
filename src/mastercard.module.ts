@@ -49,7 +49,10 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
   imports: [
     TerminusModule,
     // Per-pod rate-limit как самостоятельная защита (не делегируем ингрессу).
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    // Именованный сет 'default' (120/мин) — на него по имени ссылается per-route
+    // override `@Throttle({ default: { limit: 10, ... } })` на /oauth/token.
+    // Несколько одновременных окон (short+long) не нужны → один сет.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     StoreModule,
     AuditModule,
     TenantModule,
