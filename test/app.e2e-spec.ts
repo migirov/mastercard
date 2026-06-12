@@ -143,4 +143,20 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(badKey.status).toBe(400);
     expect(JSON.stringify(badKey.data)).toContain('Idempotency-Key');
   });
+
+  it('POST /crossborder/address-validations (sandbox test case) → доходит до MC', async () => {
+    // Sandbox Address Validation отдаёт статичные ответы на фикс. тест-кейсы.
+    const r = await http.post(
+      '/crossborder/address-validations',
+      { country: 'USA', address: '4 CLARK STREET, EVERETT, MA, 02149' },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   addr-val MC resp:', r.status, JSON.stringify(r.data));
+    // Контракт шлюза: маршрут смонтирован, OAuth1-подпись поставлена, запрос ушёл
+    // в MC и ответ проброшен. НЕ 404 (маршрут есть) и НЕ 500 (нет локального краша).
+    // 200 со status — если sandbox-кейс поддержан; иначе проброс бизнес-ответа MC.
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
 });

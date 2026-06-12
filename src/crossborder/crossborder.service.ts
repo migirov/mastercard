@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadGatewayException,
   ForbiddenException,
@@ -16,6 +17,7 @@ import {
 } from '../mastercard/mastercard-client.service';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, isActive } from '../tenants/tenant.types';
+import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
@@ -156,6 +158,35 @@ export class CrossBorderService {
         path: `/send/v1/partners/${this.partner(creds)}/crossborder/${encodeURIComponent(paymentId)}/cancel`,
       },
       'cancelPayment',
+    );
+  }
+
+  /**
+   * Валидация адреса получателя (POST, до платежа). У MC СВОЯ база
+   * (`/send/address-validation-service/...`) — без `/crossborder` и без partner-id
+   * в пути; OAuth1-подпись всё равно ставится по creds тенанта в интерцепторе.
+   */
+  async validateAddress(tenantId: string, body: AddressValidationRequestDto) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'POST',
+        path: `/send/address-validation-service/addresses/validations`,
+        body,
+        // Этот сервис MC требует доп. заголовки (дока api-ref Address Validation):
+        // X-Mc-Correlation-Id — уникальный per-request trace; Partner-Ref-Id —
+        // «reference ID of the business partner» (берём partnerId как идентичность
+        // партнёра; per-request уникальность уже даёт correlation-id). Семантику
+        // Partner-Ref-Id уточнить у MC при интеграции (открытый вопрос, как C1/E1) —
+        // проверить на sandbox нельзя: сервис требует ШИФРОВАНИЯ payload, а FLE в
+        // sandbox выключен (MC отвергает plain → 062000 INVALID_INPUT_FORMAT).
+        headers: {
+          'X-Mc-Correlation-Id': randomUUID(),
+          'Partner-Ref-Id': this.partner(creds),
+        },
+      },
+      'validateAddress',
     );
   }
 

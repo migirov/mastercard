@@ -13,31 +13,37 @@
 ## Покрытие Mastercard API Reference
 
 Полный список Mastercard Cross-Border **API Reference** (в порядке сайдбара) в проекции
-на наш шлюз. Легенда: ✅ реализовано · ⚠️ частично · ❌ ещё нет (planned, passthrough).
+на наш шлюз. Статус: ✅ реализовано · ⚠️ частично · ❌ ещё нет. Sandbox: ✅ доступен ·
+⚠️ ограниченно (фикс. тест-кейсы / нужно шифрование / частично) · ❌ недоступен.
 
-| # | Mastercard API | Upstream MC эндпоинт(ы) | Наш эндпоинт шлюза | Статус |
-|---|---|---|---|---|
-| 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ |
-| 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = вебхук на стороне клиента | — | ❌ (opt-in; нет sandbox) |
-| 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ |
-| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | — | ❌ |
-| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | — | ❌ (opt-in) |
-| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ❌ (opt-in) |
-| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ❌ |
-| 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ (приём) |
-| 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ |
-| 11 | **RFI APIs** (сьют) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push-вебхук | — | ❌ |
-| 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ |
-| 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ |
-| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ✅ |
-| 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ⚠️ (приём готов; подпись — C1) |
+| # | Mastercard API | Upstream MC эндпоинт(ы) | Наш эндпоинт шлюза | Sandbox | Статус |
+|---|---|---|---|---|---|
+| 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
+| 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ | ✅ |
+| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = вебхук на стороне клиента | — | ❌ | ❌ (opt-in) |
+| 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
+| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
+| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | — | ⚠️ (фикс. кейсы; ASV нет в sandbox) | ❌ (opt-in) |
+| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ✅ | ❌ (opt-in) |
+| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
+| 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ | ✅ (приём) |
+| 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
+| 11 | **RFI APIs** (сьют) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push-вебхук | — | ⚠️ (push N/A; остальное фикс.) | ❌ |
+| 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
+| 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
+| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
+| 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
 
-**Реализовано (8 + 1 частично):** 1, 2, 4, 9, 10, 12, 13, 14 (+15 частично).
-**Ещё нет (6 групп):** Carded Rate (3), Address Validation (5), Account Validation сьют (6),
-Cash Pickup (7), Endpoint Guide (8), RFI (11) — вспомогательные/opt-in сервисы MC. У части
-**нет sandbox** (напр. Carded Rate) или только фикс. тест-кейсы → добавить можно passthrough'ом,
-но проверить вживую на нашем sandbox нельзя.
+**Реализовано (9 + 1 частично):** 1, 2, 4, **5**, 9, 10, 12, 13, 14 (+15 частично).
+**Ещё нет (5 групп):** Carded Rate (3), Account Validation сьют (6), Cash Pickup (7),
+Endpoint Guide (8), RFI (11) — вспомогательные/opt-in сервисы MC.
+
+> **Address Validation (5)** реализован passthrough'ом, но **на нашем sandbox вживую не
+> проверить**: MC требует, чтобы payload был зашифрован (JWE), а field-level encryption в
+> sandbox выключена (plain → MC `062000 INVALID_INPUT_FORMAT`). Проводка шлюза проверена e2e
+> (маршрут, OAuth1-подпись, обязательные заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`,
+> проброс ошибки); тело авто-шифруется request-интерцептором в MTF/Prod. У ряда других групп
+> тоже **нет sandbox** (Carded Rate) или только фикс. тест-кейсы.
 
 > Сверх списка со скрина у нас уже есть: `GET /crossborder/rates` (generic FX-курсы).
 > Префиксы путей MC неоднородны (по офиц. доке): `/send/v1/…` — quotes/payment/carded-rate/
