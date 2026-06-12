@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuditModule } from '../audit/audit.module';
 import { GatewayConfig } from '../config/gateway-config';
 import { OAuthClientEntity } from './oauth-client.entity';
 import { TenantModule } from '../tenants/tenant.module';
@@ -14,6 +15,7 @@ import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
 @Module({
   imports: [
     TenantModule,
+    AuditModule,
     TypeOrmModule.forFeature([OAuthClientEntity]),
     JwtModule.registerAsync({
       inject: [GatewayConfig],

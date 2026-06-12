@@ -8,6 +8,7 @@ import {
   Query,
   UseFilters,
   UseGuards,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import {
@@ -16,6 +17,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { AuditInterceptor } from '../audit/audit.interceptor';
 import { CurrentTenant, TenantContext } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
@@ -51,6 +53,7 @@ import { CrossBorderService } from './crossborder.service';
 @Controller('crossborder')
 @UseGuards(TenantAuthGuard, TenantThrottlerGuard)
 @UseFilters(GatewayExceptionFilter)
+@UseInterceptors(AuditInterceptor)
 export class CrossBorderController {
   constructor(private readonly svc: CrossBorderService) {}
 

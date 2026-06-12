@@ -1,16 +1,18 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLogEntity } from './audit-log.entity';
 import { AuditService } from './audit.service';
 import { AuditInterceptor } from './audit.interceptor';
 
+/**
+ * Аудит навешивается ПЕР-КОНТРОЛЛЕРНО (`@UseInterceptors(AuditInterceptor)` на
+ * наших контроллерах), а НЕ глобально через APP_INTERCEPTOR — модуль встраиваемый
+ * и не должен оборачивать трафик всего хост-приложения. Поэтому экспортируем
+ * `AuditInterceptor`, чтобы модули контроллеров могли его навесить.
+ */
 @Module({
   imports: [TypeOrmModule.forFeature([AuditLogEntity])],
-  providers: [
-    AuditService,
-    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
-  ],
-  exports: [AuditService],
+  providers: [AuditService, AuditInterceptor],
+  exports: [AuditService, AuditInterceptor],
 })
 export class AuditModule {}
