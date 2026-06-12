@@ -15,6 +15,9 @@ export interface AuditEntry {
 
 const FLUSH_INTERVAL_MS = 1000; // периодический сброс буфера
 const MAX_BUFFER = 100; // принудительный сброс при заполнении
+// Потолок буфера при ретраях: если БД лежит, держим до стольки записей и не
+// растём в OOM (избыток отбрасываем). 10× MAX_BUFFER ≈ 10с трафика на пике.
+const MAX_RETAINED = MAX_BUFFER * 10;
 
 /**
  * Журнал операций в PostgreSQL (общий для всех подов). Запись — fire-and-forget
@@ -67,8 +70,15 @@ export class AuditService implements BeforeApplicationShutdown {
         })),
       );
     } catch (err) {
+      // Транзиентная ошибка БД (deadlock/failover/блип): возвращаем батч в буфер,
+      // чтобы следующий тик повторил вставку — иначе записи терялись бы навсегда,
+      // даже когда под продолжает работать. Ограничиваем рост (избыток отбрасываем).
+      this.buffer.unshift(...batch);
+      if (this.buffer.length > MAX_RETAINED) {
+        this.buffer.splice(MAX_RETAINED);
+      }
       this.logger.error(
-        `audit batch insert failed (${batch.length} rows): ${(err as Error).message}`,
+        `audit batch insert failed (${batch.length} rows, retrying): ${(err as Error).message}`,
       );
     }
   }

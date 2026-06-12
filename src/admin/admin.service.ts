@@ -11,7 +11,7 @@ export class AdminService {
   ) {}
 
   // Валидация входа (обязательность полей, secretRef для OWN) — декларативно в
-  // CreateTenantDto + глобальный ValidationPipe. Здесь только бизнес-действие.
+  // CreateTenantDto + strictDtoPipe на AdminController. Здесь только бизнес-действие.
   createTenant(input: CreateTenantInput) {
     return this.tenants.create(input);
   }

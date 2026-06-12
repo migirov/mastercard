@@ -63,6 +63,33 @@ describe('GatewayExceptionFilter', () => {
     expect(res.json.mock.calls[0][0]).toEqual({ error: 'invalid_client' });
   });
 
+  it('maps a 5xx on /oauth/token to server_error (not invalid_request)', () => {
+    const { host, res } = makeHost({
+      url: '/oauth/token',
+      path: '/oauth/token',
+      method: 'POST',
+      headers: {},
+    });
+    filter.catch(new Error('db down'), host);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toEqual({ error: 'server_error' });
+  });
+
+  it('coerces a validator message on /oauth/token to invalid_request', () => {
+    const { host, res } = makeHost({
+      url: '/oauth/token',
+      path: '/oauth/token',
+      method: 'POST',
+      headers: {},
+    });
+    filter.catch(
+      new BadRequestException('grant_type must be one of the following values'),
+      host,
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json.mock.calls[0][0]).toEqual({ error: 'invalid_request' });
+  });
+
   it('maps a non-HTTP error to 500 without leaking internals', () => {
     const { host, res } = makeHost({
       url: '/crossborder/balances',

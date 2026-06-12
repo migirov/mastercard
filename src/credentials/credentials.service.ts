@@ -89,9 +89,17 @@ export class CredentialsService implements OnModuleInit {
   // --- OWN ---
 
   private ownCredentials(tenant: Tenant): Promise<McCredentials> {
+    const now = Date.now();
     const cached = this.ownCache.get(tenant.id);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.expiresAt > now) {
       return cached.promise;
+    }
+
+    // На cache-miss подметаем протухшие записи: иначе кэш рос бы по числу ВСЕХ
+    // когда-либо резолвленных тенантов (удерживая их PEM-ключи), а не по активному
+    // набору. Карта мала (≈ число OWN-партнёров) → O(n) приемлемо, таймер не нужен.
+    for (const [id, e] of this.ownCache) {
+      if (e.expiresAt <= now) this.ownCache.delete(id);
     }
 
     // Дедупликация stampede: первый запрос запускает резолв, остальные ждут

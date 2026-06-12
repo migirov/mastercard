@@ -52,6 +52,15 @@ export class EncryptionService {
 
   private buildJwe() {
     const cwd = process.cwd();
+    // Fingerprint = SHA-256 публичного ключа в hex (64 символа). Валидируем формат,
+    // а НЕ коэрсим: иначе cert-fingerprint (с двоеточиями) или base64 молча
+    // превратятся в неверный JWE `kid`, и MC отвергнет шифрованный запрос.
+    const fingerprint = this.config.require('encryptionFingerprint');
+    if (!/^[0-9a-f]{64}$/i.test(fingerprint)) {
+      throw new Error(
+        'MC_ENCRYPTION_FINGERPRINT must be the 64-hex SHA-256 public-key fingerprint',
+      );
+    }
     return new JweEncryption({
       paths: [
         {
@@ -67,9 +76,7 @@ export class EncryptionService {
         cwd,
         this.config.require('encryptionCertPath'),
       ),
-      publicKeyFingerprint: this.config
-        .require('encryptionFingerprint')
-        .toLowerCase(),
+      publicKeyFingerprint: fingerprint.toLowerCase(),
       // Наш Client Encryption private key (PEM) — им расшифровываем ответ.
       privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
     });

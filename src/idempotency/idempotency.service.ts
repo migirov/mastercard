@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { KV_STORE, KvStore } from '../store/kv.types';
 
 const RESULT_TTL_SECONDS = 24 * 60 * 60; // сутки — кэш готового результата
@@ -53,7 +59,15 @@ export class IdempotencyService {
     try {
       result = await producer();
     } catch (e) {
-      await this.kv.del(ck); // ошибка producer'а — освобождаем замок, ретрай возможен
+      // Освобождаем замок ТОЛЬКО при клиентских 4xx — при них мутация (платёж)
+      // точно не прошла, ретрай безопасен. При 5xx/таймауте/сетевой ошибке исход
+      // НЕИЗВЕСТЕН (MC мог принять запрос до обрыва) → замок НЕ трогаем (fail-safe
+      // против двойного списания): ретрай получит 409, замок истечёт по LOCK_TTL,
+      // а MC дедупит по transaction_reference.
+      const status = e instanceof HttpException ? e.getStatus() : 500;
+      if (status < 500) {
+        await this.kv.del(ck);
+      }
       throw e;
     }
 
