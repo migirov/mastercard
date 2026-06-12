@@ -12,8 +12,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "ping": "ts-node src/scripts/ping.ts",
-    "encrypt-poc": "ts-node src/scripts/encrypt-poc.ts",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "ping": "ts-node scripts/ping.ts",
+    "encrypt-poc": "ts-node scripts/encrypt-poc.ts",
+    "boot-check": "ts-node scripts/boot-check.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:run": "npm run typeorm -- migration:run",
@@ -78,8 +80,7 @@
       "**/*.(t|j)s",
       "!**/*.module.ts",
       "!**/*.module-definition.ts",
-      "!main.ts",
-      "!scripts/**"
+      "!main.ts"
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"

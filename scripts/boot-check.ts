@@ -2,10 +2,10 @@
  * Дымовая проверка DI-графа: поднимает Nest-приложение (без listen), прогоняет
  * инициализацию (TypeORM-соединение, GatewayConfig, прелоад платформенных
  * credentials) и сразу закрывается. Exit 0 + BOOT_CHECK_OK — граф валиден.
- * Запуск: npx ts-node src/scripts/boot-check.ts
+ * Запуск: npx ts-node scripts/boot-check.ts
  */
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
+import { AppModule } from '../src/app.module';
 
 async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
