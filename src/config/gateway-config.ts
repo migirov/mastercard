@@ -31,7 +31,12 @@ export interface MastercardModuleOptions {
   adminToken: string;
   /** Shared-secret аутентификации вебхуков MC (обязателен — guard fail-closed). */
   webhookToken?: string;
-  /** Окружение хоста ('production' включает прод-гейты). */
+  /**
+   * Окружение хоста. `'production'` включает прод-гейты (сильные секреты + vault)
+   * и отключает засев тестовых тенантов. Хост ОБЯЗАН передать его в проде; если
+   * не передан — модуль считает окружение не-production (гейты off). Модуль НЕ
+   * читает `process.env.NODE_ENV` сам — значение только отсюда.
+   */
   nodeEnv?: string;
 }
 
@@ -131,7 +136,10 @@ export class GatewayConfig {
     return this.opts.webhookToken;
   }
   get isProduction(): boolean {
-    return (this.opts.nodeEnv ?? process.env.NODE_ENV) === 'production';
+    // Только из опций хоста — модуль встраиваемый и НЕ читает process.env сам
+    // (иначе завязка на конкретное имя env-переменной в чужом монолите). Хост
+    // передаёт nodeEnv через forRootAsync (харнесс — из ConfigService NODE_ENV).
+    return this.opts.nodeEnv === 'production';
   }
 
   /** Обязательное значение или громкая ошибка (для ключей, нужных в конкретном режиме). */
