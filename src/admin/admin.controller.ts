@@ -22,6 +22,7 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { plainToInstance } from 'class-transformer';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
+import { AuditInterceptor } from '../audit/audit.interceptor';
 import { AuditService } from '../audit/audit.service';
 import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
 import { SafeIdPipe } from '../common/safe-id.pipe';
@@ -41,9 +42,10 @@ import { TenantViewDto } from './dto/tenant-view.dto';
 @UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
 @UseFilters(GatewayExceptionFilter)
 // Per-controller (не глобально — модуль встраиваемый, не навязывает хосту):
-// чтит class-transformer-декораторы при сериализации ответа. Страхует @Exclude
-// на TenantEntity.secretRef, если какой-то хендлер вернёт сущность напрямую.
-@UseInterceptors(ClassSerializerInterceptor)
+// ClassSerializerInterceptor чтит class-transformer-декораторы при сериализации
+// (страхует @Exclude на TenantEntity.secretRef); AuditInterceptor пишет audit-лог
+// по нашим admin-роутам.
+@UseInterceptors(ClassSerializerInterceptor, AuditInterceptor)
 export class AdminController {
   constructor(
     private readonly admin: AdminService,

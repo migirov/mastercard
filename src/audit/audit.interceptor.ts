@@ -9,14 +9,12 @@ import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
 
 /**
- * Префиксы маршрутов ЭТОГО модуля. Аудируем только их (allowlist), а не всё
- * подряд: интерцептор зарегистрирован как APP_INTERCEPTOR (глобальный), и при
- * встраивании в монолит он иначе писал бы в audit_log трафик всего хоста (чужие
- * роуты с tenantId=undefined). Заодно отсекает health/ready/api-docs.
+ * Пишет audit-запись на каждый HTTP-запрос контроллера, к которому навешан.
+ * Навешивается ПЕР-КОНТРОЛЛЕРНО (`@UseInterceptors(AuditInterceptor)` на наших
+ * crossborder/admin/oauth/webhooks), а НЕ глобально — поэтому видит только наши
+ * роуты, а не трафик хоста (health/ready/api-docs и чужие маршруты не аудируются
+ * по построению, без allowlist'а по префиксам).
  */
-const AUDIT_PREFIXES = ['/crossborder', '/admin', '/oauth', '/webhooks'];
-
-/** Глобальный интерсептор: пишет audit-запись на каждый HTTP-запрос. */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   constructor(private readonly audit: AuditService) {}
@@ -26,9 +24,6 @@ export class AuditInterceptor implements NestInterceptor {
 
     const req = ctx.switchToHttp().getRequest<Request>();
     const path = (req.originalUrl ?? req.url ?? '').split('?')[0];
-    if (!AUDIT_PREFIXES.some((p) => path.startsWith(p))) {
-      return next.handle(); // не маршрут модуля (или health/ready/api-docs) — не аудируем
-    }
     const res = ctx.switchToHttp().getResponse<Response>();
     const start = Date.now();
 

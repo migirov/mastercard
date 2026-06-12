@@ -5,9 +5,11 @@ import {
   Post,
   UseFilters,
   UseGuards,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { AuditInterceptor } from '../audit/audit.interceptor';
 import { mcPassthroughPipe } from '../crossborder/dto/mc-passthrough.pipe';
 import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
 import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
@@ -25,6 +27,7 @@ import { WebhookHandler } from './webhook.handler';
 @Controller('webhooks')
 @UseGuards(WebhookAuthGuard)
 @UseFilters(GatewayExceptionFilter)
+@UseInterceptors(AuditInterceptor)
 export class MastercardWebhookController {
   constructor(private readonly handler: WebhookHandler) {}
 
