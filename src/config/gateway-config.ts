@@ -44,7 +44,44 @@ const DEFAULT_CREDS_TTL_MS = 10 * 60 * 1000;
  */
 @Injectable()
 export class GatewayConfig {
-  constructor(private readonly opts: MastercardModuleOptions) {}
+  constructor(private readonly opts: MastercardModuleOptions) {
+    // Обязательные опции — fail-fast на СТАРТЕ, а не при первом запросе. Критично
+    // для встраивания: хост передаёт options-объект напрямую, и env-валидация
+    // dev-харнесса (ConfigModule.validate) на этом пути НЕ выполняется.
+    const required = [
+      'baseUrl',
+      'consumerKey',
+      'partnerId',
+      'jwtSecret',
+      'internalToken',
+      'adminToken',
+    ] as const;
+    for (const k of required) {
+      if (!opts[k]) {
+        throw new Error(`MastercardModule: required option '${k}' is missing`);
+      }
+    }
+    // Прод-гейты (раньше жили только в harness main.ts → при встраивании молча
+    // не срабатывали). Теперь модуль сам не даёт стартовать в проде со слабыми
+    // секретами или dev-секрет-стором — одинаково standalone и embedded.
+    if (this.isProduction) {
+      const weak = (v?: string) =>
+        !v || v.length < 24 || v.includes('change-me') || v.startsWith('dev-');
+      const bad = (
+        ['jwtSecret', 'internalToken', 'adminToken', 'webhookToken'] as const
+      ).filter((k) => weak(opts[k]));
+      if (bad.length) {
+        throw new Error(
+          `production: weak/default secrets — set strong values: ${bad.join(', ')}`,
+        );
+      }
+      if (this.secretStore !== 'vault') {
+        throw new Error(
+          'production: secretStore must be "vault" — LocalSecretStore is for dev only',
+        );
+      }
+    }
+  }
 
   get baseUrl(): string {
     return this.opts.baseUrl;
