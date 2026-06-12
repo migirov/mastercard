@@ -167,6 +167,20 @@ async function main(): Promise<void> {
       noSecret,
       `HTTP ${view.status}, keys=${Object.keys(view.data ?? {}).join(',')}`,
     );
+
+    // 11) #5: кривой Idempotency-Key режется IdempotencyKeyPipe на границе → 400
+    // (до хендлера, без вызова MC). Тело {} проходит passthrough — изолируем ключ.
+    const badKey = await http.post(
+      '/crossborder/payments',
+      {},
+      { headers: { ...internal, 'idempotency-key': 'bad key!' } },
+    );
+    check(
+      'POST /crossborder/payments с кривым Idempotency-Key → 400',
+      badKey.status === 400 &&
+        JSON.stringify(badKey.data).includes('Idempotency-Key'),
+      `HTTP ${badKey.status}`,
+    );
   } finally {
     await app.close();
   }
