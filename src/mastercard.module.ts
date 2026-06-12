@@ -20,6 +20,7 @@ import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { HealthController } from './health/health.controller';
+import { HostIntegrityService } from './host-integrity.service';
 
 // Список сущностей — единый источник в mastercard.entities.ts. Ре-экспортируем,
 // чтобы публичный API модуля (host: `import { MASTERCARD_ENTITIES }`) не менялся.
@@ -67,6 +68,9 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
       useFactory: (opts: MastercardModuleOptions) => new GatewayConfig(opts),
       inject: [MODULE_OPTIONS_TOKEN],
     },
+    // Старт-проверка контракта встраивания (DataSource c entity, ScheduleModule):
+    // тихие провалы интеграции → явный WARN на старте.
+    HostIntegrityService,
   ],
   exports: [GatewayConfig],
 })
