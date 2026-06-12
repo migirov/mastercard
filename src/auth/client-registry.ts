@@ -26,6 +26,12 @@ export class ClientRegistry {
   ): Promise<{ clientId: string; clientSecret: string }> {
     const clientId = `mc_${randomToken(9)}`;
     const clientSecret = randomToken(24);
+    // Хэшируем SHA-256, а НЕ bcrypt/argon2 (которые рекомендует дока для ПАРОЛЕЙ):
+    // client_secret — это 24 байта (~192 бит) CSPRNG-энтропии, не человеческий
+    // пароль. Перебор/радужные таблицы, против которых нужен медленный salted-KDF,
+    // на 192-битном случайном токене вычислительно невозможны, а argon2 добавил бы
+    // десятки мс латентности на КАЖДУЮ валидацию токена без выигрыша. Защита от
+    // утечки хэша = энтропия токена; от тайминга — safeEqual + dummy-hash в validate().
     await this.repo.save(
       this.repo.create({
         clientId,
