@@ -172,6 +172,10 @@ startup `WARN` for the first two — see `HostIntegrityService`):
 3. **`app.enableShutdownHooks()`** — required so the audit buffer is flushed on
    `SIGTERM` (`beforeApplicationShutdown`). This one cannot be introspected from a
    provider, so it is documented here only.
+4. **Do not pass `isGlobal: false`** to `forRoot/forRootAsync`. The umbrella module
+   is global by default so its exported `GatewayConfig` is injectable by every
+   sub-module without each re-importing the umbrella; overriding it to `false` would
+   break DI across sub-modules.
 
 > **Convention (module code):** there is no global `ValidationPipe` — every
 > controller declares its own pipe (`strictDtoPipe` for our boundaries,
