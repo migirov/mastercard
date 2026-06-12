@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomToken } from '../common/crypto.util';
+import { GatewayConfig } from '../config/gateway-config';
 import { TenantEntity } from './tenant.entity';
 import { CredentialMode, Tenant } from './tenant.types';
 
@@ -29,6 +30,7 @@ export class TenantRegistry implements OnModuleInit {
   constructor(
     @InjectRepository(TenantEntity)
     private readonly repo: Repository<TenantEntity>,
+    private readonly config: GatewayConfig,
   ) {}
 
   /** Засев демо-тенантов (идемпотентно; в production — только platform). */
@@ -42,7 +44,7 @@ export class TenantRegistry implements OnModuleInit {
       suspended: false,
     });
 
-    if (process.env.NODE_ENV === 'production') {
+    if (this.config.isProduction) {
       this.logger.log('production: тестовые тенанты не засеяны');
       return;
     }
