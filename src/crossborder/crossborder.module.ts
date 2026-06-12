@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -14,6 +15,7 @@ import { CrossBorderController } from './crossborder.controller';
     CredentialsModule,
     MastercardClientModule,
     AuthModule,
+    AuditModule,
   ],
   // IdempotencyService — приватный провайдер (единственный потребитель —
   // CrossBorderService); работает поверх глобального KV_STORE.
