@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { KV_STORE, KvStore } from '../store/kv.types';
 
@@ -26,6 +27,7 @@ export class IdempotencyService {
     scope: string,
     key: string | undefined,
     producer: () => Promise<T>,
+    fingerprint?: string,
   ): Promise<T> {
     if (!key) return producer(); // без ключа — без идемпотентности
 
@@ -33,6 +35,7 @@ export class IdempotencyService {
     const cached = await this.kv.get(ck);
     if (cached) {
       const p = this.parse(cached);
+      this.assertSameBody(p, fingerprint);
       if (p?.done) return p.result as T;
       throw new ConflictException(
         'A request with this Idempotency-Key is already being processed',
@@ -43,12 +46,13 @@ export class IdempotencyService {
     // в процессе/готов. Короткий TTL не даёт ключу залипнуть при краше процесса.
     const locked = await this.kv.setIfAbsent(
       ck,
-      JSON.stringify({ done: false }),
+      JSON.stringify({ done: false, fp: fingerprint }),
       LOCK_TTL_SECONDS,
     );
     if (!locked) {
       const again = await this.kv.get(ck);
       const p = again ? this.parse(again) : null;
+      this.assertSameBody(p, fingerprint);
       if (p?.done) return p.result as T;
       throw new ConflictException(
         'A request with this Idempotency-Key is already being processed',
@@ -77,7 +81,7 @@ export class IdempotencyService {
     try {
       await this.kv.set(
         ck,
-        JSON.stringify({ done: true, result }),
+        JSON.stringify({ done: true, result, fp: fingerprint }),
         RESULT_TTL_SECONDS,
       );
     } catch (err) {
@@ -88,8 +92,26 @@ export class IdempotencyService {
     return result;
   }
 
+  /**
+   * Тот же Idempotency-Key с ДРУГИМ телом — это ошибка клиента, а не идемпотентный
+   * ретрай: иначе второй (другой) платёж молча вернул бы результат первого. Отдаём
+   * 422 (по семантике IETF Idempotency-Key / Stripe).
+   */
+  private assertSameBody(
+    p: { fp?: string } | null,
+    fingerprint?: string,
+  ): void {
+    if (p?.fp && fingerprint && p.fp !== fingerprint) {
+      throw new UnprocessableEntityException(
+        'Idempotency-Key reused with a different request body',
+      );
+    }
+  }
+
   /** Безопасный разбор записи замка/результата; битый JSON → null (не 500). */
-  private parse(raw: string): { done?: boolean; result?: unknown } | null {
+  private parse(
+    raw: string,
+  ): { done?: boolean; result?: unknown; fp?: string } | null {
     try {
       return JSON.parse(raw);
     } catch {

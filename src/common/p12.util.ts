@@ -1,6 +1,13 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as forge from 'node-forge';
+
+// Кэш распарсенного PEM по контенту (хэш материала+пароля). forge PKCS#12-декод
+// CPU-тяжёлый (~десятки мс); без кэша он повторялся бы на КАЖДОЕ истечение TTL
+// кредов на живом запросе. Ключ по содержимому → ротация ключа (новый материал)
+// = новый ключ кэша = честный ре-парс. Размер ограничен числом ключей (≈ партнёров).
+const pemCache = new Map<string, string>();
 
 /** Извлекает приватный ключ (PEM) из DER-строки PKCS#12. */
 function privateKeyPemFromDer(
@@ -8,6 +15,14 @@ function privateKeyPemFromDer(
   password: string,
   label: string,
 ): string {
+  const cacheKey = createHash('sha256')
+    .update(der, 'binary')
+    .update('\0')
+    .update(password)
+    .digest('hex');
+  const cached = pemCache.get(cacheKey);
+  if (cached) return cached;
+
   const asn1 = forge.asn1.fromDer(der);
 
   let p12: forge.pkcs12.Pkcs12Pfx;
@@ -30,7 +45,9 @@ function privateKeyPemFromDer(
   if (!keyBag?.key) {
     throw new Error(`No private key found in ${label}`);
   }
-  return forge.pki.privateKeyToPem(keyBag.key);
+  const pem = forge.pki.privateKeyToPem(keyBag.key);
+  pemCache.set(cacheKey, pem);
+  return pem;
 }
 
 /**

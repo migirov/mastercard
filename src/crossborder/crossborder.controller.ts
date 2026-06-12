@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   Post,
   Query,
@@ -65,6 +66,7 @@ export class CrossBorderController {
   }
 
   @Post('quotes')
+  @HttpCode(200) // котировка — вычисление, не создание ресурса
   @ApiOperation({
     summary: 'Запрос котировки. Тело проброса в MC (quoterequest).',
   })
@@ -78,6 +80,7 @@ export class CrossBorderController {
   }
 
   @Post('quotes/confirmations')
+  @HttpCode(200) // подтверждение — изменение состояния котировки, не создание
   @ApiOperation({
     summary: 'Подтверждение котировки (transactionReference + proposalId).',
   })

@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  NotFoundException,
   Param,
   Post,
   UseFilters,
@@ -75,25 +77,31 @@ export class AdminController {
 
   // --- одобрения / блокировка ---
 
+  // Эти действия МУТИРУЮТ состояние, но ничего не СОЗДАЮТ → 200, а не дефолтный
+  // для POST 201 (201 оставлен только за реальным созданием — POST /tenants).
   @Post('tenants/:id/approve/platform')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Одобрение со стороны платформы.' })
   async approvePlatform(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.approvePlatform(id));
   }
 
   @Post('tenants/:id/approve/mastercard')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Одобрение со стороны Mastercard.' })
   async approveMastercard(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.approveMastercard(id));
   }
 
   @Post('tenants/:id/suspend')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Заблокировать партнёра.' })
   async suspend(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.suspend(id));
   }
 
   @Post('tenants/:id/unsuspend')
+  @HttpCode(200)
   @ApiOperation({ summary: 'Снять блокировку.' })
   async unsuspend(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.unsuspend(id));
@@ -115,8 +123,14 @@ export class AdminController {
 
   @Delete('clients/:clientId')
   @ApiOperation({ summary: 'Отозвать OAuth-клиента.' })
-  revokeClient(@Param('clientId', SafeIdPipe) clientId: string) {
-    return this.admin.revokeClient(clientId);
+  async revokeClient(@Param('clientId', SafeIdPipe) clientId: string) {
+    const res = await this.admin.revokeClient(clientId);
+    // 404 на несуществующий/уже отозванный клиент — иначе 200 {revoked:false}
+    // не отличить от успешного отзыва (опечатка в id выглядит как успех).
+    if (!res.revoked) {
+      throw new NotFoundException(`Client '${clientId}' not found`);
+    }
+    return res;
   }
 
   /** Представление без secretRef, с вычисленным статусом. */
