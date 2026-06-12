@@ -1,4 +1,9 @@
-import { BeforeApplicationShutdown, Injectable, Logger } from '@nestjs/common';
+import {
+  BeforeApplicationShutdown,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLogEntity } from './audit-log.entity';
@@ -27,15 +32,20 @@ const MAX_RETAINED = MAX_BUFFER * 10;
  * транзакционные данные). Параллельно — немедленный структурный лог в stdout.
  */
 @Injectable()
-export class AuditService implements BeforeApplicationShutdown {
+export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   private readonly logger = new Logger('Audit');
   private buffer: AuditEntry[] = [];
-  private readonly timer: NodeJS.Timeout;
+  private timer?: NodeJS.Timeout;
 
   constructor(
     @InjectRepository(AuditLogEntity)
     private readonly repo: Repository<AuditLogEntity>,
-  ) {
+  ) {}
+
+  /** Таймер периодического сброса запускаем в lifecycle-хуке, а НЕ в конструкторе
+   *  (конструктор без side-effect'ов — конвенция Nest; иначе таймер тикал бы ещё
+   *  до полной инициализации модуля). */
+  onModuleInit(): void {
     this.timer = setInterval(() => void this.flush(), FLUSH_INTERVAL_MS);
     // не держим event loop живым из-за таймера
     this.timer.unref?.();
@@ -87,7 +97,7 @@ export class AuditService implements BeforeApplicationShutdown {
   // которой @nestjs/typeorm закрывает соединение. Иначе буфер сбрасывался бы уже
   // после разрыва коннекта (ошибка «Connection terminated», потеря записей).
   async beforeApplicationShutdown(): Promise<void> {
-    clearInterval(this.timer);
+    if (this.timer) clearInterval(this.timer);
     await this.flush();
   }
 
