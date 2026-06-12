@@ -1,0 +1,146 @@
+/**
+ * E2E против ЖИВОГО sandbox Mastercard. Поднимает реальное приложение на порту
+ * 3999 (как dev-харнесс: bodyParser вручную, rawBody, без глобального pipe),
+ * прогоняет HTTP-проверки через axios и закрывается. Требует: поднятый Postgres
+ * (docker compose up -d) и валидный .env с креды sandbox.
+ *
+ *   npm run test:e2e
+ *
+ * Это НЕ юнит-тесты (jest по умолчанию их не подхватывает — отдельный конфиг
+ * test/jest-e2e.json, testRegex .e2e-spec.ts$). Сетевые вызовы MC → длинный
+ * testTimeout.
+ */
+import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import axios, { AxiosInstance } from 'axios';
+import { AppModule } from '../src/app.module';
+
+const PORT = 3999;
+const BASE = `http://127.0.0.1:${PORT}`;
+
+describe('Mastercard gateway (e2e, live sandbox)', () => {
+  let app: NestExpressApplication;
+  let http: AxiosInstance;
+  let internal: Record<string, string>;
+  let admin: Record<string, string>;
+
+  beforeAll(async () => {
+    app = await NestFactory.create<NestExpressApplication>(AppModule, {
+      bodyParser: false,
+      bufferLogs: false,
+      rawBody: true,
+    });
+    app.useBodyParser('json', { limit: '256kb' });
+    app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
+    // как в main.ts: глобального pipe НЕТ — каждый контроллер несёт свой.
+    await app.listen(PORT);
+
+    http = axios.create({ baseURL: BASE, validateStatus: () => true });
+    internal = {
+      'x-internal-token': process.env.MC_INTERNAL_TOKEN ?? '',
+      'x-tenant-id': 'own-sandbox',
+    };
+    admin = { 'x-admin-token': process.env.MC_ADMIN_TOKEN ?? '' };
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  const quoteBody = () => ({
+    quoterequest: {
+      transaction_reference: `08E2E${Date.now()}`,
+      sender_account_uri: 'tel:+25406005',
+      recipient_account_uri: 'tel:+254069832',
+      payment_amount: { amount: '105.15', currency: 'USD' },
+      payment_origination_country: 'USA',
+      payment_type: 'P2P',
+      quote_type: { forward: { receiver_currency: 'GBP' } },
+    },
+  });
+
+  it('GET /crossborder/balances (sandbox) → 200', async () => {
+    const bal = await http.get('/crossborder/balances', { headers: internal });
+    expect(bal.status).toBe(200);
+  });
+
+  it('POST /crossborder/quotes (passthrough) → 200 с proposal/charged_amount', async () => {
+    const q = await http.post('/crossborder/quotes', quoteBody(), {
+      headers: internal,
+    });
+    expect([200, 201]).toContain(q.status);
+    const s = JSON.stringify(q.data);
+    expect(s.includes('proposal') || s.includes('charged_amount')).toBe(true);
+  });
+
+  it('POST /crossborder/quotes с amount=number → 400 (DTO @IsString)', async () => {
+    const bad = quoteBody();
+    // @ts-expect-error намеренно ломаем тип суммы: число вместо строки
+    bad.quoterequest.payment_amount.amount = 105.15;
+    const qb = await http.post('/crossborder/quotes', bad, {
+      headers: internal,
+    });
+    expect(qb.status).toBe(400);
+  });
+
+  it('POST /admin/tenants OWN без secretRef → 400 (@ValidateIf)', async () => {
+    const tn = await http.post(
+      '/admin/tenants',
+      { name: 'e2e-own', credentialMode: 'OWN' },
+      { headers: admin },
+    );
+    expect(tn.status).toBe(400);
+  });
+
+  it('POST /oauth/token grant_type=password → 400 (@IsIn)', async () => {
+    const tok = await http.post('/oauth/token', { grant_type: 'password' });
+    expect(tok.status).toBe(400);
+  });
+
+  it('POST /webhooks/mastercard без токена → 401 (fail-closed)', async () => {
+    const wh = await http.post('/webhooks/mastercard', { eventRef: 'x' });
+    expect(wh.status).toBe(401);
+  });
+
+  it('POST /webhooks/mastercard с токеном → 200', async () => {
+    const wh = await http.post(
+      '/webhooks/mastercard',
+      { eventRef: `e2e-${Date.now()}`, eventType: 'STATUS_CHG' },
+      { headers: { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' } },
+    );
+    expect(wh.status).toBe(200);
+  });
+
+  it('GET /crossborder/payments?ref= (пусто) → 400 (SafeIdPipe)', async () => {
+    const r = await http.get('/crossborder/payments?ref=', {
+      headers: internal,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('GET /crossborder/payments?ref=a/b → 400 (анти path-injection)', async () => {
+    const r = await http.get('/crossborder/payments?ref=a%2Fb', {
+      headers: internal,
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('GET /admin/tenants/own-sandbox → 200 без secretRef, со status', async () => {
+    const view = await http.get('/admin/tenants/own-sandbox', {
+      headers: admin,
+    });
+    expect(view.status).toBe(200);
+    expect(view.data).not.toHaveProperty('secretRef');
+    expect(typeof view.data.status).toBe('string');
+  });
+
+  it('POST /crossborder/payments с кривым Idempotency-Key → 400 (до MC)', async () => {
+    const badKey = await http.post(
+      '/crossborder/payments',
+      {},
+      { headers: { ...internal, 'idempotency-key': 'bad key!' } },
+    );
+    expect(badKey.status).toBe(400);
+    expect(JSON.stringify(badKey.data)).toContain('Idempotency-Key');
+  });
+});
