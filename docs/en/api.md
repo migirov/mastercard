@@ -10,6 +10,43 @@ Reference for all HTTP endpoints. Related documents:
 
 ---
 
+## Mastercard API Reference — coverage
+
+The full Mastercard Cross-Border **API Reference** (sidebar order) mapped onto this
+gateway. Legend: ✅ implemented · ⚠️ partial · ❌ not yet (passthrough planned).
+
+| # | Mastercard API | Upstream MC endpoint(s) | Our gateway endpoint | Status |
+|---|---|---|---|---|
+| 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ |
+| 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ |
+| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = customer-hosted webhook | — | ❌ (opt-in; no sandbox) |
+| 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ |
+| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | — | ❌ |
+| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | — | ❌ (opt-in) |
+| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ❌ (opt-in) |
+| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ❌ |
+| 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` | ✅ (receiver) |
+| 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ |
+| 11 | **RFI APIs** (suite) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push webhook | — | ❌ |
+| 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ |
+| 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ |
+| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ✅ |
+| 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ⚠️ (receiver done; signature pending C1) |
+
+**Implemented (8 + 1 partial):** 1, 2, 4, 9, 10, 12, 13, 14 (+15 partial).
+**Not yet (6 groups):** Carded Rate (3), Address Validation (5), Account Validation suite (6),
+Cash Pickup (7), Endpoint Guide (8), RFI (11) — all auxiliary/opt-in MC services. Several
+have **no sandbox** (e.g. Carded Rate) or fixed test cases only, so they can be added as
+passthrough but cannot be verified live against our sandbox.
+
+> Extra we already expose beyond the screenshot list: `GET /crossborder/rates` (generic FX rates).
+> MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/
+> carded-rate/retrieve/cancel; `/send/…` (no `v1`) for confirmations/account-validation/RFI;
+> `/crossborder/…` (no `/send`, no partner path) for cash-pickup/endpoint-guide; Address
+> Validation uses a dedicated `/send/address-validation-service/…` base.
+
+---
+
 ## Authentication
 
 Four independent methods — each endpoint group has its own:
