@@ -103,11 +103,15 @@ export class CrossBorderService {
         'Idempotency-Key: up to 128 chars from [A-Za-z0-9._-:]',
       );
     }
+    // Резолвим credentials (gating + возможный медленный SecretStore) ДО захвата
+    // замка идемпотентности: producer внутри замка должен быть ограничен только
+    // 30-сек таймаутом MC (≪ LOCK_TTL 120с), иначе медленный Vault может растянуть
+    // producer за TTL → второй под перезахватит замок → двойной POST.
+    const creds = await this.resolveActive(tenantId);
     // Идемпотентность: тот же Idempotency-Key → тот же результат, без повторного
     // вызова MC (защита от двойных списаний при ретрае).
-    return this.idempotency.run(tenantId, idempotencyKey, async () => {
-      const creds = await this.resolveActive(tenantId);
-      return this.call(
+    return this.idempotency.run(tenantId, idempotencyKey, () =>
+      this.call(
         creds,
         {
           method: 'POST',
@@ -115,8 +119,8 @@ export class CrossBorderService {
           body,
         },
         'createPayment',
-      );
-    });
+      ),
+    );
   }
 
   /** Статус платежа по transaction id (GET). id уже проверен SafeIdPipe в контроллере. */
@@ -207,8 +211,15 @@ export class CrossBorderService {
     if (res.status >= 200 && res.status < 300) {
       return res.data;
     }
-    if (FORWARDABLE_STATUSES.has(res.status)) {
+    if (
+      FORWARDABLE_STATUSES.has(res.status) &&
+      res.data &&
+      typeof res.data === 'object'
+    ) {
       // Тело уже расшифровано интерцептором (для plain — без изменений).
+      // Пробрасываем ТОЛЬКО структурированный JSON-ответ MC (объект). Не-объект
+      // (HTML/строка от edge/WAF на 429 и т.п.) скрываем как 502 ниже — иначе
+      // в `upstream` могла бы утечь HTML-страница с внутренними ссылками.
       // UpstreamHttpException → фильтр вложит тело MC под `upstream`, сохранив
       // единый контракт ошибки (а не подменив его схемой MC).
       throw new UpstreamHttpException(res.data, res.status);

@@ -1,4 +1,8 @@
-import { ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { KV_STORE, KvStore } from '../store/kv.types';
 import { IdempotencyService } from './idempotency.service';
@@ -73,16 +77,39 @@ describe('IdempotencyService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('releases the lock and rethrows when the producer fails', async () => {
+  it('releases the lock on a client 4xx error (payment definitely not made)', async () => {
     kv.get.mockResolvedValue(null);
     kv.setIfAbsent.mockResolvedValue(true);
-    const err = new Error('upstream boom');
+    const err = new BadRequestException('bad body');
     await expect(
       svc.run('tenant', 'key', async () => {
         throw err;
       }),
     ).rejects.toBe(err);
     expect(kv.del).toHaveBeenCalledWith('idem:tenant:key');
+  });
+
+  it('KEEPS the lock on a 5xx/unknown error (fail-safe against double-charge)', async () => {
+    kv.get.mockResolvedValue(null);
+    kv.setIfAbsent.mockResolvedValue(true);
+    const err = new HttpException('upstream', 502);
+    await expect(
+      svc.run('tenant', 'key', async () => {
+        throw err;
+      }),
+    ).rejects.toBe(err);
+    expect(kv.del).not.toHaveBeenCalled();
+  });
+
+  it('KEEPS the lock on a non-HTTP error (treated as unknown outcome)', async () => {
+    kv.get.mockResolvedValue(null);
+    kv.setIfAbsent.mockResolvedValue(true);
+    await expect(
+      svc.run('tenant', 'key', async () => {
+        throw new Error('socket hang up');
+      }),
+    ).rejects.toThrow('socket hang up');
+    expect(kv.del).not.toHaveBeenCalled();
   });
 
   it('a result-cache failure does not turn a settled result into an error', async () => {
