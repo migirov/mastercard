@@ -40,12 +40,14 @@
 | `audit_log` | **Postgres** (TypeORM) | домен | агрегируется со всех подов |
 | `idempotency` | **Postgres** (`KvStore`→PG, TTL) | домен | ретрай платежа на другом поде → иначе двойное списание |
 | webhook-дедуп | **Postgres** (`KvStore`→PG, TTL) | домен | ретрай вебхука MC на другом поде → иначе дубль |
-| rate-limit | нативный `@nestjs/throttler`, **in-memory per-pod** | эфемерный | авторитетный лимит — на ингрессе; в приложении грубая per-pod сетка |
+| rate-limit | самодостаточный per-pod `@nestjs/throttler` | эфемерный | корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative |
 | кэш креды | **in-memory per-pod** | кэш | источник истины — Vault/env; поды кэшируют независимо из одного источника, TTL ограничивает staleness |
 | секреты партнёров | SecretStore (Vault) | внешнее | управляется секрет-менеджером, не наш слой |
 
 **Redis НЕ используется** — для согласованного состояния выбран Postgres, для
-эфемерного rate-limit — нативный in-memory throttler (per-pod) + ингресс.
+эфемерного rate-limit — самодостаточный per-pod `@nestjs/throttler` (корректность
+не зависит от ингресса); лимит на ингрессе, если есть — опциональная доп. защита,
+не authoritative.
 
 **Стек хранения:** PostgreSQL + TypeORM (`@nestjs/typeorm`), `synchronize` в dev
 (авто-схема), миграции — в проде. Подключение через `DATABASE_URL`.
@@ -529,8 +531,9 @@ in-memory (per-pod). Остальной код работает только с 
 
 ## Поведение
 
-- **Аутентификация:** в проде — **mTLS на ингрессе** (авторитетно); app-уровень —
-  dev shared-secret `X-Webhook-Token` (для локального теста).
+- **Аутентификация:** in-service fail-closed токен (`X-Webhook-Token`), обязателен в
+  prod и dev; проверка подписи JWS/HMAC — планируемый authoritative-фактор (ждёт спеку
+  MC, C1). mTLS на ингрессе — опциональный доп. слой, не аутентификация.
 - **Дедуп:** `setIfAbsent('wh:<eventRef>')` с TTL сутки — MC ретраит до 3 раз.
   Повтор → `{status:'duplicate'}`, иначе `{status:'accepted'}`.
 - **Ответ всегда 200** (иначе MC ретраит). Диспетчеризация по `eventType`

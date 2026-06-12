@@ -53,12 +53,11 @@
 - [ ] **`MC_SECRET_STORE=vault`** + реализованный `VaultSecretStore` (сейчас заглушка
       `NotImplemented`). Прод-гейт в `main.ts` уже требует `vault` и падает без него.
 - [ ] **Сильные секреты** вместо dev-дефолтов: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
-      `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (или пустой webhook-токен при mTLS).
+      `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (обязателен — webhook-guard fail-closed).
       Прод-гейт проверяет это на старте.
-- [ ] **`TRUST_PROXY`** = число хопов ингресса (не `true`) — корректный `req.ip`.
-- [ ] **mTLS на ингрессе** для вебхуков Mastercard (авторитетная аутентификация).
-- [ ] **Авторитетный rate-limit на ингрессе** — внутренний throttler per-pod
-      (best-effort).
+- [ ] **`TRUST_PROXY`** = число хопов ингресса (не `true`) — только для корректного `req.ip` за прокси (используется IP-fallback в rate-limit); к аутентификации не относится.
+- [ ] **mTLS на ингрессе** для вебхуков Mastercard — опциональный доп. сетевой слой, не аутентификация. Аутентификация — in-service fail-closed токен (`X-Webhook-Token`); проверка подписи JWS/HMAC — планируемый authoritative-фактор (ждёт спеку MC, C1).
+- [ ] **Опциональный rate-limit на ингрессе** как доп. защита — authoritative-лимит это самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса); лимит на ингрессе, если есть — не authoritative.
 - [ ] **Personal partner-id и ключи** OWN-партнёров заведены в секрет-менеджере.
 - [x] **Миграции БД** — инфраструктура готова (`data-source.ts`, npm-скрипты
       `migration:generate/run/revert`, начальная `InitialSchema`, `synchronize`

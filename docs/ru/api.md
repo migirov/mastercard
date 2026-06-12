@@ -19,7 +19,7 @@
 | `Authorization: Bearer <JWT>` | **внешний мерчант** (партнёр) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | **внутренний** сервис/UI платформы | `/crossborder/*` |
 | `X-Admin-Token` | **оператор платформы** | `/admin/*` |
-| mTLS на ингрессе (dev: `X-Webhook-Token`) | **Mastercard** | `/webhooks/*` |
+| in-service `X-Webhook-Token` (fail-closed; mTLS на ингрессе — опциональный доп. слой) | **Mastercard** | `/webhooks/*` |
 | — (публичный) | любой с client_id/secret | `/oauth/token` |
 
 **Важно:** `tenantId` НИКОГДА не берётся из тела/query — только из аутентификации
@@ -176,7 +176,7 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 |---|---|---|
 | `POST` | `/webhooks/mastercard` | Приём push-уведомлений (статусы транзакций и т.п.) |
 
-- **Аутентификация:** в проде — **mTLS на ингрессе**; dev — `X-Webhook-Token`.
+- **Аутентификация:** in-service fail-closed токен (`X-Webhook-Token`), обязателен в prod и dev; проверка подписи JWS/HMAC — планируемый authoritative-фактор (ждёт спеку MC, C1). mTLS на ингрессе — опциональный доп. слой, не аутентификация.
 - **Всегда отвечает `200`** (иначе MC ретраит).
 - **Дедуп** по `eventRef` (MC ретраит до 3 раз): повтор → `{"status":"duplicate"}`,
   иначе `{"status":"accepted"}`.
@@ -201,5 +201,4 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 | `/oauth/token` | 10 / мин | `client_id` (не обходится ротацией IP) |
 | `/admin/*` | 120 / мин | IP |
 
-Внутренний throttler — per-pod (best-effort); авторитетный лимит — на ингрессе.
-Превышение → `429`.
+Rate-limiting — самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса); лимит на ингрессе, если есть — опциональная доп. защита, не authoritative. Превышение → `429`.

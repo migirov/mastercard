@@ -124,8 +124,8 @@ B='{"eventRef":"evt-test-001","eventType":"STATUS_CHG"}'
 curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # accepted
 curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
 ```
-> В проде аутентификация вебхуков = **mTLS на ингрессе** (по докам MC); dev —
-> shared-secret `X-Webhook-Token`.
+> Аутентификация вебхуков — in-service fail-closed токен (`X-Webhook-Token`),
+> обязателен в prod и dev. mTLS на ингрессе — опциональный доп. слой, не аутентификация.
 
 ---
 

@@ -82,12 +82,15 @@
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
 | идемпотентность платежей, дедуп вебхуков | **PostgreSQL** (`kv_store`, TTL, атомарный `setIfAbsent`) |
-| rate-limit | нативный `@nestjs/throttler`, **in-memory per-pod** (авторитет — ингресс) |
+| rate-limit | самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative) |
 | кэш credentials | **in-memory per-pod** (кэш из Vault, TTL) |
 | секреты партнёров | **Vault/KMS** (через `SecretStore`) |
 
 **Redis не используется** — согласованное состояние в Postgres, эфемерный
-rate-limit — нативный throttler per-pod + лимит на ингрессе.
+rate-limit — самодостаточный per-pod `@nestjs/throttler` (корректность не зависит
+от ингресса). Глобальный кросс-под лимит потребовал бы общего хранилища, которое
+проект намеренно не использует; лимит на ингрессе, если есть — опциональная доп.
+защита, не authoritative.
 
 ## 5. Модель арендатора (Tenant)
 
@@ -190,7 +193,7 @@ documentation.md).
 | `EncryptionModule` | `EncryptionService` (JWE, тумблер по среде) |
 | `IdempotencyModule` | `IdempotencyService` (через `KvStore`) |
 | `AuditModule` | `AuditInterceptor` (глобальный) + `AuditService` → Postgres |
-| `WebhooksModule` | приём push-уведомлений MC (mTLS на ингрессе), дедуп |
+| `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп |
 | `CrossBorderModule` | бизнес-эндпоинты: quote / payment / retrieve / cancel / confirm |
 | `HealthModule` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД) |
 | `common/` | p12/crypto utils, `TenantThrottlerGuard` |

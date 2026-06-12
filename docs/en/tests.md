@@ -125,8 +125,8 @@ B='{"eventRef":"evt-test-001","eventType":"STATUS_CHG"}'
 curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # accepted
 curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
 ```
-> In production, webhook authentication = **mTLS at the ingress** (per MC docs);
-> dev uses the shared secret `X-Webhook-Token`.
+> Webhook authentication is the in-service fail-closed token (`X-Webhook-Token`),
+> required in prod and dev. mTLS at the ingress is optional, additional — not the authentication.
 
 ---
 
