@@ -280,6 +280,30 @@ export class CrossBorderService {
     );
   }
 
+  /**
+   * Endpoint Guide (GET): технические/бизнес-требования к полям для конкретного
+   * коридора (payment_type + destination_country/currency/payment_instrument).
+   * База `/crossborder` (без /send, без partner-id в пути); идентификация —
+   * ref-заголовками (X-Mc-Correlation-Id + Partner-Ref-Id), как у validation-
+   * сервисов. Тела запроса НЕТ → шифровать нечего → на sandbox работает вживую.
+   */
+  async endpointGuide(
+    tenantId: string,
+    q: {
+      payment_type?: string;
+      destination_country?: string;
+      destination_currency?: string;
+      destination_payment_instrument?: string;
+    },
+  ) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callGuide(
+      creds,
+      `/crossborder/endpoint-guide/specifications${this.qs(q)}`,
+      'endpointGuide',
+    );
+  }
+
   /** Подтверждение котировки (POST). Шифрование — в интерцепторе. */
   async confirmQuote(tenantId: string, body: ConfirmationRequestDto) {
     const creds = await this.resolveActive(tenantId);
@@ -374,6 +398,23 @@ export class CrossBorderService {
         path,
         headers: { 'partner-id': this.headerSafe(creds.partnerId) },
       },
+      ctx,
+    );
+  }
+
+  /**
+   * GET в MC-сервис, идентифицируемый ref-заголовками (Endpoint Guide): partner-id
+   * передаётся как Partner-Ref-Id (+ X-Mc-Correlation-Id), не в пути и не как
+   * заголовок `partner-id` (в отличие от Cash Pickup). Тела нет.
+   */
+  private callGuide(
+    creds: McCredentials,
+    path: string,
+    ctx: string,
+  ): Promise<unknown> {
+    return this.call(
+      creds,
+      { method: 'GET', path, headers: this.mcRefHeaders(creds) },
       ctx,
     );
   }

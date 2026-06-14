@@ -25,7 +25,7 @@
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
 | 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (нужно шифрование; ASV нет в sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
-| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
+| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (доходит до MC; sandbox → HTML 500 для generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ | ✅ (приём) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
 | 11 | **RFI APIs** (сьют) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push-вебхук | — | ⚠️ (push N/A; остальное фикс.) | ❌ |
@@ -34,9 +34,8 @@
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
 
-**Реализовано (11 + 1 частично):** 1, 2, 4, **5**, **6**, **7**, 9, 10, 12, 13, 14 (+15 частично).
-**Ещё нет (3 группы):** Carded Rate (3), Endpoint Guide (8), RFI (11) —
-вспомогательные/opt-in сервисы MC.
+**Реализовано (12 + 1 частично):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, 12, 13, 14 (+15 частично).
+**Ещё нет (2 группы):** Carded Rate (3), RFI (11) — вспомогательные/opt-in сервисы MC.
 
 > **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
 > нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
@@ -45,6 +44,13 @@
 > e2e (маршрут, OAuth1-подпись, обязательные заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`,
 > проброс ошибки); тело авто-шифруется request-интерцептором в MTF/Prod. У ряда других групп
 > тоже **нет sandbox** (Carded Rate) или только фикс. тест-кейсы.
+>
+> **Endpoint Guide (8)** реализован GET'ом (тела/шифрования нет). e2e подтвердил проводку
+> (OAuth1-подпись, заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`, маршрут), НО sandbox для
+> generic partner-id отдаёт **HTML-страницу 500** (Tomcat «Internal Server Error», не
+> структурный JSON) — по доке MC коридорные спецификации доступны только после онбординга
+> партнёра (sandbox = generic endpoint setup). Шлюз корректно скрывает HTML-5xx и отдаёт 502
+> (тело наружу не утекает). Проверится вживую в MTF/Prod на онбордженном partner-id.
 
 > Сверх списка со скрина у нас уже есть: `GET /crossborder/rates` (generic FX-курсы).
 > Префиксы путей MC неоднородны (по офиц. доке): `/send/v1/…` — quotes/payment/carded-rate/

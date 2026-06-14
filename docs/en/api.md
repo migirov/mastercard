@@ -25,7 +25,7 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (needs payload encryption) | ✅ |
 | 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (needs encryption; ASV not in sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
-| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
+| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (reaches MC; sandbox → HTML 500 for generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` | ✅ | ✅ (receiver) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
 | 11 | **RFI APIs** (suite) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push webhook | — | ⚠️ (push N/A; rest fixed cases) | ❌ |
@@ -34,9 +34,8 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; signature pending C1) |
 
-**Implemented (11 + 1 partial):** 1, 2, 4, **5**, **6**, **7**, 9, 10, 12, 13, 14 (+15 partial).
-**Not yet (3 groups):** Carded Rate (3), Endpoint Guide (8), RFI (11) — all auxiliary/opt-in
-MC services.
+**Implemented (12 + 1 partial):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, 12, 13, 14 (+15 partial).
+**Not yet (2 groups):** Carded Rate (3), RFI (11) — auxiliary/opt-in MC services.
 
 > **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
 > **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
@@ -45,6 +44,13 @@ MC services.
 > verified (route, OAuth1 signature, required `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers,
 > error forwarding); the body is auto-encrypted by the request interceptor in MTF/Prod.
 > Several other groups likewise have **no sandbox** (Carded Rate) or fixed test cases only.
+>
+> **Endpoint Guide (8)** is implemented as a GET (no body/encryption). e2e confirms the wiring
+> (OAuth1 signature, `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers, routing), but the sandbox
+> returns an **HTML 500 page** (Tomcat "Internal Server Error", not structured JSON) for the
+> generic partner-id — per MC docs, corridor specifications are only available after partner
+> onboarding (sandbox = generic endpoint setup). The gateway correctly hides the HTML 5xx and
+> returns 502 (no body leak). Verifiable live in MTF/Prod with an onboarded partner-id.
 
 > Extra we already expose beyond the screenshot list: `GET /crossborder/rates` (generic FX rates).
 > MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/

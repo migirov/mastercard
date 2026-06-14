@@ -205,6 +205,27 @@ export class CrossBorderController {
     });
   }
 
+  @Get('endpoint-guide/specifications')
+  @ApiOperation({
+    summary:
+      'Endpoint Guide: требования к полям коридора (MC Endpoint Guide, GET).',
+  })
+  endpointGuide(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('payment_type') paymentType?: string,
+    @Query('destination_country') destinationCountry?: string,
+    @Query('destination_currency') destinationCurrency?: string,
+    @Query('destination_payment_instrument')
+    destinationPaymentInstrument?: string,
+  ) {
+    return this.svc.endpointGuide(ctx.tenantId, {
+      payment_type: paymentType,
+      destination_country: destinationCountry,
+      destination_currency: destinationCurrency,
+      destination_payment_instrument: destinationPaymentInstrument,
+    });
+  }
+
   @Post('quotes/confirmations')
   @HttpCode(200) // подтверждение — изменение состояния котировки, не создание
   @ApiOperation({
