@@ -329,7 +329,7 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 дальше ходят в Cross-Border API под Bearer-JWT. У одного тенанта — 0..N клиентов.
 
 Код: [`src/auth/client-registry.ts`](../../src/auth/client-registry.ts),
-сущность: [`src/database/entities/oauth-client.entity.ts`](../../src/database/entities/oauth-client.entity.ts).
+сущность (co-located в модуле): [`src/auth/oauth-client.entity.ts`](../../src/auth/oauth-client.entity.ts).
 Таблица `oauth_clients`.
 
 ## Поля
@@ -364,12 +364,13 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 # AuditLog (AuditEntry)
 
 **AuditLog** — запись журнала операций: кто (тенант), что (метод + путь), результат
-(статус), сколько заняло. Пишется на **каждый HTTP-запрос** глобальным
-`AuditInterceptor`. **Без тел запроса/ответа и без секретов.**
+(статус), сколько заняло. Пишется на **каждый HTTP-запрос** через `AuditInterceptor`,
+который навешивается **per-controller** композитным декоратором `@UseGatewayContract()`
+(не глобально через `APP_INTERCEPTOR` — модуль встраиваемый). **Без тел запроса/ответа и без секретов.**
 
 Код: [`src/audit/audit.service.ts`](../../src/audit/audit.service.ts),
 интерцептор: [`src/audit/audit.interceptor.ts`](../../src/audit/audit.interceptor.ts),
-сущность: [`src/database/entities/audit-log.entity.ts`](../../src/database/entities/audit-log.entity.ts).
+сущность (co-located в модуле): [`src/audit/audit-log.entity.ts`](../../src/audit/audit-log.entity.ts).
 Таблица `audit_log`.
 
 ## Поля
@@ -387,10 +388,12 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 
 ## Поведение
 
-- Запись — **fire-and-forget** (`insert().catch(log)`): не добавляет задержку к
-  ответу; ошибка вставки только логируется, запрос не падает.
+- Запись — **fire-and-forget** + **батчевая** (буфер + flush раз в секунду / на 100
+  строк / на shutdown; flush ре-энтерабелен — зовётся из 4 мест): не добавляет задержку
+  к ответу; ошибка вставки только логируется, запрос не падает. У буфера есть жёсткий
+  потолок (drop-oldest при переполнении), чтобы не расти в OOM при недоступной БД.
 - Параллельно пишется структурный лог в stdout.
-- Чтение: `GET /admin/audit` (последние 200, по убыванию `id`).
+- Чтение: `GET /admin/audit` (последние 200, по убыванию `id`; сначала флашит буфер).
 - **Гарантия приватности:** тела и заголовки не сохраняются — только метаданные.
 
 > Замечание: реджекты на уровне guard (401/403/429) в audit **не попадают** —
@@ -407,7 +410,7 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 2. **дедуп вебхуков** Mastercard (ключ `wh:<eventRef>`).
 
 Код: [`src/store/postgres-kv.store.ts`](../../src/store/postgres-kv.store.ts),
-сущность: [`src/database/entities/kv.entity.ts`](../../src/database/entities/kv.entity.ts).
+сущность (co-located в модуле): [`src/store/kv.entity.ts`](../../src/store/kv.entity.ts).
 Таблица `kv_store`.
 
 ## Поля
@@ -424,12 +427,13 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
   `INSERT … ON CONFLICT (key) DO UPDATE … WHERE expiresAt < now()`: вставит, либо
   перезапишет ТОЛЬКО протухшую запись. На этом строятся замок идемпотентности и
   «первый-выигрывает» для вебхуков (без гонок между подами).
-- **`get`** — читает и, если запись протухла, удаляет её и возвращает `null`.
+- **`get`** — читает и, если запись протухла, удаляет её (fire-and-forget) и возвращает `null`.
 - **TTL:** идемпотентность — короткий замок `in-progress` (120с, > таймаута MC),
   затем результат на сутки; webhook-дедуп — сутки.
-- **Очистка:** протухшие строки удаляются **лениво** (при обращении). Фоновой
-  чистки нет — в проде стоит добавить cron (`@nestjs/schedule`), иначе таблица
-  растёт мёртвыми записями (см. [production-questions.md](./production-questions.md)).
+- **Очистка:** протухшие строки удаляются cron-задачей (`KvCleanupService`, ежечасно,
+  `@nestjs/schedule`, под `pg_try_advisory_xact_lock` — в multi-pod реально чистит
+  только ОДИН под за цикл; `DELETE` **батчится через `LIMIT`/`ctid`**, поэтому один
+  прогон удаляет не более `CLEANUP_BATCH` строк и не держит длинный лок), плюс лениво при чтении.
 
 ---
 
@@ -460,8 +464,10 @@ in-memory (per-pod). Остальной код работает только с 
   `consumerKey`, общий `partnerId`. Кэш без TTL (ротация через рестарт).
 - **`OWN`** → из [MerchantSecretBundle](#merchantsecretbundle--keymaterial) по
   `secretRef` тенанта; кэш **с TTL** (`MC_CREDS_CACHE_TTL_MS`, дефолт 10 мин) +
-  дедуп stampede (конкурентные запросы ждут один промис) + `invalidate()` для
-  ротации.
+  **жёсткий LRU-потолок (500 записей)**, чтобы множество тенантов не раздуло кэш
+  безгранично, + дедуп stampede (конкурентные запросы ждут один промис) +
+  `invalidate()` для ротации. (Конвертации P12→PEM мемоизируются отдельно в LRU
+  `pemCache`, потолок 256.)
 
 > ⚠️ **Известное ограничение:** поля шифрования (`encryptionCertPem` и др.)
 > резолвятся per-tenant, но интерцептор шифрует **платформенным** ключом

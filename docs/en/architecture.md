@@ -6,19 +6,26 @@ Reflects the **actually implemented** state of the service. Related documents:
 [production-questions.md](./production-questions.md) (pre-prod blockers),
 [memory.md](./memory.md) (session context).
 
-> **UPDATE 2026-06-11 (refactor per team-lead feedback).** The module topology
-> changed: the whole integration is now ONE embeddable umbrella `MastercardModule`
-> (`src/mastercard.module.ts`, via `ConfigurableModuleBuilder`, `forRoot/forRootAsync`)
-> that the host app (the `b24club-api` monolith or the dev-harness `AppModule`)
-> imports in one line. Config arrives as options and is distributed via a global
-> `GatewayConfig` (`src/config/gateway-config.ts`) — services do NOT read
-> `process.env`/`ConfigService`. There is no global `ValidationPipe` anymore: each
-> controller carries its own pipe (`strictDtoPipe` for admin/oauth, `mcPassthroughPipe`
-> without `transform` for bodies going to MC). Webhook auth is fail-closed in-service
-> (+ a signature-verifier scaffold), not "trust the ingress". Thin modules
-> (Encryption/Idempotency/Health) were collapsed into providers/a controller. Details
-> in [memory.md](./memory.md), section "TEAM-LEAD FEEDBACK — DONE". The sections below
-> about "standalone" and the module list describe the previous layout.
+> **Topology (current).** The whole integration is ONE embeddable umbrella
+> `MastercardModule` (`src/mastercard.module.ts`, via `ConfigurableModuleBuilder`,
+> `forRoot/forRootAsync`) that the host app (the `b24club-api` monolith or the
+> dev-harness `AppModule` via `main.ts`) imports in one line — every sub-module is a
+> private implementation detail. The host imports the public symbols (`MastercardModule`,
+> `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`, `rfiUploadBodyParser`, `GatewayConfig`,
+> `MastercardModuleOptions`) **only** from the public-api barrel `src/index.ts`, never
+> by deep path. Config arrives as options and is distributed via a global `GatewayConfig`
+> (`src/config/gateway-config.ts`) — services do NOT read `process.env`/`ConfigService`.
+> There is no global `ValidationPipe`/`APP_FILTER`/`APP_INTERCEPTOR`: cross-cutting
+> binding is **per-controller** (a controller carries its own pipe — `strictDtoPipe` for
+> admin/oauth, `mcPassthroughPipe` without `transform` for bodies going to MC — plus the
+> `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
+> override the host's error handling. Webhook auth is fail-closed in-service (+ a
+> signature-verifier scaffold), not "trust the ingress". Thin modules
+> (Encryption/Idempotency/Health) are collapsed into providers/a controller. The single
+> entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
+> the umbrella for the host `DataSource`); entities are co-located in their modules. A
+> startup `HostIntegrityService` warns if the host omits the `DataSource`/`ScheduleModule`/
+> `webhookToken`. The "standalone" framing in §1 describes the dev-harness run mode.
 
 ## 1. Goal
 
@@ -179,28 +186,58 @@ in documentation.md).
 
 ## 10. NestJS modules
 
-| Module | Responsibility |
+The host imports **only** `MastercardModule` (the umbrella). Everything below is a
+private sub-module wired up inside it. The umbrella registers `HealthController` and
+the per-pod `ThrottlerModule` directly, provides `GatewayConfig` (from the
+`forRootAsync` options) and `HostIntegrityService`, and re-exports `MASTERCARD_ENTITIES`.
+
+| Module / unit | Responsibility |
 |---|---|
-| `DatabaseModule` | PostgreSQL connection (TypeORM `forRoot`) |
-| `StoreModule` | `KvStore` → `PostgresKvStore` (idempotency, webhook dedup) |
-| `TenantModule` | `TenantRegistry` over Postgres, statuses, seeds |
-| `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), cache |
+| `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `HealthController` + `ThrottlerModule` + `HostIntegrityService` |
+| `StoreModule` | `KvStore` → `PostgresKvStore` (idempotency, webhook dedup) + `KvCleanupService`; `KvEntity` co-located |
+| `TenantModule` | `TenantRegistry` over Postgres, statuses, seeds; `TenantEntity` co-located |
+| `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory cache (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
-| `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard` |
+| `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |
-| `MastercardModule` | `MastercardClient` (axios + encrypt/sign/decrypt interceptors) |
-| `EncryptionModule` | `EncryptionService` (JWE, env toggle) |
-| `IdempotencyModule` | `IdempotencyService` (via `KvStore`) |
-| `AuditModule` | `AuditInterceptor` (global) + `AuditService` → Postgres |
+| `MastercardClientModule` | the low-level `MastercardClient` (axios + encrypt/sign/decrypt interceptors); `EncryptionService` is a provider here, not its own module |
+| `AuditModule` | `AuditInterceptor` (bound per-controller via `@UseGatewayContract()`) + batched `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup |
-| `CrossBorderModule` | business endpoints: quote / payment / retrieve / cancel / confirm |
-| `HealthModule` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping) |
-| `common/` | p12/crypto utils, `TenantThrottlerGuard` |
+| `CrossBorderModule` | business endpoints (all 15 MC API groups); uses `mc-paths.ts` (centralized MC URL builder) |
+| `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
+| `HealthController` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered by the umbrella (no separate module) |
+| `IdempotencyService` | provider (via `KvStore`); collapsed from the old `IdempotencyModule` |
+| `common/` | shared cross-cutting utilities (see below) |
+
+**`common/` (shared utilities & patterns):**
+- `gateway-contract.decorator.ts` — `@UseGatewayContract()` = composed
+  `@UseFilters(GatewayExceptionFilter)` + `@UseInterceptors(AuditInterceptor)`, applied
+  **per-controller** (not `APP_*`) so a new controller cannot forget the error
+  contract/audit. (`AdminController` keeps its own explicit set with `ClassSerializerInterceptor`.)
+- `mc-passthrough.pipe.ts` — `mcPassthroughPipe()` for bodies passed through to MC verbatim
+  (no `transform`/`whitelist`); lives in `common/` because both crossborder and webhooks use it.
+- `secret-strength.ts` — `isWeakSecret()` shared by `main.ts` and the `GatewayConfig` prod gate.
+- `api-error-responses.decorator.ts` — `ApiErrorResponses()` documenting the unified error shape in Swagger.
+- `string-query.pipe.ts` — `StringQueryPipe` rejects non-string query params (objects/arrays).
+- `rfi-upload.bodyparser.ts` — `RFI_UPLOAD_PATH` + `rfiUploadBodyParser()`: a route-scoped
+  2MB JSON parser for the RFI document upload (POST-only); the host must register it when embedded.
+- `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
+  `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
+  `gateway-exception.filter.ts`, `upstream.exception.ts`.
+
+Also at the package root: `src/index.ts` (public-api barrel), `src/mastercard.entities.ts`
+(single entity list), `src/host-integrity.service.ts` (startup self-check),
+`src/crossborder/mc-paths.ts` (centralized MC URL path builder — MC prefixes are
+intentionally inconsistent: `/send/partners` vs `/send/v1/partners` vs bare `/crossborder`
+vs the address-validation base; now in one auditable place).
 
 Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
-- **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot`), in-memory per-pod.
-- **Health probes** — `@nestjs/terminus` (`HealthModule`) for k8s.
-- **ENV validation** — `ConfigModule.forRoot({ validate })` (class-validator), fail-fast at startup.
+- **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` inside the umbrella;
+  one named set `default` 120/min, per-pod), with a per-route override on `/oauth/token`.
+- **Health probes** — `@nestjs/terminus` (`HealthController` registered by the umbrella) for k8s.
+- **ENV validation** — at the dev-harness boundary (`env.validation.ts`, class-validator,
+  fail-fast at startup); when embedded the host passes typed `MastercardModuleOptions` and
+  `GatewayConfig` enforces the prod gate.
 - **Cron** — `@nestjs/schedule` (`KvCleanupService` cleans expired `kv_store`).
 - **Logs** — `nestjs-pino`: structured JSON + correlation-id (`x-request-id`), secret redaction.
 - **Migrations** — TypeORM CLI (`data-source.ts`, `migration:*`); `synchronize` off in prod.
@@ -213,8 +250,9 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   `transaction_reference`); the key is validated (length/charset).
 - **Audit trail** on all operations — without bodies or secrets.
 - **OAuth2:** HS256 pinning, constant-time secret hash comparison, `no-store`.
-- **Prod gates** in `main.ts`: refuse to start with weak/default secrets and without
-  `MC_SECRET_STORE=vault`; helmet; 256kb body limit; `trust proxy` via env.
+- **Prod gates:** refuse to start with weak/default secrets (`isWeakSecret()`, shared by
+  `main.ts` and `GatewayConfig`) and without `MC_SECRET_STORE=vault`. helmet / body-limit /
+  logger / `trust proxy` are dev-harness (`main.ts`) concerns; when embedded the host owns them.
 - **Fail-closed** rate-limit guard (no tenant context → error, not a shared bucket).
 - Vault: short-lived cache, key rotation without restart (`invalidate`).
 - sandbox/MTF/production separation — via environment config, not in code.
@@ -230,5 +268,14 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - ✅ **Migration to PostgreSQL** (Redis/in-memory removed as storage).
 - ✅ **Platform enhancements:** health probes (terminus), ENV validation,
   TypeORM migrations, cron cleanup of `kv_store`, structured logs (pino) + correlation-id.
-- ⬜ **Before prod:** per-tenant encryption, private Client key, Vault implementation,
-  metrics/tracing (Prometheus/OTel), RFI — see [production-questions.md](./production-questions.md).
+- ✅ **Embeddable umbrella module:** single `MastercardModule` + public-api barrel
+  (`src/index.ts`), per-controller cross-cutting binding, `GatewayConfig`, `HostIntegrityService`.
+- ✅ **Full MC API coverage:** all 15 MC API Reference groups (14 + #15 partial) under
+  `/crossborder/*` (balances, rates, carded-rates, quotes(+confirmations), payments
+  (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
+  iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
+- ✅ **Quality:** a 10-round security/bug/optimization audit + 2 regression rounds + a
+  4-lens code review (Tier 1 applied). Tests: unit 16 suites / 112, e2e 23/23 on the live sandbox.
+- ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
+  key — see §6), webhook signature (C1), private Client decryption key, Vault implementation,
+  metrics/tracing (Prometheus/OTel) — see [production-questions.md](./production-questions.md).

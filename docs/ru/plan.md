@@ -1,6 +1,8 @@
 # План работ — Mastercard Cross-Border Gateway
 
-Мульти-мерчант сервис-шлюз к Mastercard Cross-Border Services.
+Мульти-мерчант сервис-шлюз (NestJS 10) к Mastercard Cross-Border Services.
+**Встраивается как ОДИН зонтичный модуль (`MastercardModule`) в монолит хоста
+`b24club-api`**; также запускается отдельно через dev-harness `main.ts`.
 Архитектура — в [architecture.md](./architecture.md), сущности — в
 [documentation.md](./documentation.md), блокеры — в
 [production-questions.md](./production-questions.md). Этот файл — план и статус.
@@ -11,6 +13,10 @@
 
 ## Принятые решения
 
+- **Встраивание (решено):** сервис — **ОДИН зонтичный модуль (`MastercardModule`)**,
+  встраиваемый в монолит хоста `b24club-api`. **Хост** предоставляет TypeORM
+  `DataSource` (наши сущности через `forFeature` / `autoLoadEntities`) и прогоняет
+  свои миграции (не `synchronize`). Standalone-запуск через `main.ts` — только dev-harness.
 - **Модель мерчантов (подтверждено клиентом):** ОСНОВНОЙ сценарий — **отдельный
   `partner-id` на каждого** партнёра (режим `OWN`). Каждый партнёр уже
   зарегистрирован в Mastercard, имеет свои ключи и обслуживает своих бизнес-
@@ -109,8 +115,9 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 - ✅ **Идемпотентность платежей** (`IdempotencyService`): `Idempotency-Key` на
   `POST /crossborder/payments` → тот же результат без повторного вызова MC; замок
   против гонок (атомарный `setIfAbsent`), ошибки не кэшируются, изоляция по тенанту.
-- ✅ **Audit trail** (`AuditInterceptor` глобальный + `AuditService` → Postgres):
+- ✅ **Audit trail** (`AuditInterceptor` **per-controller** + `AuditService` → Postgres):
   кто/source/method/path/status/ms на каждый запрос (без тел/секретов); `GET /admin/audit`.
+  *(Глобального `APP_*` нет — каждый контроллер декларирует свои cross-cutting слои.)*
 - ✅ **Дедуп вебхуков** через `KvStore` (Postgres).
 - ✅ Аудит Фазы 5 (5 фиксов): короткий TTL замка идемпотентности (120с) + длинный
   TTL результата (24ч); Swagger off в production (`SWAGGER_ENABLED`); graceful
@@ -122,15 +129,35 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 - ✅ `@nestjs/swagger` на `/api-docs` (схемы auth: merchant / internal / admin).
   Выключен в production без `SWAGGER_ENABLED`.
 
-## Фаза 6 — Полнота 🔄 (транзакционное ядро готово)
+## Фаза 6 — Полнота ✅ (покрытие MC API — ПОЛНОЕ)
 
-- ✅ Операции **payment / retrieve(by-id, by-ref) / cancel / quote-confirmation**.
-  Эндпоинты под `/crossborder/`. Проверено: доходят до MC.
+- ✅ Операции **payment / retrieve(by-id, by-ref) / cancel / quote-confirmation /
+  balance**. Эндпоинты под `/crossborder/`. Проверено: доходят до MC.
 - ✅ Аудит Ф6 (фикс): `assertSafeId` — paymentId не меняет структуру URL.
-- ✅ DTO-валидация: глобальный `ValidationPipe` + `CreateTenantDto`; MC-passthrough
-  (`@Body() unknown`) Pipe не трогает (quote→201).
-- ⬜ RFI-подсистема (requests/documents) — по необходимости.
-- ⬜ API-документация для мерчантов (расширить Swagger-аннотации).
+- ✅ DTO-валидация: **глобального `ValidationPipe` НЕТ** — каждый контроллер
+  объявляет свой pipe (строгий для admin/oauth, `mcPassthrough` для тел,
+  пробрасываемых в MC). Quote/payment-тела MC pipe не трогает (→201).
+
+### Полное покрытие MC API Reference ✅
+
+Реализованы **все 15 групп** MC API Reference (14 полностью + #15 Push
+Notifications частично). Поверх ядра quote/payment/retrieve/cancel/confirm/balance
+добавлены и протестированы вживую как gateway-контракт:
+- ✅ **Address Validation**.
+- ✅ **Account Validation** (account-validations + bank-lookups + iban-generations).
+- ✅ **Cash Pickup** (4 GET-каталога — работают вживую на sandbox).
+- ✅ **Endpoint Guide** (GET).
+- ✅ **RFI** (retrieve / update / upload / download).
+- ✅ **Carded Rate Pull**.
+- ✅ **#15 Push Notifications** — приёмник вебхука готов; криптоподпись ждёт спеку
+  MC (вопрос C1).
+
+**Оговорки sandbox:** validation-POST'ы требуют JWE-шифрования (на sandbox FLE
+выключен → проверяем только gateway-контракт, тело авто-шифруется в MTF/Prod);
+endpoint-guide доходит до MC, но sandbox отдаёт HTML-500 на общий partner-id; RFI
+на sandbox шаблонно отвергает не-онбординг partner-id; у Carded Rate нет sandbox.
+
+- ✅ Swagger-аннотации дополнены (gaps закрыты в рамках code-quality review, см. ниже).
 
 ---
 
@@ -148,7 +175,8 @@ partnerId; санитизация `secretRef`; passthrough строкового 
   зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не
   authoritative); кэш credentials — in-memory per-pod (кэш из Vault).
 - ✅ `DATABASE_URL` + `DB_SYNC`; `docker-compose.yml` (Postgres 16).
-- 📝 Typecheck OK; **e2e на живом Postgres — не прогнан** (нужен `docker compose up`).
+- ✅ Typecheck OK; **e2e на живом Postgres прогнан** (многократно, зелёный) — теперь
+  часть штатной верификации.
 
 ### Выравнивание версий под клиента ✅
 
@@ -197,21 +225,46 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 - ✅ **`nestjs-pino`** — структурный JSON-лог + correlation-id (`x-request-id`),
   redact секретных заголовков; pino — логгер всего приложения.
 
+### Hardening: 10 циклов аудита + 2 регрессии ✅
+
+- ✅ Проведён **10-цикловый аудит** (баги / безопасность / оптимизация) + **2 цикла
+  регрессии** (каждый цикл = аудит→фикс, всё верифицировано). **Открытых
+  HIGH/MED-проблем нет.**
+
+### Code-quality review (4 перспективы) ✅
+
+- ✅ Ревью по 4 перспективам (архитектура / поддерживаемость / API-контракт /
+  тестирование) → внедрены «Tier 1»-рефакторинги: централизованная карта путей MC;
+  композитный cross-cutting-декоратор `UseGatewayContract()` (error-filter + audit);
+  public-api barrel `src/index.ts`; закрыты Swagger-gaps; +4 новых регресс-спека.
+  **Вердикт: код senior-уровня, переписывать не нужно.**
+
+### Тесты ✅
+
+- ✅ Unit (jest): **16 сьютов / 112 тестов** — зелёные.
+- ✅ E2E: **23/23** против **живого Mastercard sandbox** (`test/app.e2e-spec.ts`),
+  включая прогон на живом Postgres. Часть штатной верификации.
+
 ---
 
 ## Открытые вопросы / блокеры
 
 1. 🔴 **Per-tenant encryption** не подключён — интерцептор шифрует платформенным
-   ключом; per-tenant `encryptionCertPem/...` резолвятся, но не используются.
-   Блокер для OWN+MTF/Prod (у партнёров разные MC-ключи). См.
-   [production-questions.md](./production-questions.md).
-2. 🟠 **TypeORM:** наш сервис — отдельный (свой `forRoot` + `DATABASE_URL`) или
-   часть монолита `b24club-api` (`forFeature` + их миграции вместо `synchronize`)?
+   ключом; per-tenant `encryptionCertPem/fingerprint/decryptionKeyPem` резолвятся в
+   `McCredentials`, но не протянуты в `EncryptionService`. Блокер для OWN+MTF/Prod
+   (у партнёров разные MC-ключи). Известный seam-фикс: передать `creds` в
+   `encryptRequest/decryptResponse`. Не реализуем/верифицируем без доступа к MTF +
+   реальных per-tenant ключей. См. [production-questions.md](./production-questions.md).
+2. 🟡 **Webhook signature (C1):** реальная JWS/HMAC-проверка ждёт спеку подписи
+   Mastercard; сейчас Noop-каркас, активный фактор — токен.
 3. 🟡 **Приватный Client Encryption key** для расшифровки ответов в MTF/Prod
-   (`MC_DECRYPTION_KEY_PATH`) — сейчас только публичный cert.
+   (`MC_DECRYPTION_KEY_PATH`) — сейчас только публичный cert (нужен портал).
 4. 🟡 **Секрет-менеджер** — Vault / AWS / GCP? Реализуется только `VaultSecretStore`.
-5. ⬜ **e2e на Postgres** (нужен `docker compose up` в WSL).
-6. ⬜ Очистка протухших `kv_store` (cron `@nestjs/schedule`), observability, RFI.
+5. ⬜ Observability (метрики/трейсинг) — опционально.
+
+> ✅ **Закрыто:** TypeORM-вопрос (решено — один зонтичный модуль в монолите хоста);
+> e2e на Postgres (прогнан); очистка `kv_store` (`KvCleanupService`); RFI-подсистема
+> (реализована).
 
 ---
 

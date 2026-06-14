@@ -58,7 +58,7 @@ auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres
 admin/                     — onboarding partners, approvals, issuing keys, GET /admin/audit
 encryption/                — EncryptionService (JWE, toggle MC_ENCRYPTION_ENABLED)
 idempotency/               — IdempotencyService (by Idempotency-Key, via KvStore→Postgres)
-audit/                     — AuditInterceptor (global) + AuditService→Postgres
+audit/                     — AuditInterceptor (per-controller) + AuditService→Postgres
 webhooks/                  — POST /webhooks/mastercard (dedup by eventRef via KvStore)
 mastercard/                — MastercardClient: axios interceptors (encrypt+sign / decrypt)
 crossborder/               — business operations + controller (CLEAN, no crypto)
@@ -319,6 +319,18 @@ host contract) + host checklist in the README; named throttler. Full doc-grounde
 service, self-standing per-pod throttler). Docs reframed: auth/rate-limit happen IN the
 service; mTLS/ingress is an optional additional layer, not authoritative; `TRUST_PROXY`
 is only for `req.ip`.
+
+### Latest milestones (after the doc-grounded audit)
+- **10-round bug/security/optimization audit + 2 regression rounds** completed —
+  **no open HIGH/MED.**
+- **4-perspective code-quality review** (architecture / maintainability / API-contract /
+  testing) → **Tier 1** refactors applied: centralized MC path map (`mc-paths.ts`);
+  composed cross-cutting decorator (`UseGatewayContract`); public-api barrel
+  (`src/index.ts`); Swagger gaps filled (`@ApiSecurity('internal')` + `X-Tenant-Id`
+  header, `Idempotency-Key` via `@ApiHeader`, `ApiErrorResponses` on all controllers,
+  `WebhookAckDto`); +4 new regression test specs. Verdict: senior-level code, no rewrite.
+- **Tests:** unit jest — **16 suites / 112 tests**; e2e — **23/23** on the live sandbox.
+  (Old "11/15 coverage" and low test counts are stale.)
 
 ### Mastercard API coverage (client sent the API Reference screenshot — all 15 wanted)
 Map: `docs/{en,ru}/api.md` → "Mastercard API Reference — coverage" (screenshot order,

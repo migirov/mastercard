@@ -1,7 +1,17 @@
 # What to clarify with the client / Mastercard
 
 A list of questions and materials needed to continue the integration.
-🔴 — blocks prod / needed for Phase 3. 🟡 — for later phases.
+🔴 — blocks prod / needed for Phase 3. 🟡 — for later phases. ✅ — RESOLVED.
+
+---
+
+## Already resolved (closed questions)
+
+- ✅ **Separate service or part of the monolith?** → **DECIDED:** one umbrella module
+  embedded into the host `b24club-api`; the host provides the TypeORM `DataSource` and
+  runs the migrations.
+- ✅ **e2e on Postgres** → **done** (live Postgres in Docker).
+- ✅ **`Idempotency-Key`** → **kept** (client confirmed).
 
 ---
 
@@ -53,10 +63,22 @@ platform approval).
 
 ## E. Operation scope (what merchants actually need)
 
-- 🔴 **E1.** Which Cross-Border operations are needed first: quote, payment, retrieve
-  payment, cancel, balance, account validation, RFI?
+- 🟡 **E1.** Which Cross-Border operations are needed first: quote, payment, retrieve
+  payment, cancel, balance, account validation, RFI? (**All 15** MC API Reference
+  groups are implemented — prioritization now drives test plans, not development.)
 - 🟡 **E2.** Is a payment synchronous or asynchronous (via a completion webhook)?
 - 🟡 **E3.** Do merchants need **their own sandbox** (test clients on our side)?
+
+## H. Dependencies (supply chain)
+
+- 🔴 **H1. (NEW) axios version.** We pin `axios 1.6.0` — an **exact match** with the
+  host `b24club-api` (their `package.json` also pins `1.6.0`; `@nestjs/axios@4`
+  peer-requires `^1.3.1`, so no conflict). But `npm audit` flags `axios 1.0.0–1.15.2`
+  with HIGH advisories (SSRF / prototype-pollution / ReDoS); the latest is `1.17.0`.
+  Our practical exposure is **low** (fixed `baseURL`, relative paths, no client-supplied
+  absolute URLs). **Question:** bump axios to a patched `1.x`? Since the host owns the
+  single deduped axios in the monolith, the bump should be **host-driven** and we follow
+  in lockstep. Please confirm the desired version.
 
 ## F. Infrastructure
 

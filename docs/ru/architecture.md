@@ -6,19 +6,27 @@
 [production-questions.md](./production-questions.md) (блокеры перед прод),
 [memory.md](./memory.md) (контекст сессии).
 
-> **ОБНОВЛЕНИЕ 2026-06-11 (рефактор по замечаниям тимлида).** Топология модулей
-> изменена: вся интеграция теперь — ОДИН встраиваемый зонтичный
+> **Топология (актуальная).** Вся интеграция — ОДИН встраиваемый зонтичный
 > `MastercardModule` (`src/mastercard.module.ts`, через `ConfigurableModuleBuilder`,
 > `forRoot/forRootAsync`), который хост-приложение (монолит `b24club-api` или
-> dev-харнесс `AppModule`) импортирует одной строкой. Конфиг приходит опциями и
+> dev-харнесс `AppModule` через `main.ts`) импортирует одной строкой — каждый
+> под-модуль является приватной деталью реализации. Хост импортирует публичные
+> символы (`MastercardModule`, `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`,
+> `rfiUploadBodyParser`, `GatewayConfig`, `MastercardModuleOptions`) **только** из
+> публичного barrel `src/index.ts`, а не по глубоким путям. Конфиг приходит опциями и
 > раздаётся через глобальный `GatewayConfig` (`src/config/gateway-config.ts`) —
-> сервисы НЕ читают `process.env`/`ConfigService`. Глобального `ValidationPipe`
-> больше нет: каждый контроллер несёт свой pipe (`strictDtoPipe` для admin/oauth,
-> `mcPassthroughPipe` без `transform` для тел, идущих в MC). Аутентификация вебхука
-> — fail-closed в сервисе (+ каркас проверки подписи), а не «доверие к ингрессу».
-> Тонкие модули (Encryption/Idempotency/Health) свёрнуты в провайдеры/контроллер.
-> Детали — в [memory.md](./memory.md), раздел «ЗАМЕЧАНИЯ ТИМЛИДА — СДЕЛАНО».
-> Разделы ниже про «standalone» и список модулей описывают прежнюю раскладку.
+> сервисы НЕ читают `process.env`/`ConfigService`. Глобального
+> `ValidationPipe`/`APP_FILTER`/`APP_INTERCEPTOR` нет: cross-cutting связывание —
+> **per-controller** (контроллер несёт свой pipe — `strictDtoPipe` для admin/oauth,
+> `mcPassthroughPipe` без `transform` для тел, идущих в MC — плюс композитный декоратор
+> `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
+> ошибок хоста. Аутентификация вебхука — fail-closed в сервисе (+ каркас проверки
+> подписи), а не «доверие к ингрессу». Тонкие модули (Encryption/Idempotency/Health)
+> свёрнуты в провайдеры/контроллер. Единый список сущностей — в
+> `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
+> модулем для `DataSource` хоста); сами entity co-located в своих модулях. Старт-сервис
+> `HostIntegrityService` предупреждает, если хост не подключил `DataSource`/
+> `ScheduleModule`/`webhookToken`. «standalone» в §1 описывает режим запуска dev-харнесса.
 
 ## 1. Цель
 
@@ -180,28 +188,58 @@ documentation.md).
 
 ## 10. Модули NestJS
 
-| Модуль | Ответственность |
+Хост импортирует **только** `MastercardModule` (зонтичный). Всё ниже — приватные
+под-модули, собранные внутри него. Зонтичный модуль напрямую регистрирует
+`HealthController` и per-pod `ThrottlerModule`, предоставляет `GatewayConfig` (из опций
+`forRootAsync`) и `HostIntegrityService`, реэкспортирует `MASTERCARD_ENTITIES`.
+
+| Модуль / единица | Ответственность |
 |---|---|
-| `DatabaseModule` | подключение к PostgreSQL (TypeORM `forRoot`) |
-| `StoreModule` | `KvStore` → `PostgresKvStore` (идемпотентность, дедуп вебхуков) |
-| `TenantModule` | `TenantRegistry` поверх Postgres, статусы, сиды |
-| `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), кэш |
+| `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `HealthController` + `ThrottlerModule` + `HostIntegrityService` |
+| `StoreModule` | `KvStore` → `PostgresKvStore` (идемпотентность, дедуп вебхуков) + `KvCleanupService`; `KvEntity` co-located |
+| `TenantModule` | `TenantRegistry` поверх Postgres, статусы, сиды; `TenantEntity` co-located |
+| `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory кэш (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (прод) |
-| `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard` |
+| `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов, `GET /admin/audit` |
-| `MastercardModule` | `MastercardClient` (axios + интерцепторы encrypt/sign/decrypt) |
-| `EncryptionModule` | `EncryptionService` (JWE, тумблер по среде) |
-| `IdempotencyModule` | `IdempotencyService` (через `KvStore`) |
-| `AuditModule` | `AuditInterceptor` (глобальный) + `AuditService` → Postgres |
+| `MastercardClientModule` | низкоуровневый `MastercardClient` (axios + интерцепторы encrypt/sign/decrypt); `EncryptionService` — провайдер здесь, не отдельный модуль |
+| `AuditModule` | `AuditInterceptor` (навешивается per-controller через `@UseGatewayContract()`) + батчевый `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп |
-| `CrossBorderModule` | бизнес-эндпоинты: quote / payment / retrieve / cancel / confirm |
-| `HealthModule` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД) |
-| `common/` | p12/crypto utils, `TenantThrottlerGuard` |
+| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API); использует `mc-paths.ts` (централизованный билдер URL MC) |
+| `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
+| `HealthController` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется зонтичным модулем (без отдельного модуля) |
+| `IdempotencyService` | провайдер (через `KvStore`); свёрнут из прежнего `IdempotencyModule` |
+| `common/` | общие cross-cutting утилиты (см. ниже) |
+
+**`common/` (общие утилиты и паттерны):**
+- `gateway-contract.decorator.ts` — `@UseGatewayContract()` = композиция
+  `@UseFilters(GatewayExceptionFilter)` + `@UseInterceptors(AuditInterceptor)`,
+  навешивается **per-controller** (не `APP_*`), чтобы новый контроллер не мог забыть
+  error-контракт/аудит. (`AdminController` оставлен со своим явным набором с `ClassSerializerInterceptor`.)
+- `mc-passthrough.pipe.ts` — `mcPassthroughPipe()` для тел, пробрасываемых в MC как есть
+  (без `transform`/`whitelist`); лежит в `common/`, т.к. используется и crossborder, и webhooks.
+- `secret-strength.ts` — `isWeakSecret()`, общий для `main.ts` и прод-гейта `GatewayConfig`.
+- `api-error-responses.decorator.ts` — `ApiErrorResponses()` документирует единый формат ошибки в Swagger.
+- `string-query.pipe.ts` — `StringQueryPipe` отвергает не-строковые query-параметры (объекты/массивы).
+- `rfi-upload.bodyparser.ts` — `RFI_UPLOAD_PATH` + `rfiUploadBodyParser()`: route-scoped
+  2MB JSON-парсер для загрузки RFI-документа (только POST); хост обязан зарегистрировать его при встраивании.
+- `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
+  `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
+  `gateway-exception.filter.ts`, `upstream.exception.ts`.
+
+Также в корне пакета: `src/index.ts` (публичный barrel API), `src/mastercard.entities.ts`
+(единый список сущностей), `src/host-integrity.service.ts` (старт-самопроверка),
+`src/crossborder/mc-paths.ts` (централизованный билдер путей MC — префиксы MC намеренно
+неоднородны: `/send/partners` vs `/send/v1/partners` vs голый `/crossborder` vs база
+address-validation; теперь в одном аудируемом месте).
 
 Платформенные возможности Nest (взяты готовыми, без самописа):
-- **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot`), in-memory per-pod.
-- **Health-пробы** — `@nestjs/terminus` (`HealthModule`) для k8s.
-- **Валидация ENV** — `ConfigModule.forRoot({ validate })` (class-validator), fail-fast на старте.
+- **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` внутри зонтичного модуля;
+  один именованный сет `default` 120/мин, per-pod), с per-route override на `/oauth/token`.
+- **Health-пробы** — `@nestjs/terminus` (`HealthController` регистрирует зонтичный модуль) для k8s.
+- **Валидация ENV** — на границе dev-харнесса (`env.validation.ts`, class-validator,
+  fail-fast на старте); при встраивании хост передаёт типизированные `MastercardModuleOptions`,
+  а прод-гейт проверяет `GatewayConfig`.
 - **Cron** — `@nestjs/schedule` (`KvCleanupService` чистит протухший `kv_store`).
 - **Логи** — `nestjs-pino`: структурный JSON + correlation-id (`x-request-id`), redact секретов.
 - **Миграции** — TypeORM CLI (`data-source.ts`, `migration:*`); `synchronize` off в prod.
@@ -214,8 +252,9 @@ documentation.md).
   `transaction_reference`); ключ валидируется (длина/charset).
 - **Audit trail** на все операции — без тел и секретов.
 - **OAuth2:** HS256-пиннинг, хэш-сравнение секретов в постоянном времени, `no-store`.
-- **Прод-гейты** в `main.ts`: запрет старта со слабыми/дефолтными секретами и без
-  `MC_SECRET_STORE=vault`; helmet; лимит тела 256kb; `trust proxy` по env.
+- **Прод-гейты:** запрет старта со слабыми/дефолтными секретами (`isWeakSecret()`, общий
+  для `main.ts` и `GatewayConfig`) и без `MC_SECRET_STORE=vault`. helmet / лимит тела /
+  логгер / `trust proxy` — забота dev-харнесса (`main.ts`); при встраивании этим владеет хост.
 - **Fail-closed** rate-limit guard (нет tenant-контекста → ошибка, не общий бакет).
 - Vault: короткоживущий кэш, ротация ключей без рестарта (`invalidate`).
 - Разделение sandbox/MTF/production — через конфиг окружения, не в коде.
@@ -231,5 +270,14 @@ documentation.md).
 - ✅ **Миграция на PostgreSQL** (Redis/in-memory как хранилища убраны).
 - ✅ **Платформенные доработки:** health-пробы (terminus), валидация ENV,
   TypeORM-миграции, cron-очистка `kv_store`, структурные логи (pino) + correlation-id.
-- ⬜ **Перед прод:** per-tenant encryption, приватный Client-ключ, Vault-реализация,
-  метрики/трейсинг (Prometheus/OTel), RFI — см. [production-questions.md](./production-questions.md).
+- ✅ **Встраиваемый зонтичный модуль:** единый `MastercardModule` + публичный barrel
+  (`src/index.ts`), per-controller cross-cutting связывание, `GatewayConfig`, `HostIntegrityService`.
+- ✅ **Полное покрытие MC API:** все 15 групп MC API Reference (14 + #15 частично) под
+  `/crossborder/*` (balances, rates, carded-rates, quotes(+confirmations), payments
+  (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
+  iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
+- ✅ **Качество:** 10-раундовый аудит безопасности/багов/оптимизаций + 2 раунда регрессий +
+  4-линзовый код-ревью (Tier 1 применён). Тесты: unit 16 сьютов / 112, e2e 23/23 на живом sandbox.
+- ⬜ **Перед прод:** per-tenant encryption (JWE-интерцептор всё ещё на платформенном
+  ключе — см. §6), подпись вебхука (C1), приватный Client-ключ дешифрования,
+  Vault-реализация, метрики/трейсинг (Prometheus/OTel) — см. [production-questions.md](./production-questions.md).
