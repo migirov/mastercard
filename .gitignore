@@ -25,3 +25,6 @@ coverage/
 startup*.log
 *.out
 *.tmp
+
+# Вывод/кэш сканера agentic-security (инструментальный, не версионируем)
+.agentic-security/
