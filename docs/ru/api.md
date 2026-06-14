@@ -24,7 +24,7 @@
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
 | 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (нужно шифрование; ASV нет в sandbox) | ✅ |
-| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ✅ | ❌ (opt-in) |
+| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
 | 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ | ✅ (приём) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
@@ -34,8 +34,8 @@
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
 
-**Реализовано (10 + 1 частично):** 1, 2, 4, **5**, **6**, 9, 10, 12, 13, 14 (+15 частично).
-**Ещё нет (4 группы):** Carded Rate (3), Cash Pickup (7), Endpoint Guide (8), RFI (11) —
+**Реализовано (11 + 1 частично):** 1, 2, 4, **5**, **6**, **7**, 9, 10, 12, 13, 14 (+15 частично).
+**Ещё нет (3 группы):** Carded Rate (3), Endpoint Guide (8), RFI (11) —
 вспомогательные/opt-in сервисы MC.
 
 > **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
