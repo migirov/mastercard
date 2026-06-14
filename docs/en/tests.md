@@ -7,8 +7,30 @@ tests (auth, gating, reliability, infra) are in [tests-inner.md](./tests-inner.m
 Related: [api.md](./api.md), [architecture.md](./architecture.md),
 [documentation.md](./documentation.md).
 
-> `$base = http://localhost:3000`. Checks use `curl.exe` (prints status via
-> `-w "HTTP %{http_code}"`).
+> The Mastercard surface is now verified by the **E2E suite** (`test/app.e2e-spec.ts`,
+> Jest, 23/23 green) which runs the real app against the live sandbox over HTTP, plus
+> the unit suites that lock in the request-build / response-unwrap logic (see
+> [tests-inner.md](./tests-inner.md)). Coverage spans all 15 MC API groups.
+
+---
+
+## Running the suite
+
+```powershell
+# Postgres (E2E needs it) — inside WSL
+wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
+
+# Unit suites: 16 suites / 112 tests (rootDir src, *.spec.ts)
+node node_modules\jest\bin\jest.js
+
+# E2E against the LIVE sandbox: 23/23
+node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
+```
+
+> On this Windows + WSL-UNC setup Jest is invoked via `node node_modules\jest\bin\jest.js`
+> — `npx` does not resolve on the mapped drive. The E2E harness boots the real
+> `AppModule` on port `3999` (manual bodyParser, `rawBody`, no global pipe — like
+> `main.ts`) and drives it with `axios`.
 
 ---
 
@@ -22,6 +44,9 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 - **Tenant for MC calls:** `own-sandbox` (OWN/ACTIVE, keys from LocalSecretStore,
   `partner-id` = `SANDBOX_1234567`).
 
+The E2E suite boots the app itself on port `3999`; for manual `curl` exploration you
+can also run the dev server on `3000`:
+
 ```bash
 # Postgres + server
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
@@ -30,82 +55,52 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && npx ts-node
 
 ---
 
-## 1. Outbound calls to the Mastercard Cross-Border API
+## 1. Outbound calls to the Mastercard Cross-Border API (E2E, live sandbox)
 
-**Only these tests actually go out to `sandbox.api.mastercard.com`.** Each path:
-auth → resolve tenant → OWN credentials from SecretStore → **OAuth1 signature** →
-HTTPS to MC → unwrap response. (In MTF/Prod, JWE body encryption is added — plain
-in sandbox.)
+The E2E suite (`test/app.e2e-spec.ts`, **23/23 green**) drives the real app against
+`sandbox.api.mastercard.com`. Each MC-bound check exercises the full path: auth →
+resolve tenant → OWN credentials from SecretStore → **OAuth1 signature** → HTTPS to
+MC → unwrap response. (In MTF/Prod, JWE body encryption is added — plain in sandbox.)
+Tenant header: `x-internal-token` + `x-tenant-id: own-sandbox`.
 
-| # | Test | Expected | Result |
-|---|---|---|---|
-| MC-1 | `GET /crossborder/balances` (internal, own-sandbox) | 200 + real balances | ✅ 200 (USD/JPY/BHD) |
-| MC-2 | `GET /crossborder/balances` with Bearer JWT (external path) | 200 + real balances | ✅ 200 |
-| MC-3 | `GET /crossborder/rates` | 200 | ✅ 200 `{"rates":{}}` |
-| MC-4 | `POST /crossborder/quotes` (unique ref) | 201 + MC proposal | ✅ 201, real proposal |
-| MC-5 | `POST /crossborder/quotes` (used ref) | forward MC business error | ✅ 400 `Duplicate Transaction Reference` |
-| MC-6 | `POST /crossborder/payments` (incomplete body) | forward MC error | ✅ 400 `MISSING_REQUIRED_INPUT` (MC processed it, RequestId present) |
+### 1a. Reaches MC with a real business response
 
-### MC-1 / MC-2 — Balances (real MC)
+| # | Test (`it` title) | Result |
+|---|---|---|
+| MC-1 | `GET /crossborder/balances` | ✅ 200 (real balances) |
+| MC-2 | `POST /crossborder/quotes` (unique ref) | ✅ 200/201 — body contains `proposal`/`charged_amount` |
+| MC-3 | `GET /crossborder/cash-pickup/countries?cash_pickup_type=PANY` (GET, no encryption) | ✅ reaches MC (not 404/500) |
+| MC-4 | `GET /crossborder/endpoint-guide/specifications?...` (GET, no body/encryption) | ✅ reaches MC (not 404/500) |
+| MC-5 | `POST /crossborder/carded-rates` (Carded Rate Pull — sandbox unsupported) | ✅ gateway proves out (not 500) |
 
-```bash
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" $base/crossborder/balances
-```
-**HTTP 200** — real Mastercard sandbox response (3 accounts):
-```json
-[ {"accountId":"acct_1001","settlementCurrency":"USD",
-   "balanceDetails":{"availableBalance":{"amount":"8000.50","currency":"USD"}, ...}},
-  {"accountId":"acct_1002","settlementCurrency":"JPY", ...},
-  {"accountId":"acct_1003","settlementCurrency":"BHD", ...} ]
-```
-**MC-2** — same via the external path (`Authorization: Bearer <JWT>`) → also 200.
-Proves the whole stack: auth → OWN credentials → **OAuth1 signature** → real MC call.
+### 1b. Validation / lookup endpoints — gateway contract (request reaches MC)
 
-### MC-3 — FX rates
+These POSTs require encryption in MTF/Prod, so the gateway contract is verified: the
+route is mounted, the OAuth1 signature is applied, the request reaches MC and the
+response is forwarded — asserted as **not 404** (route exists) and **not 500** (no
+local crash).
 
-```bash
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" $base/crossborder/rates
-# HTTP 200  {"rates":{}}
-```
+| # | Test (`it` title) | Result |
+|---|---|---|
+| MC-6 | `POST /crossborder/address-validations` (sandbox test case) | ✅ reaches MC |
+| MC-7 | `POST /crossborder/account-validations` (IBAN test case) | ✅ reaches MC |
+| MC-8 | `POST /crossborder/bank-lookups` (sandbox test case) | ✅ reaches MC |
+| MC-9 | `POST /crossborder/iban-generations` (sandbox test case) | ✅ reaches MC |
 
-### MC-4 — Quote, success (201)
+### 1c. RFI (Request For Information) group
 
-```bash
-# body: {"quoterequest":{"transaction_reference":"<unique>",
-#   "sender_account_uri":"tel:+25406005","recipient_account_uri":"tel:+254069832",
-#   "payment_amount":{"amount":"105.15","currency":"USD"},
-#   "payment_origination_country":"USA","payment_type":"P2P",
-#   "quote_type":{"forward":{"receiver_currency":"GBP"}}}}
-curl.exe -s -X POST -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" \
-  -H "Content-Type: application/json" --data-binary "@quote.json" $base/crossborder/quotes
-```
-**HTTP 201** — real MC proposal:
-```json
-{"quote":{"transaction_reference":"08POC342598033X","payment_type":"P2P",
- "proposals":{"proposal":[{"id":"pen-4000000044472562338287758",
-   "charged_amount":{"amount":"110.41","currency":"USD"},
-   "principal_amount":{"amount":"105.15","currency":"USD"},"quote_fx_rate":"777"}]}}}
-```
+| # | Test (`it` title) | Result |
+|---|---|---|
+| MC-10 | `GET /crossborder/rfi/requests/:id` (sandbox stub `33…` → OPEN, GET) | ✅ reaches MC (not 500) |
+| MC-11 | `POST /crossborder/rfi/requests/:id` (update — needs encryption) | ✅ reaches MC (not 404/500) |
+| MC-12 | `POST /crossborder/rfi/documents` (upload — needs encryption) | ✅ reaches MC (not 404/500) |
+| MC-13 | `GET /crossborder/rfi/documents/:id` (download magic-id, error code `082000`) | ✅ reaches MC (not 500) |
+| MC-14 | `POST /crossborder/rfi/documents` with a ~500KB file | ✅ **not 413** — route-scoped 2MB parser, not the global 256kb |
 
-### MC-5 — Quote, used ref (forwarded MC error)
-
-**HTTP 400** — MC error forwarded to the client as-is (signature accepted, MC processed it):
-```json
-{"Errors":{"Error":{"Source":"transaction_reference","ReasonCode":"DECLINE",
- "Description":"Duplicate Transaction Reference Number","Details":{"Detail":{"Value":"130202"}}}}}
-```
-
-### MC-6 — Payment reaches MC
-
-A payment with an incomplete body → MC returns the list of required KYC fields (a
-RequestId is assigned → the request actually reached and was processed):
-```json
-{"Errors":{"Error":[{"Source":"sender.first_name","ReasonCode":"MISSING_REQUIRED_INPUT", ...}, ...]}}
-```
-
-**MC response unwrapping** (common to all calls above): 2xx → data; business 4xx
-(`400/404/409/422/429`) → forward MC body; `401/403`/`5xx`/network → `502` without
-leaking details.
+**MC response unwrapping** (common to all calls): 2xx → data; business 4xx with an
+object body (`400/404/409/422/429`) → forward MC body; non-object 4xx body →
+hidden, `502`; `401/403`/`5xx`/network/decrypt failure → `502` without leaking
+details. (Pinned by `crossborder.service.spec` — see [tests-inner.md](./tests-inner.md).)
 
 ---
 
@@ -113,18 +108,13 @@ leaking details.
 
 Direction **MC → us** (status push notifications). Does not call the MC API outbound.
 
-| # | Test | Result |
+| # | Test (`it` title) | Result |
 |---|---|---|
-| WH-1 | `POST /webhooks/mastercard` first time | ✅ 200 `{"status":"accepted"}` |
-| WH-2 | repeat with same `eventRef` | ✅ 200 `{"status":"duplicate"}` (dedup via `kv_store`) |
-| WH-3 | wrong `X-Webhook-Token` | ✅ 401 `invalid webhook token` |
+| WH-1 | `POST /webhooks/mastercard` without a token | ✅ 401 (fail-closed) |
+| WH-2 | `POST /webhooks/mastercard` with `x-webhook-token` | ✅ 200 |
 
-```bash
-WH=(-H "X-Webhook-Token: dev-webhook-token-change-me" -H "Content-Type: application/json")
-B='{"eventRef":"evt-test-001","eventType":"STATUS_CHG"}'
-curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # accepted
-curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
-```
+> The webhook dedup-by-`eventRef` path (`kv_store`) is unit-pinned by
+> `webhook.handler.spec` / `webhook-auth.guard.spec` — see [tests-inner.md](./tests-inner.md).
 > Webhook authentication is the in-service fail-closed token (`X-Webhook-Token`),
 > required in prod and dev. mTLS at the ingress is optional, additional — not the authentication.
 
@@ -132,10 +122,11 @@ curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
 
 ## Not covered (Mastercard)
 
-- **Encryption (JWE)** — MTF/Prod only (sandbox lacks FLE + the per-tenant
-  encryption blocker); requires the private Client Encryption key.
-- **Successful payment (2xx)** — requires the full KYC flow: quote → confirmation →
-  payment with sender/recipient details.
+- **Live JWE encryption** — the sandbox runs with FLE off, so the JWE encrypt/decrypt
+  round-trip is not exercised end-to-end against MC (unit-pinned only). MTF/Prod requires
+  the private Client Encryption key.
+- **A fully-successful payment (2xx)** — requires the full KYC flow: quote →
+  confirmation → payment with sender/recipient details.
 
 ---
 

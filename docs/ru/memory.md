@@ -58,7 +58,7 @@ auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres
 admin/                     — ввод партнёров, одобрения, выпуск ключей, GET /admin/audit
 encryption/                — EncryptionService (JWE, тумблер MC_ENCRYPTION_ENABLED)
 idempotency/               — IdempotencyService (по Idempotency-Key, через KvStore→Postgres)
-audit/                     — AuditInterceptor (глобальный) + AuditService→Postgres
+audit/                     — AuditInterceptor (per-controller) + AuditService→Postgres
 webhooks/                  — POST /webhooks/mastercard (dedup по eventRef через KvStore)
 mastercard/                — MastercardClient: axios-интерцепторы (encrypt+sign / decrypt)
 crossborder/               — бизнес-операции + контроллер (ЧИСТЫЕ, без крипты)
@@ -321,6 +321,19 @@ webhook без токена→401, с токеном→200).
 **Ингресс:** в КОДЕ зависимости от ингресса 0 (вебхук fail-closed токен в сервисе,
 throttler самодостаточный per-pod). Доки переформулированы: auth/rate-limit = В СЕРВИСЕ,
 mTLS/ingress — опциональный доп. слой, не authoritative; `TRUST_PROXY` — только для `req.ip`.
+
+### Последние вехи (после doc-grounded аудита)
+- **10-цикловый аудит баги/безопасность/оптимизация + 2 цикла регрессий** завершены —
+  **открытых HIGH/MED нет.**
+- **4-перспективный code-quality review** (архитектура / поддерживаемость / API-контракт /
+  тестирование) → применены рефакторинги **Tier 1**: централизованная карта путей MC
+  (`mc-paths.ts`); композитный cross-cutting декоратор (`UseGatewayContract`); public-api
+  barrel (`src/index.ts`); закрыты пробелы Swagger (`@ApiSecurity('internal')` +
+  заголовок `X-Tenant-Id`, `Idempotency-Key` через `@ApiHeader`, `ApiErrorResponses` на
+  всех контроллерах, `WebhookAckDto`); +4 новых регрессионных спека. Вердикт: код
+  senior-уровня, переписывать не нужно.
+- **Тесты:** unit jest — **16 сьютов / 112 тестов**; e2e — **23/23** на живом sandbox.
+  (Старые «11/15 coverage» и низкие счётчики тестов — устаревшие.)
 
 ### Покрытие Mastercard API (клиент прислал скрин API Reference — нужны ВСЕ 15)
 Карта — в `docs/{ru,en}/api.md` раздел «Покрытие Mastercard API Reference» (порядок

@@ -7,35 +7,59 @@
 Связанные: [api.md](./api.md), [architecture.md](./architecture.md),
 [documentation.md](./documentation.md).
 
-> Окружение и запуск — см. [tests.md](./tests.md#окружение). `$base = http://localhost:3000`.
+> Окружение и запуск — см. [tests.md](./tests.md#окружение).
 > Сиды: `platform`, `acme` (PLATFORM/ACTIVE), `own-sandbox` (OWN/ACTIVE), `own-demo` (OWN/PENDING).
+
+---
+
+## 0. Юнит-набор (Jest, `src/**/*.spec.ts`)
+
+**16 наборов / 112 тестов — все зелёные.** Запуск: `node node_modules\jest\bin\jest.js`
+(про связку Windows + WSL-UNC см. [tests.md](./tests.md#запуск-набора)).
+
+| Набор | Что фиксирует |
+|---|---|
+| `crypto.util` | `randomToken` (url-safe, уникальность, длина), `sha256hex`, timing-safe `safeEqual` |
+| `tenant.types` | `isActive` / `effectiveStatus` (приоритет SUSPENDED, состояния частичного апрува) |
+| `safe-id.pipe` | whitelist идентификатора (анти path-injection: пусто / `a/b` отклонены) |
+| `idempotency-key.pipe` | валидный ключ проходит; `undefined` допустим; >128 симв. отклонён (kv_store.key) |
+| `gateway-config` | типизированные геттеры + дефолты; в prod отказ на слабых секретах / не-vault store |
+| `idempotency.service` | захват замка/кэш; 4xx освобождает замок; 5xx/unknown **держит** (анти двойное списание); reuse по фингерпринту тела → 422 |
+| `oauth.service` | выпуск Bearer для валидного клиента; `invalid_client` и никогда не подписывает на кривых кредах |
+| `webhook-auth.guard` | fail-closed (токен не настроен → отказ); отсутствующий/неверный токен; verifier подписи false → отказ |
+| `webhook.handler` | accept + дедуп по `eventRef`; fallback на `notificationId`; accept без ref |
+| `tenant-serialization` (admin) | `@Exclude` скрывает `secretRef`; whitelist `TenantViewDto`; `IssuedClientDto` показывает `clientSecret` один раз |
+| `host-integrity.service` | предупреждает при отсутствии DataSource / сущностей / ScheduleModule / пустом webhookToken |
+| `gateway-exception.filter` | единый конверт; вкладывает тело MC под `upstream`; формы `/oauth/token` по RFC 6749; внутренности не утекают |
+| **`crossborder.service`** (новый) | сборка MC-пути по операциям + диспетч `call()`: 2xx→данные, форвардимый объект 4xx→`UpstreamHttpException`, не-объект 4xx→скрыт 502, 401/403/5xx и сеть/сбой расшифровки→502; `encodeURIComponent` на id в пути; CRLF срезан в `Partner-Ref-Id`; не-ACTIVE тенант → Forbidden, MC не вызван |
+| **`mastercard-client.service`** (новый) | матрица ретраев — GET ретраит транзиентные 502/503/504 до 3×, POST никогда не ретраится (анти двойное списание); регресс decrypt-no-retry: детерминированный сбой расшифровки НЕ ретраится даже на GET |
+| **`audit.service`** (новый) | re-entrancy флаша (без двойного insert); `capBuffer` сбрасывает **старейшие** при переполнении + логирует drop; второй флаш в `recent()` добивает in-flight записи; сбой insert переочередует батч |
+| **`credentials.service`** (новый) | дедуп stampede OWN-кэша (одновременные resolve → один fetch); потолок LRU ≤500 (старейший вытеснен); rejected fetch выселяется (не залипает на TTL); allowlist `partnerId` + анти-traversal `secretRef` (`..`) + валидация бандла |
+
+Четыре **новых** набора добавлены в недавнем Tier-1 код-ревью, чтобы зафиксировать
+багфиксы аудита (см. [Историю прогонов](#история-прогонов)).
 
 ---
 
 ## 1. Аутентификация и доступ
 
-Проверяют наш слой; **отклоняются до обращения к Mastercard** (на гардах/гейтинге).
+E2E-набор (`test/app.e2e-spec.ts`) также утверждает приведённые ниже отказы до MC;
+они падают на гардах/гейтинге/валидации **до обращения к Mastercard**. Это
+заголовки `it` (живое приложение на `:3999`).
 
-| # | Тест | Ожидание | Факт |
-|---|---|---|---|
-| GW-1 | `GET /admin/tenants` (admin-токен) | список из Postgres | ✅ 200, 4 тенанта, статусы вычислены, без `secretRef` |
-| GW-2 | `GET /crossborder/balances` без auth | 401 | ✅ 401 `missing bearer token` |
-| GW-3 | `GET /admin/tenants` неверный admin-токен | 401 | ✅ 401 `invalid admin token` |
-| GW-4 | `POST /admin/tenants/own-sandbox/clients` | выпуск client_id/secret | ✅ 201, secret 32 симв., `note` (показан 1 раз) |
-| GW-5 | `POST /oauth/token` (client_credentials) | JWT | ✅ Bearer, expires_in=900 |
-| GW-6 | `POST /oauth/token` неверный secret | 401 | ✅ 401 `invalid_client` (timing-safe) |
-| GW-7 | gating: own-demo (PENDING) | 403 | ✅ 403 `…is not active (status PENDING)` |
-| GW-8 | неизвестный тенант | 404 | ✅ 404 `Tenant 'nope' not found` |
+| # | Тест (заголовок `it`) | Факт |
+|---|---|---|
+| GW-1 | `POST /crossborder/quotes` с `amount=number` → DTO `@IsString` | ✅ 400 |
+| GW-2 | `POST /admin/tenants` OWN без `secretRef` → `@ValidateIf` | ✅ 400 |
+| GW-3 | `POST /oauth/token` `grant_type=password` → `@IsIn` | ✅ 400 |
+| GW-4 | `GET /crossborder/payments?ref=` (пусто) → `SafeIdPipe` | ✅ 400 |
+| GW-5 | `GET /crossborder/payments?ref=a%2Fb` → анти path-injection | ✅ 400 |
+| GW-6 | `GET /admin/tenants/own-sandbox` → без `secretRef`, со `status` | ✅ 200 |
+| GW-7 | `POST /crossborder/payments` с кривым `Idempotency-Key` | ✅ 400 (до MC, в сообщении есть `Idempotency-Key`) |
 
-```bash
-# выпуск OAuth-клиента → токен (внешний путь auth)
-curl.exe -s -X POST -H "X-Admin-Token: ..." $base/admin/tenants/own-sandbox/clients   # 201 + secret (1 раз)
-curl.exe -s -X POST $base/oauth/token -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=<cid>&client_secret=<sec>"               # JWT 900s
-# gating / not found (до MC не доходит)
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-demo" $base/crossborder/balances   # 403
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: nope"     $base/crossborder/balances   # 404
-```
+> Механика auth/gating (admin-токен, выпуск OAuth-клиента, timing-safe
+> `invalid_client`, гейтинг PENDING-тенантов, 404 на неизвестном тенанте) зафиксирована
+> юнит-наборами `oauth.service` / `tenant.types` / `tenant-serialization` из §0.
 
 ---
 
@@ -50,8 +74,12 @@ curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: nope"     $base/crossbor
 | R-5 | **Персистентность после рестарта пода** | состояние выживает | ✅ тенанты=4 (без дублей сидов), webhook → duplicate (kv пережил), audit не обнулился |
 
 > R-2 валидирует, что ошибки не залипают (замок освобождается). Само кэширование
-> 2xx использует ту же Postgres-`setIfAbsent`, что и webhook-дедуп (см.
-> [tests.md](./tests.md) WH-2); успешный кэш требует валидного платежа.
+> 2xx использует ту же Postgres-`setIfAbsent`, что и webhook-дедуп; успешный кэш
+> требует валидного платежа. Стейт-машина замка (4xx освобождает, 5xx/unknown держит),
+> внутренности батч-писателя аудита (re-entrancy, дроп старейших при переполнении,
+> переочередь при сбое) и матрица GET-retry / POST-no-retry / decrypt-no-retry теперь
+> зафиксированы юнит-наборами `idempotency.service`, `audit.service` и
+> `mastercard-client.service` (§0).
 
 **R-5 (рестарт):** стоп сервера → старт → `GET /admin/tenants` = те же 4 (сиды через
 `INSERT … ON CONFLICT DO NOTHING`); повтор webhook `evt-test-001` = `duplicate`
@@ -89,8 +117,15 @@ curl.exe -s $base/ready    # {"status":"ok","info":{"database":{"status":"up"}},
 
 - **Прогон 1–2:** функциональные + надёжность.
 - **Прогон 3:** 10-цикловый аудит (баги/безопасность/опт) + 4 цикла регрессий — регрессий нет.
-- **Прогон 4 (финальный):** все категории на коде с 5 нативными модулями
-  (terminus/env-validation/migrations/schedule/pino) + 5 аудит-правок — **25/25 зелёные**.
+- **Прогон 4:** все категории на коде с 5 нативными модулями
+  (terminus/env-validation/migrations/schedule/pino) + 5 аудит-правок.
+- **Прогон 5 (текущий):** после 10-раундового аудита (безопасность/баги/оптимизация)
+  + 2 раундов регрессий + 4-линзового код-ревью качества правки зафиксированы в
+  автоматическом наборе. Добавлены четыре новых юнит-набора (`crossborder.service`,
+  `mastercard-client.service`, `audit.service`, `credentials.service`). Текущий статус:
+  **юнит 16 наборов / 112 тестов зелёные**, **E2E 23/23 зелёные** против живого
+  sandbox (ранее открытый пункт «E2E на Postgres ещё не прогнан» теперь часть обычной
+  верификации). Покрыты все 15 групп MC API.
 
 ## Не покрыто (внутреннее)
 
