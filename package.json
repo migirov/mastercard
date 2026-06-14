@@ -13,6 +13,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:live": "jest --config ./test/jest-e2e-live.json",
     "ping": "ts-node scripts/ping.ts",
     "encrypt-poc": "ts-node scripts/encrypt-poc.ts",
     "boot-check": "ts-node scripts/boot-check.ts",
