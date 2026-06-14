@@ -221,4 +221,19 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(404);
     expect(r.status).not.toBe(500);
   });
+
+  it('GET /crossborder/endpoint-guide/specifications (sandbox, GET — без тела/шифрования) → доходит до MC', async () => {
+    const r = await http.get(
+      '/crossborder/endpoint-guide/specifications?payment_type=B2B&destination_country=PHL&destination_currency=PHP&destination_payment_instrument=BANK',
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   endpoint-guide MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
 });
