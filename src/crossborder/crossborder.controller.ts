@@ -28,7 +28,9 @@ import { SafeIdPipe } from '../common/safe-id.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
+import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
+import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
 import { mcPassthroughPipe } from './dto/mc-passthrough.pipe';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
@@ -109,6 +111,32 @@ export class CrossBorderController {
     @Body() body: AccountValidationRequestDto,
   ) {
     return this.svc.validateAccount(ctx.tenantId, body);
+  }
+
+  @Post('bank-lookups')
+  @HttpCode(200) // поиск/вычисление, не создание ресурса
+  @ApiOperation({
+    summary: 'Поиск реквизитов банка получателя (MC Bank Information Lookup).',
+  })
+  @UsePipes(mcPassthroughPipe())
+  lookupBank(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: BankLookupRequestDto,
+  ) {
+    return this.svc.lookupBank(ctx.tenantId, body);
+  }
+
+  @Post('iban-generations')
+  @HttpCode(200) // генерация значения, не создание ресурса в нашей системе
+  @ApiOperation({
+    summary: 'Генерация IBAN из реквизитов счёта (MC IBAN Generation).',
+  })
+  @UsePipes(mcPassthroughPipe())
+  generateIban(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: IbanGenerationRequestDto,
+  ) {
+    return this.svc.generateIban(ctx.tenantId, body);
   }
 
   @Post('quotes/confirmations')

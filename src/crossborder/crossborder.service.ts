@@ -19,7 +19,9 @@ import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, isActive } from '../tenants/tenant.types';
 import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
+import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
+import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 
@@ -169,15 +171,11 @@ export class CrossBorderService {
    */
   async validateAddress(tenantId: string, body: AddressValidationRequestDto) {
     const creds = await this.resolveActive(tenantId);
-    return this.call(
+    // У Address Validation СВОЯ база (без /crossborder и без partner-id в пути).
+    return this.callRef(
       creds,
-      {
-        method: 'POST',
-        // У Address Validation СВОЯ база (без /crossborder и без partner-id в пути).
-        path: `/send/address-validation-service/addresses/validations`,
-        body,
-        headers: this.mcRefHeaders(creds),
-      },
+      `/send/address-validation-service/addresses/validations`,
+      body,
       'validateAddress',
     );
   }
@@ -189,15 +187,33 @@ export class CrossBorderService {
    */
   async validateAccount(tenantId: string, body: AccountValidationRequestDto) {
     const creds = await this.resolveActive(tenantId);
-    return this.call(
+    return this.callRef(
       creds,
-      {
-        method: 'POST',
-        path: `/send/partners/${this.partner(creds)}/crossborder/accounts/validations`,
-        body,
-        headers: this.mcRefHeaders(creds),
-      },
+      `/send/partners/${this.partner(creds)}/crossborder/accounts/validations`,
+      body,
       'validateAccount',
+    );
+  }
+
+  /** Поиск реквизитов банка получателя (POST, MC Bank Information Lookup API). */
+  async lookupBank(tenantId: string, body: BankLookupRequestDto) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callRef(
+      creds,
+      `/send/partners/${this.partner(creds)}/crossborder/banks/details`,
+      body,
+      'lookupBank',
+    );
+  }
+
+  /** Генерация IBAN из реквизитов счёта (POST, MC IBAN Generation API). */
+  async generateIban(tenantId: string, body: IbanGenerationRequestDto) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callRef(
+      creds,
+      `/send/partners/${this.partner(creds)}/crossborder/accounts/generate-ibans`,
+      body,
+      'generateIban',
     );
   }
 
@@ -236,6 +252,25 @@ export class CrossBorderService {
       'X-Mc-Correlation-Id': randomUUID(),
       'Partner-Ref-Id': creds.partnerId,
     };
+  }
+
+  /**
+   * POST в MC validation/lookup-сервис (Address/Account/Bank/IBAN): единое
+   * построение запроса с ref-заголовками (mcRefHeaders) + разворачивание ответа
+   * через call(). path передаётся готовым — у сервисов разные базы (Address —
+   * своя, прочие — /send/partners/.../crossborder).
+   */
+  private callRef(
+    creds: McCredentials,
+    path: string,
+    body: unknown,
+    ctx: string,
+  ): Promise<unknown> {
+    return this.call(
+      creds,
+      { method: 'POST', path, body, headers: this.mcRefHeaders(creds) },
+      ctx,
+    );
   }
 
   /**
