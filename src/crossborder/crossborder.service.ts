@@ -217,6 +217,69 @@ export class CrossBorderService {
     );
   }
 
+  // --- Cash Pickup Locations (GET-каталоги; partner-id в ЗАГОЛОВКЕ, не в пути) ---
+
+  /** Список стран с выдачей наличных (GET, фильтр по cash_pickup_type). */
+  async cashPickupCountries(tenantId: string, cashPickupType?: string) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callCatalog(
+      creds,
+      `/crossborder/cash-pickup/countries${this.qs({ cash_pickup_type: cashPickupType })}`,
+      'cashPickupCountries',
+    );
+  }
+
+  /** Города с выдачей наличных (GET, Directed). */
+  async cashPickupCities(
+    tenantId: string,
+    q: { country?: string; currency?: string; offset?: string; limit?: string },
+  ) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callCatalog(
+      creds,
+      `/crossborder/cash-pickup/cities${this.qs(q)}`,
+      'cashPickupCities',
+    );
+  }
+
+  /** Receiving Service Providers (GET). */
+  async cashPickupProviders(
+    tenantId: string,
+    q: {
+      country?: string;
+      currency?: string;
+      cash_pickup_type?: string;
+      offset?: string;
+      limit?: string;
+    },
+  ) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callCatalog(
+      creds,
+      `/crossborder/cash-pickup/providers${this.qs(q)}`,
+      'cashPickupProviders',
+    );
+  }
+
+  /** Точки выдачи конкретного провайдера (GET). */
+  async cashPickupBranches(
+    tenantId: string,
+    q: {
+      provider_id?: string;
+      state?: string;
+      city?: string;
+      offset?: string;
+      limit?: string;
+    },
+  ) {
+    const creds = await this.resolveActive(tenantId);
+    return this.callCatalog(
+      creds,
+      `/crossborder/cash-pickup/branches${this.qs(q)}`,
+      'cashPickupBranches',
+    );
+  }
+
   /** Подтверждение котировки (POST). Шифрование — в интерцепторе. */
   async confirmQuote(tenantId: string, body: ConfirmationRequestDto) {
     const creds = await this.resolveActive(tenantId);
@@ -269,6 +332,34 @@ export class CrossBorderService {
     return this.call(
       creds,
       { method: 'POST', path, body, headers: this.mcRefHeaders(creds) },
+      ctx,
+    );
+  }
+
+  /**
+   * Query-строка из заданных параметров: только непустые, значения URL-кодируются
+   * (анти query-injection — значения уходят в URL запроса к MC, который потом
+   * подписывается OAuth1). Возвращает `?k=v&...` или пустую строку.
+   */
+  private qs(params: Record<string, string | undefined>): string {
+    const pairs = Object.entries(params)
+      .filter(([, v]) => typeof v === 'string' && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);
+    return pairs.length ? `?${pairs.join('&')}` : '';
+  }
+
+  /**
+   * GET в MC Cash Pickup-каталог: partner-id передаётся ЗАГОЛОВКОМ (не в пути).
+   * Берём СЫРОЙ partnerId (в заголовке не кодируем; он уже safePartnerId-валиден).
+   */
+  private callCatalog(
+    creds: McCredentials,
+    path: string,
+    ctx: string,
+  ): Promise<unknown> {
+    return this.call(
+      creds,
+      { method: 'GET', path, headers: { 'partner-id': creds.partnerId } },
       ctx,
     );
   }
