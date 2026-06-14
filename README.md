@@ -160,7 +160,7 @@ the options object, not `process.env`.
 
 **Host integration checklist** — the module deliberately does not set these up; if
 the host omits them, the affected feature silently degrades (the module logs a
-startup `WARN` for the first two — see `HostIntegrityService`):
+startup `WARN` for the detectable ones — see `HostIntegrityService`):
 
 1. **TypeORM DataSource with our entities** — `TypeOrmModule.forRoot({ entities:
    [...MASTERCARD_ENTITIES] })` (or `autoLoadEntities: true`). Missing → repositories
@@ -172,7 +172,18 @@ startup `WARN` for the first two — see `HostIntegrityService`):
 3. **`app.enableShutdownHooks()`** — required so the audit buffer is flushed on
    `SIGTERM` (`beforeApplicationShutdown`). This one cannot be introspected from a
    provider, so it is documented here only.
-4. **Do not pass `isGlobal: false`** to `forRoot/forRootAsync`. The umbrella module
+4. **Route-scoped body parser for RFI upload** — `POST /crossborder/rfi/documents`
+   carries a base64 file up to ~1.37MB. The dev-harness (`main.ts`) registers a 2MB
+   parser for that path before the global JSON parser; when embedded, `main.ts` does
+   not run, so the **host must do the same** — `app.use(RFI_UPLOAD_PATH,
+   rfiUploadBodyParser())` (both exported from `src/common/rfi-upload.bodyparser.ts`)
+   before its global JSON parser, **or** ensure its global JSON limit is ≥2MB for that
+   route. Missing → RFI uploads near MC's ~1MB limit return `413`. Express parsers
+   cannot be introspected from a provider, so this is documented here only.
+5. **`webhookToken` set** — required for inbound Mastercard webhooks; empty ⇒
+   fail-closed (every `/webhooks/mastercard` request → `401`). The module logs a
+   startup `WARN` if it is empty.
+6. **Do not pass `isGlobal: false`** to `forRoot/forRootAsync`. The umbrella module
    is global by default so its exported `GatewayConfig` is injectable by every
    sub-module without each re-importing the umbrella; overriding it to `false` would
    break DI across sub-modules.

@@ -43,12 +43,18 @@ export class GatewayExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    // requestId — строкой и ТОЛЬКО при наличии (контракт ErrorResponseDto:
+    // optional string, не null/number). path — req.path (без query): не отражаем
+    // сырой ввод клиента (?ref=…) в теле ошибки и совпадаем с примером DTO.
+    const requestId =
+      req.id != null
+        ? String(req.id)
+        : (req.headers['x-request-id'] as string | undefined);
     const base = {
       statusCode: status,
-      path: req.url,
+      path: req.path,
       timestamp: new Date().toISOString(),
-      requestId:
-        req.id ?? (req.headers['x-request-id'] as string | undefined) ?? null,
+      ...(requestId ? { requestId } : {}),
     };
 
     if (exception instanceof UpstreamHttpException) {

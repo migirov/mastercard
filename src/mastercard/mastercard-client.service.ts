@@ -29,6 +29,14 @@ export interface McResponse<T = unknown> {
 /** Транзиентные статусы MC, на которых имеет смысл повторить идемпотентный GET. */
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
 
+/**
+ * Ошибка расшифровки ответа MC (в response-интерцепторе). Выделена в отдельный
+ * тип, чтобы retry-цикл НЕ принимал её за транзиентный сетевой сбой: расшифровка
+ * детерминирована (битый ключ/payload) — повтор бессмыслен (лишние подписанные
+ * round-trip'ы к MC), сразу превращаем в 502.
+ */
+class ResponseDecryptError extends Error {}
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Per-request данные для интерцепторов (creds текущего тенанта). */
@@ -104,6 +112,10 @@ export class MastercardClient {
         }
         return { status: res.status, data: res.data };
       } catch (e) {
+        // Расшифровка ответа детерминирована — НЕ ретраим (иначе 2 лишних
+        // подписанных round-trip'а к MC и отложенный 502). Только сетевой сбой
+        // транзиентен.
+        if (e instanceof ResponseDecryptError) throw e;
         lastErr = e; // сетевой сбой
         if (attempt < maxAttempts) {
           await delay(attempt * 200);
@@ -151,8 +163,12 @@ export class MastercardClient {
         creds.signingKeyPem,
       );
       config.headers.set('Authorization', authHeader);
-      config.headers.set('Accept', 'application/json');
-      if (payload !== undefined) {
+      // Accept/Content-Type ставим, только если вызывающий их не задал — не
+      // перетираем явный per-request override (по умолчанию JSON).
+      if (!config.headers.has('Accept')) {
+        config.headers.set('Accept', 'application/json');
+      }
+      if (payload !== undefined && !config.headers.has('Content-Type')) {
         config.headers.set('Content-Type', 'application/json');
       }
       return config;
@@ -166,7 +182,9 @@ export class MastercardClient {
         this.logger.error(
           `Расшифровка ответа MC не удалась: ${(e as Error).message}`,
         );
-        throw e; // выше превратится в 502
+        // Помечаем как ResponseDecryptError — retry-цикл не примет за сетевой
+        // сбой; выше (в call()) превратится в 502.
+        throw new ResponseDecryptError((e as Error).message);
       }
       return response;
     });

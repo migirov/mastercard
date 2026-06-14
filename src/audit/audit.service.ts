@@ -36,6 +36,8 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   private readonly logger = new Logger('Audit');
   private buffer: AuditEntry[] = [];
   private timer?: NodeJS.Timeout;
+  /** In-flight flush: гард ре-энтерабельности (см. flush()). */
+  private flushing?: Promise<void>;
 
   constructor(
     @InjectRepository(AuditLogEntity)
@@ -60,11 +62,37 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     if (this.buffer.length >= MAX_BUFFER) {
       void this.flush();
     }
+    // Кап и на УСПЕШНОМ пути: если флаш МЕДЛЕННЫЙ (не падает), re-entrancy-гард
+    // делает последующие flush() no-op, а record() продолжает пушить — без капа
+    // буфер рос бы неограниченно под нагрузкой при тормозящей БД.
+    this.capBuffer();
   }
 
-  /** Сбросить буфер в БД одной пачкой. */
-  private async flush(): Promise<void> {
-    if (this.buffer.length === 0) return;
+  /** Ограничивает буфер сверху, отбрасывая САМЫЕ СТАРЫЕ записи (см. doFlush). */
+  private capBuffer(): void {
+    if (this.buffer.length > MAX_RETAINED) {
+      const dropped = this.buffer.length - MAX_RETAINED;
+      this.buffer.splice(0, dropped);
+      this.logger.warn(`audit buffer over cap: dropped ${dropped} oldest`);
+    }
+  }
+
+  /**
+   * Сбросить буфер в БД одной пачкой. Ре-энтерабельность: flush() зовётся из 4
+   * мест (таймер, MAX_BUFFER-триггер, recent(), shutdown) — при наложении второй
+   * вызов НЕ запускает параллельную вставку (иначе батчи могли бы продублироваться
+   * или переупорядочиться), а ждёт уже идущий флаш.
+   */
+  private flush(): Promise<void> {
+    if (this.flushing) return this.flushing;
+    if (this.buffer.length === 0) return Promise.resolve();
+    this.flushing = this.doFlush().finally(() => {
+      this.flushing = undefined;
+    });
+    return this.flushing;
+  }
+
+  private async doFlush(): Promise<void> {
     const batch = this.buffer;
     this.buffer = [];
     try {
@@ -82,11 +110,10 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     } catch (err) {
       // Транзиентная ошибка БД (deadlock/failover/блип): возвращаем батч в буфер,
       // чтобы следующий тик повторил вставку — иначе записи терялись бы навсегда,
-      // даже когда под продолжает работать. Ограничиваем рост (избыток отбрасываем).
+      // даже когда под продолжает работать. Кап отбрасывает САМЫЕ СТАРЫЕ: при
+      // затяжном сбое важнее сохранить свежие события (их и расследуют).
       this.buffer.unshift(...batch);
-      if (this.buffer.length > MAX_RETAINED) {
-        this.buffer.splice(MAX_RETAINED);
-      }
+      this.capBuffer();
       this.logger.error(
         `audit batch insert failed (${batch.length} rows, retrying): ${(err as Error).message}`,
       );
