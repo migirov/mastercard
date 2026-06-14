@@ -18,8 +18,10 @@ uses them**.
 **Why this is a blocker for OWN + MTF/Prod.** Each OWN partner has their own MC
 project → their own Mastercard Encryption Key (their own fingerprint). Encrypting
 their request with the platform key makes Mastercard reject the payload (`Crypto
-Key`). In sandbox, encryption is off (`MC_ENCRYPTION_ENABLED=false`), so it does not
-fire yet.
+Key`). In sandbox, encryption is off (`MC_ENCRYPTION_ENABLED=false`, FLE off), so it
+does not fire yet — this is an **external blocker**: it cannot be implemented or
+verified without MTF access and real per-tenant keys (the JWE lib needs file paths,
+not PEM strings).
 
 **Question for the client/architecture.**
 - Does each OWN partner really have **their own** MC Encryption Key, or does the
@@ -33,15 +35,13 @@ the built `JweEncryption` by fingerprint (rebuilding is expensive).
 
 ---
 
-## 🟠 Open architectural question: TypeORM
+## ✅ Decided: TypeORM / embedding
 
-Is our service **standalone** or **part of the `b24club-api` monolith**?
-- Standalone → the current setup is correct: own `DatabaseModule.forRoot` +
-  `DATABASE_URL`, `synchronize` in dev.
-- Part of the monolith → drop our `forRoot`, register entities via `forFeature` in
-  their `DataSource`, manage the schema with their migrations (not `synchronize`).
-
-**Awaiting an answer** — it affects DB config and deployment.
+The service is **ONE umbrella module (`MastercardModule`)** embedded into the host
+monolith `b24club-api`. The **host** provides the TypeORM `DataSource` (our entities
+via `forFeature` / `autoLoadEntities`) and runs **its own migrations** (not
+`synchronize`). Our own `DatabaseModule.forRoot` + `DATABASE_URL` remain only for the
+standalone dev-harness (`main.ts`). Question closed.
 
 ---
 
@@ -66,21 +66,42 @@ Is our service **standalone** or **part of the `b24club-api` monolith**?
 
 ---
 
+## Dependency note: axios
+
+`axios` is pinned to **1.6.0** — this **exactly matches** the host `b24club-api`
+(their `package.json` also pins `axios 1.6.0`), and `@nestjs/axios@4` (which the host
+uses) peer-requires `axios ^1.3.1` → no conflict. However `npm audit` flags axios
+1.0.0–1.15.2 with HIGH advisories (SSRF / prototype-pollution / ReDoS); latest is
+1.17.0. Our practical exposure is low (fixed `baseURL`, relative paths we build
+ourselves, no client-supplied absolute URLs, no proxy trust). **Recommendation:** the
+axios bump should be driven by the **host** (it owns the single deduped axios in the
+monolith); we follow in lockstep. We use raw axios (not `@nestjs/axios`) deliberately
+for interceptor control.
+
+---
+
 ## Business-driven enhancements (not blockers)
 
-- RFI subsystem (requests for information / documents).
+- ~~RFI subsystem~~ — **implemented** (retrieve / update / upload / download).
 - Observability: **logs are ready** (structured JSON pino + correlation-id);
   remaining are **metrics/tracing** (Prometheus `/metrics` or OpenTelemetry) + alerts.
 - **Health probes are ready** (`/health`, `/ready`) — wire liveness/readiness in the k8s manifest.
 - ~~Cleanup of expired `kv_store`~~ — **done**: `KvCleanupService` (`@Cron` hourly,
   `@nestjs/schedule`) removes expired entries.
-- Expand Swagger annotations for merchants.
+- ~~Expand Swagger annotations~~ — **done** during the code-quality review.
 
 ---
 
-## Bug-audit history (fixed)
+## Audit history (fixed)
 
-A 4-cycle bug audit (2026-06-10), all fixes passed typecheck:
+A **10-round audit** (bugs / security / optimization) + **2 regression rounds** (each
+round = audit→fix, all verified). **No open HIGH/MED issues.** Then a 4-perspective
+code-quality review (architecture / maintainability / API contract / testing) → "Tier
+1" refactors landed (centralized MC path map; a composed `UseGatewayContract()`
+decorator; barrel `src/index.ts`; Swagger gaps filled; +4 regression specs). Tests:
+16 suites / 112 unit tests + 23/23 e2e against the live sandbox (on live Postgres).
+
+The earlier 4-cycle bug audit (2026-06-10), all fixes passed typecheck:
 1. Tenant-seeding race when many pods start → `INSERT … ON CONFLICT DO NOTHING`.
 2. Default `MC_WEBHOOK_TOKEN` passed the prod gate → added to `assertProdSecrets`.
 3. Long `Idempotency-Key` overflowed `kv_store.key` (varchar 256) → validation (≤128).

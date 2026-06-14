@@ -7,35 +7,61 @@ guards/gating/validation — or are infrastructure). Mastercard integration test
 Related: [api.md](./api.md), [architecture.md](./architecture.md),
 [documentation.md](./documentation.md).
 
-> Environment and startup — see [tests.md](./tests.md#environment). `$base = http://localhost:3000`.
+> Environment and startup — see [tests.md](./tests.md#environment).
 > Seeds: `platform`, `acme` (PLATFORM/ACTIVE), `own-sandbox` (OWN/ACTIVE), `own-demo` (OWN/PENDING).
+
+---
+
+## 0. Unit suite (Jest, `src/**/*.spec.ts`)
+
+**16 suites / 112 tests — all green.** Run: `node node_modules\jest\bin\jest.js`
+(see [tests.md](./tests.md#running-the-suite) for the Windows + WSL-UNC note).
+
+| Suite | What it locks in |
+|---|---|
+| `crypto.util` | `randomToken` (url-safe, unique, length), `sha256hex`, timing-safe `safeEqual` |
+| `tenant.types` | `isActive` / `effectiveStatus` (SUSPENDED precedence, partial-approval states) |
+| `safe-id.pipe` | identifier whitelist (anti path-injection: empty / `a/b` rejected) |
+| `idempotency-key.pipe` | valid key passes; `undefined` allowed; >128 chars rejected (kv_store.key) |
+| `gateway-config` | typed getters + defaults; prod rejects weak secrets / non-vault store |
+| `idempotency.service` | lock acquire/cache; 4xx releases the lock; 5xx/unknown **keeps** it (anti double-charge); body-fingerprint reuse → 422 |
+| `oauth.service` | issues Bearer for a valid client; `invalid_client` and never signs for bad creds |
+| `webhook-auth.guard` | fail-closed (no token configured → reject); missing/wrong token; signature-verifier false → reject |
+| `webhook.handler` | accept + dedup by `eventRef`; `notificationId` fallback; accept without a ref |
+| `tenant-serialization` (admin) | `@Exclude` hides `secretRef`; `TenantViewDto` whitelist; `IssuedClientDto` shows `clientSecret` once |
+| `host-integrity.service` | warns on missing DataSource / entities / ScheduleModule / empty webhookToken |
+| `gateway-exception.filter` | unified envelope; nests MC body under `upstream`; RFC 6749 `/oauth/token` shapes; no internals leaked |
+| **`crossborder.service`** (new) | MC path construction per operation + `call()` dispatch: 2xx→data, forwardable object 4xx→`UpstreamHttpException`, non-object 4xx→hidden 502, 401/403/5xx & network/decrypt error→502; `encodeURIComponent` on path ids; CRLF-stripped `Partner-Ref-Id`; non-ACTIVE tenant → Forbidden, MC not called |
+| **`mastercard-client.service`** (new) | retry matrix — GET retries transient 502/503/504 up to 3×, POST never retried (anti double-charge); decrypt-no-retry regression: a deterministic decryption failure is NOT retried even on GET |
+| **`audit.service`** (new) | flush re-entrancy (no double insert); `capBuffer` drops the **oldest** on overflow + logs the drop; `recent()` second-flush picks up in-flight records; insert failure re-queues the batch |
+| **`credentials.service`** (new) | OWN cache stampede dedup (concurrent resolves → one fetch); LRU cap ≤500 (oldest evicted); rejected fetch evicted (no TTL stick); `partnerId` allowlist + `secretRef` anti-traversal (`..`) + bundle validation |
+
+The four **new** suites were added in the recent Tier-1 code-review to lock in the
+bug fixes from the audit (see [Run history](#run-history)).
 
 ---
 
 ## 1. Authentication and access
 
-Validate our layer; **rejected before reaching Mastercard** (at guards/gating).
+The E2E suite (`test/app.e2e-spec.ts`) also asserts the pre-MC rejections below; they
+fail at guards/gating/validation **before reaching Mastercard**.
 
-| # | Test | Expected | Result |
-|---|---|---|---|
-| GW-1 | `GET /admin/tenants` (admin token) | list from Postgres | ✅ 200, 4 tenants, computed statuses, no `secretRef` |
-| GW-2 | `GET /crossborder/balances` without auth | 401 | ✅ 401 `missing bearer token` |
-| GW-3 | `GET /admin/tenants` wrong admin token | 401 | ✅ 401 `invalid admin token` |
-| GW-4 | `POST /admin/tenants/own-sandbox/clients` | issue client_id/secret | ✅ 201, 32-char secret, `note` (shown once) |
-| GW-5 | `POST /oauth/token` (client_credentials) | JWT | ✅ Bearer, expires_in=900 |
-| GW-6 | `POST /oauth/token` wrong secret | 401 | ✅ 401 `invalid_client` (timing-safe) |
-| GW-7 | gating: own-demo (PENDING) | 403 | ✅ 403 `…is not active (status PENDING)` |
-| GW-8 | unknown tenant | 404 | ✅ 404 `Tenant 'nope' not found` |
+Validate our layer; **rejected before reaching Mastercard** (at guards/gating/validation).
+These are E2E `it` titles (live app on `:3999`).
 
-```bash
-# issue OAuth client → token (external auth path)
-curl.exe -s -X POST -H "X-Admin-Token: ..." $base/admin/tenants/own-sandbox/clients   # 201 + secret (once)
-curl.exe -s -X POST $base/oauth/token -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=<cid>&client_secret=<sec>"               # JWT 900s
-# gating / not found (never reaches MC)
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-demo" $base/crossborder/balances   # 403
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: nope"     $base/crossborder/balances   # 404
-```
+| # | Test (`it` title) | Result |
+|---|---|---|
+| GW-1 | `POST /crossborder/quotes` with `amount=number` → DTO `@IsString` | ✅ 400 |
+| GW-2 | `POST /admin/tenants` OWN without `secretRef` → `@ValidateIf` | ✅ 400 |
+| GW-3 | `POST /oauth/token` `grant_type=password` → `@IsIn` | ✅ 400 |
+| GW-4 | `GET /crossborder/payments?ref=` (empty) → `SafeIdPipe` | ✅ 400 |
+| GW-5 | `GET /crossborder/payments?ref=a%2Fb` → anti path-injection | ✅ 400 |
+| GW-6 | `GET /admin/tenants/own-sandbox` → no `secretRef`, has `status` | ✅ 200 |
+| GW-7 | `POST /crossborder/payments` with a malformed `Idempotency-Key` | ✅ 400 (before MC, message names `Idempotency-Key`) |
+
+> Auth/gating mechanics (admin-token, OAuth client issuance, timing-safe
+> `invalid_client`, gating of PENDING tenants, unknown-tenant 404) are pinned by the
+> `oauth.service` / `tenant.types` / `tenant-serialization` unit suites in §0.
 
 ---
 
@@ -50,8 +76,12 @@ curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: nope"     $base/crossbor
 | R-5 | **Persistence after pod restart** | state survives | ✅ tenants=4 (no duplicate seeds), webhook → duplicate (kv survived), audit not reset |
 
 > R-2 validates that errors do not stick (the lock is released). The 2xx cache
-> itself uses the same Postgres `setIfAbsent` as webhook dedup (see
-> [tests.md](./tests.md) WH-2); a successful cache requires a valid payment.
+> itself uses the same Postgres `setIfAbsent` as webhook dedup; a successful cache
+> requires a valid payment. The lock state-machine (4xx releases, 5xx/unknown keeps),
+> the audit batched-writer internals (re-entrancy, overflow drop-oldest, re-queue on
+> failure) and the GET-retry / POST-no-retry / decrypt-no-retry matrix are now pinned
+> by the `idempotency.service`, `audit.service` and `mastercard-client.service` unit
+> suites (§0).
 
 **R-5 (restart):** stop server → start → `GET /admin/tenants` = same 4 (seeds via
 `INSERT … ON CONFLICT DO NOTHING`); repeat webhook `evt-test-001` = `duplicate`
@@ -89,8 +119,15 @@ curl.exe -s $base/ready    # {"status":"ok","info":{"database":{"status":"up"}},
 
 - **Runs 1–2:** functional + reliability.
 - **Run 3:** 10-cycle audit (bugs/security/optimization) + 4 regression cycles — no regressions.
-- **Run 4 (final):** all categories on the code with 5 native modules
-  (terminus/env-validation/migrations/schedule/pino) + 5 audit fixes — **25/25 green**.
+- **Run 4:** all categories on the code with 5 native modules
+  (terminus/env-validation/migrations/schedule/pino) + 5 audit fixes.
+- **Run 5 (current):** after a 10-round security/bug/optimization audit + 2 regression
+  rounds + a 4-lens code-quality review, the fixes were locked into the automated
+  suite. Four new unit suites (`crossborder.service`, `mastercard-client.service`,
+  `audit.service`, `credentials.service`) were added. Current status:
+  **unit 16 suites / 112 tests green**, **E2E 23/23 green** against the live sandbox
+  (the previously-open "E2E on Postgres not yet run" item is now part of normal
+  verification). Coverage spans all 15 MC API groups.
 
 ## Not covered (internal)
 

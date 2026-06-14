@@ -7,8 +7,30 @@
 Связанные: [api.md](./api.md), [architecture.md](./architecture.md),
 [documentation.md](./documentation.md).
 
-> `$base = http://localhost:3000`. Проверка — `curl.exe` (печатает статус через
-> `-w "HTTP %{http_code}"`).
+> Поверхность Mastercard теперь проверяется **E2E-набором** (`test/app.e2e-spec.ts`,
+> Jest, 23/23 зелёные) — он поднимает реальное приложение против живого sandbox по
+> HTTP, плюс юнит-наборы, фиксирующие логику сборки запроса / разворота ответа (см.
+> [tests-inner.md](./tests-inner.md)). Покрыты все 15 групп MC API.
+
+---
+
+## Запуск набора
+
+```powershell
+# Postgres (нужен для E2E) — внутри WSL
+wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
+
+# Юнит-наборы: 16 наборов / 112 тестов (rootDir src, *.spec.ts)
+node node_modules\jest\bin\jest.js
+
+# E2E против ЖИВОГО sandbox: 23/23
+node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
+```
+
+> На этой связке Windows + WSL-UNC Jest вызывается через `node node_modules\jest\bin\jest.js`
+> — `npx` не резолвится на смонтированном диске. E2E-харнесс поднимает реальный
+> `AppModule` на порту `3999` (ручной bodyParser, `rawBody`, без глобального pipe —
+> как в `main.ts`) и гоняет его через `axios`.
 
 ---
 
@@ -22,6 +44,9 @@
 - **Тенант для MC-вызовов:** `own-sandbox` (OWN/ACTIVE, ключи из LocalSecretStore,
   `partner-id` = `SANDBOX_1234567`).
 
+E2E-набор сам поднимает приложение на порту `3999`; для ручной проверки через `curl`
+можно также запустить dev-сервер на `3000`:
+
 ```bash
 # Postgres + сервер
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
@@ -30,81 +55,51 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && npx ts-node
 
 ---
 
-## 1. Исходящие вызовы в Mastercard Cross-Border API
+## 1. Исходящие вызовы в Mastercard Cross-Border API (E2E, живой sandbox)
 
-**Только эти тесты реально уходят в `sandbox.api.mastercard.com`.** Путь каждого:
-auth → резолв тенанта → OWN-креды из SecretStore → **OAuth1-подпись** → HTTPS к MC
-→ разворот ответа. (В MTF/Prod добавляется JWE-шифрование тела — в sandbox plain.)
+E2E-набор (`test/app.e2e-spec.ts`, **23/23 зелёные**) гоняет реальное приложение
+против `sandbox.api.mastercard.com`. Каждая MC-проверка проходит весь путь: auth →
+резолв тенанта → OWN-креды из SecretStore → **OAuth1-подпись** → HTTPS к MC →
+разворот ответа. (В MTF/Prod добавляется JWE-шифрование тела — в sandbox plain.)
+Заголовки тенанта: `x-internal-token` + `x-tenant-id: own-sandbox`.
 
-| # | Тест | Ожидание | Факт |
-|---|---|---|---|
-| MC-1 | `GET /crossborder/balances` (internal, own-sandbox) | 200 + реальные балансы | ✅ 200 (USD/JPY/BHD) |
-| MC-2 | `GET /crossborder/balances` с Bearer JWT (внешний путь) | 200 + реальные балансы | ✅ 200 |
-| MC-3 | `GET /crossborder/rates` | 200 | ✅ 200 `{"rates":{}}` |
-| MC-4 | `POST /crossborder/quotes` (уникальный ref) | 201 + предложение MC | ✅ 201, реальный proposal |
-| MC-5 | `POST /crossborder/quotes` (занятый ref) | проброс бизнес-ошибки MC | ✅ 400 `Duplicate Transaction Reference` |
-| MC-6 | `POST /crossborder/payments` (неполное тело) | проброс ошибки MC | ✅ 400 `MISSING_REQUIRED_INPUT` (MC обработал, RequestId есть) |
+### 1a. Доходит до MC с реальным бизнес-ответом
 
-### MC-1 / MC-2 — Балансы (реальный MC)
+| # | Тест (заголовок `it`) | Факт |
+|---|---|---|
+| MC-1 | `GET /crossborder/balances` | ✅ 200 (реальные балансы) |
+| MC-2 | `POST /crossborder/quotes` (уникальный ref) | ✅ 200/201 — в теле `proposal`/`charged_amount` |
+| MC-3 | `GET /crossborder/cash-pickup/countries?cash_pickup_type=PANY` (GET, без шифрования) | ✅ доходит до MC (не 404/500) |
+| MC-4 | `GET /crossborder/endpoint-guide/specifications?...` (GET, без тела/шифрования) | ✅ доходит до MC (не 404/500) |
+| MC-5 | `POST /crossborder/carded-rates` (Carded Rate Pull — sandbox не поддерживает) | ✅ проводка шлюза (не 500) |
 
-```bash
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" $base/crossborder/balances
-```
-**HTTP 200** — реальный ответ Mastercard sandbox (3 счёта):
-```json
-[ {"accountId":"acct_1001","settlementCurrency":"USD",
-   "balanceDetails":{"availableBalance":{"amount":"8000.50","currency":"USD"}, ...}},
-  {"accountId":"acct_1002","settlementCurrency":"JPY", ...},
-  {"accountId":"acct_1003","settlementCurrency":"BHD", ...} ]
-```
-**MC-2** — то же через внешний путь (`Authorization: Bearer <JWT>`) → тоже 200.
-Доказывает весь стек: auth → OWN-креды → **OAuth1-подпись** → реальный вызов MC.
+### 1b. Валидация / lookup — контракт шлюза (запрос доходит до MC)
 
-### MC-3 — FX-курсы
+Эти POST-ы требуют шифрования в MTF/Prod, поэтому проверяется контракт шлюза:
+маршрут смонтирован, OAuth1-подпись поставлена, запрос ушёл в MC и ответ проброшен —
+утверждается как **не 404** (маршрут есть) и **не 500** (нет локального краша).
 
-```bash
-curl.exe -s -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" $base/crossborder/rates
-# HTTP 200  {"rates":{}}
-```
+| # | Тест (заголовок `it`) | Факт |
+|---|---|---|
+| MC-6 | `POST /crossborder/address-validations` (sandbox тест-кейс) | ✅ доходит до MC |
+| MC-7 | `POST /crossborder/account-validations` (IBAN тест-кейс) | ✅ доходит до MC |
+| MC-8 | `POST /crossborder/bank-lookups` (sandbox тест-кейс) | ✅ доходит до MC |
+| MC-9 | `POST /crossborder/iban-generations` (sandbox тест-кейс) | ✅ доходит до MC |
 
-### MC-4 — Котировка, успех (201)
+### 1c. Группа RFI (Request For Information)
 
-```bash
-# body: {"quoterequest":{"transaction_reference":"<уникальный>",
-#   "sender_account_uri":"tel:+25406005","recipient_account_uri":"tel:+254069832",
-#   "payment_amount":{"amount":"105.15","currency":"USD"},
-#   "payment_origination_country":"USA","payment_type":"P2P",
-#   "quote_type":{"forward":{"receiver_currency":"GBP"}}}}
-curl.exe -s -X POST -H "X-Internal-Token: ..." -H "X-Tenant-Id: own-sandbox" \
-  -H "Content-Type: application/json" --data-binary "@quote.json" $base/crossborder/quotes
-```
-**HTTP 201** — реальное предложение MC:
-```json
-{"quote":{"transaction_reference":"08POC342598033X","payment_type":"P2P",
- "proposals":{"proposal":[{"id":"pen-4000000044472562338287758",
-   "charged_amount":{"amount":"110.41","currency":"USD"},
-   "principal_amount":{"amount":"105.15","currency":"USD"},"quote_fx_rate":"777"}]}}}
-```
-
-### MC-5 — Котировка, занятый ref (проброс ошибки MC)
-
-**HTTP 400** — ошибка MC проброшена клиенту как есть (подпись принята, MC обработал):
-```json
-{"Errors":{"Error":{"Source":"transaction_reference","ReasonCode":"DECLINE",
- "Description":"Duplicate Transaction Reference Number","Details":{"Detail":{"Value":"130202"}}}}}
-```
-
-### MC-6 — Платёж доходит до MC
-
-Платёж с неполным телом → MC возвращает список обязательных KYC-полей (присвоен
-RequestId → запрос реально дошёл и обработан):
-```json
-{"Errors":{"Error":[{"Source":"sender.first_name","ReasonCode":"MISSING_REQUIRED_INPUT", ...}, ...]}}
-```
+| # | Тест (заголовок `it`) | Факт |
+|---|---|---|
+| MC-10 | `GET /crossborder/rfi/requests/:id` (sandbox-стаб `33…` → OPEN, GET) | ✅ доходит до MC (не 500) |
+| MC-11 | `POST /crossborder/rfi/requests/:id` (update — нужно шифрование) | ✅ доходит до MC (не 404/500) |
+| MC-12 | `POST /crossborder/rfi/documents` (upload — нужно шифрование) | ✅ доходит до MC (не 404/500) |
+| MC-13 | `GET /crossborder/rfi/documents/:id` (download magic-id, код ошибки `082000`) | ✅ доходит до MC (не 500) |
+| MC-14 | `POST /crossborder/rfi/documents` с файлом ~500KB | ✅ **НЕ 413** — route-scoped лимит 2MB, а не глобальный 256kb |
 
 **Семантика разворота ответа MC** (общая для всех вызовов): 2xx → данные;
-бизнес-4xx (`400/404/409/422/429`) → проброс тела MC; `401/403`/`5xx`/сеть → `502`
-без деталей наружу.
+бизнес-4xx с объектом (`400/404/409/422/429`) → проброс тела MC; не-объектное тело
+4xx → скрыто, `502`; `401/403`/`5xx`/сеть/сбой расшифровки → `502` без деталей
+наружу. (Зафиксировано `crossborder.service.spec` — см. [tests-inner.md](./tests-inner.md).)
 
 ---
 
@@ -112,18 +107,13 @@ RequestId → запрос реально дошёл и обработан):
 
 Направление **MC → нам** (push-уведомления о статусах). Наружу к MC API не ходит.
 
-| # | Тест | Факт |
+| # | Тест (заголовок `it`) | Факт |
 |---|---|---|
-| WH-1 | `POST /webhooks/mastercard` 1-й раз | ✅ 200 `{"status":"accepted"}` |
-| WH-2 | повтор с тем же `eventRef` | ✅ 200 `{"status":"duplicate"}` (дедуп через `kv_store`) |
-| WH-3 | неверный `X-Webhook-Token` | ✅ 401 `invalid webhook token` |
+| WH-1 | `POST /webhooks/mastercard` без токена | ✅ 401 (fail-closed) |
+| WH-2 | `POST /webhooks/mastercard` с `x-webhook-token` | ✅ 200 |
 
-```bash
-WH=(-H "X-Webhook-Token: dev-webhook-token-change-me" -H "Content-Type: application/json")
-B='{"eventRef":"evt-test-001","eventType":"STATUS_CHG"}'
-curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # accepted
-curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
-```
+> Путь дедупа по `eventRef` (`kv_store`) зафиксирован юнит-тестами
+> `webhook.handler.spec` / `webhook-auth.guard.spec` — см. [tests-inner.md](./tests-inner.md).
 > Аутентификация вебхуков — in-service fail-closed токен (`X-Webhook-Token`),
 > обязателен в prod и dev. mTLS на ингрессе — опциональный доп. слой, не аутентификация.
 
@@ -131,10 +121,11 @@ curl.exe -s "${WH[@]}" -d "$B" $base/webhooks/mastercard   # duplicate
 
 ## Не покрыто (Mastercard)
 
-- **Шифрование (JWE)** — только MTF/Prod (sandbox FLE не поддерживает + блокер
-  per-tenant encryption); нужен приватный Client Encryption key.
-- **Успешный платёж (2xx)** — требует полного KYC-флоу: quote → confirmation →
-  payment с реквизитами отправителя/получателя.
+- **Живое JWE-шифрование** — sandbox работает с выключенным FLE, поэтому круг
+  encrypt/decrypt с MC не прогоняется end-to-end (только юнит-фиксация). В MTF/Prod
+  нужен приватный Client Encryption key.
+- **Полностью успешный платёж (2xx)** — требует полного KYC-флоу: quote →
+  confirmation → payment с реквизитами отправителя/получателя.
 
 ---
 

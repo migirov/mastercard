@@ -329,7 +329,7 @@ systems obtain an access token (`POST /oauth/token`, grant `client_credentials`)
 then call the Cross-Border API with a Bearer JWT. One tenant has 0..N clients.
 
 Code: [`src/auth/client-registry.ts`](../../src/auth/client-registry.ts),
-entity: [`src/database/entities/oauth-client.entity.ts`](../../src/database/entities/oauth-client.entity.ts).
+entity (co-located in the module): [`src/auth/oauth-client.entity.ts`](../../src/auth/oauth-client.entity.ts).
 Table `oauth_clients`.
 
 ## Fields
@@ -363,12 +363,13 @@ Table `oauth_clients`.
 # AuditLog (AuditEntry)
 
 **AuditLog** — an operation log record: who (tenant), what (method + path), result
-(status), how long it took. Written on **every HTTP request** by the global
-`AuditInterceptor`. **Without request/response bodies and without secrets.**
+(status), how long it took. Written on **every HTTP request** by `AuditInterceptor`,
+bound **per-controller** via the composed `@UseGatewayContract()` decorator (not globally
+via `APP_INTERCEPTOR` — the module is embeddable). **Without request/response bodies and without secrets.**
 
 Code: [`src/audit/audit.service.ts`](../../src/audit/audit.service.ts),
 interceptor: [`src/audit/audit.interceptor.ts`](../../src/audit/audit.interceptor.ts),
-entity: [`src/database/entities/audit-log.entity.ts`](../../src/database/entities/audit-log.entity.ts).
+entity (co-located in the module): [`src/audit/audit-log.entity.ts`](../../src/audit/audit-log.entity.ts).
 Table `audit_log`.
 
 ## Fields
@@ -406,7 +407,7 @@ mechanisms that need cross-pod consistency:
 2. **Mastercard webhook dedup** (key `wh:<eventRef>`).
 
 Code: [`src/store/postgres-kv.store.ts`](../../src/store/postgres-kv.store.ts),
-entity: [`src/database/entities/kv.entity.ts`](../../src/database/entities/kv.entity.ts).
+entity (co-located in the module): [`src/store/kv.entity.ts`](../../src/store/kv.entity.ts).
 Table `kv_store`.
 
 ## Fields
@@ -428,8 +429,9 @@ Table `kv_store`.
 - **TTL:** idempotency — a short `in-progress` lock (120s, > MC timeout), then the
   result for a day; webhook dedup — a day.
 - **Cleanup:** expired rows are removed by a cron job (`KvCleanupService`, hourly,
-  `@nestjs/schedule`, under an advisory lock so only one pod cleans per cycle), plus
-  lazily on read.
+  `@nestjs/schedule`, under a `pg_try_advisory_xact_lock` so only one pod cleans per
+  cycle; the `DELETE` is **batched via `LIMIT`/`ctid`** so one pass removes at most
+  `CLEANUP_BATCH` rows and never holds a long lock), plus lazily on read.
 
 ---
 
@@ -461,7 +463,9 @@ resolver: [`src/credentials/credentials.service.ts`](../../src/credentials/crede
   Warmed at startup in `onModuleInit` (fail-fast).
 - **`OWN`** → from a [MerchantSecretBundle](#merchantsecretbundle--keymaterial) by the
   tenant's `secretRef`; cache **with TTL** (`MC_CREDS_CACHE_TTL_MS`, default 10 min) +
-  stampede dedup (concurrent requests await one promise) + `invalidate()` for rotation.
+  an **LRU cap (500 entries)** so many tenants cannot grow it unbounded + stampede dedup
+  (concurrent requests await one promise) + `invalidate()` for rotation. (P12→PEM
+  conversions are memoized separately in an LRU `pemCache`, cap 256.)
 
 > ⚠️ **Known limitation:** the encryption fields (`encryptionCertPem` etc.) are
 > resolved per-tenant, but the interceptor encrypts with the **platform** key
