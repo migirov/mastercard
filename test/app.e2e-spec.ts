@@ -206,4 +206,19 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(404);
     expect(r.status).not.toBe(500);
   });
+
+  it('GET /crossborder/cash-pickup/countries (sandbox, GET — без шифрования) → доходит до MC', async () => {
+    const r = await http.get(
+      '/crossborder/cash-pickup/countries?cash_pickup_type=PANY',
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   cash-pickup countries MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
 });
