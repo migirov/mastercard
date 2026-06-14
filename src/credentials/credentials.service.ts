@@ -13,14 +13,31 @@ import {
 } from '../secrets/secret-store.types';
 import { McCredentials } from './credentials.types';
 
-/** Символы, которые ломают URL-путь — partnerId с ними запрещён (+ `\`). */
-const UNSAFE_PARTNER_ID = /[\s/\\?#%]/;
+// partnerId уходит в URL-путь запроса к MC → строгий АЛЛОУЛИСТ (а не денилист):
+// денилист легко пропускает control-байты/`;@:&=`/exotic-unicode. Реальные MC
+// partner-id — алфанумерик + `_-.` (напр. SANDBOX_1234567). Применяется и к
+// partnerId из бандла SecretStore (он не проходит DTO-валидацию).
+const SAFE_PARTNER_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
+// secretRef интерполируется в ключ-путь Vault (когда стор будет подключён) →
+// та же защита от traversal/key-confusion на границе (DTO покрывает только
+// admin-create; сиды/иные пути конструируют тенанта напрямую). Разрешаем `/`
+// (иерархия ключей Vault), но запрещаем `..`-сегменты (проверяется отдельно).
+const SAFE_SECRET_REF = /^[A-Za-z0-9._/-]{1,256}$/;
 
 interface CacheEntry {
   /** Кэшируем сам Promise: одновременные запросы переиспользуют один резолв. */
   promise: Promise<McCredentials>;
   expiresAt: number;
 }
+
+/**
+ * Жёсткий потолок числа OWN-записей в кэше (в дополнение к TTL): без него большой
+ * легитимный набор OWN-партнёров (или будущий bulk-онбординг) рос бы неограниченно
+ * на каждом поде, удерживая полный материал ключей. При переполнении выселяем
+ * least-recently-used.
+ */
+const OWN_CACHE_MAX = 500;
 
 /**
  * Резолвер credentials. Единый интерфейс над двумя режимами:
@@ -92,6 +109,9 @@ export class CredentialsService implements OnModuleInit {
     const now = Date.now();
     const cached = this.ownCache.get(tenant.id);
     if (cached && cached.expiresAt > now) {
+      // recency для LRU: переставляем в конец (most-recently-used), TTL не трогаем.
+      this.ownCache.delete(tenant.id);
+      this.ownCache.set(tenant.id, cached);
       return cached.promise;
     }
 
@@ -107,6 +127,12 @@ export class CredentialsService implements OnModuleInit {
     const promise = this.fetchOwn(tenant);
     const entry: CacheEntry = { promise, expiresAt: Date.now() + this.ttlMs };
     this.ownCache.set(tenant.id, entry);
+    // Жёсткий потолок (LRU): после вставки выселяем самые старые сверх лимита.
+    while (this.ownCache.size > OWN_CACHE_MAX) {
+      const oldest = this.ownCache.keys().next().value as string | undefined;
+      if (oldest === undefined || oldest === tenant.id) break;
+      this.ownCache.delete(oldest);
+    }
     promise.catch(() => {
       if (this.ownCache.get(tenant.id) === entry) {
         this.ownCache.delete(tenant.id);
@@ -119,9 +145,10 @@ export class CredentialsService implements OnModuleInit {
     if (!tenant.secretRef) {
       throw new Error(`Tenant '${tenant.id}' (OWN) has no secretRef`);
     }
+    const secretRef = this.safeSecretRef(tenant.secretRef, tenant.id);
 
-    const bundle = await this.secrets.getMerchantSecrets(tenant.secretRef);
-    this.validateBundle(tenant.secretRef, bundle);
+    const bundle = await this.secrets.getMerchantSecrets(secretRef);
+    this.validateBundle(secretRef, bundle);
 
     const creds: McCredentials = {
       consumerKey: bundle.consumerKey,
@@ -154,16 +181,25 @@ export class CredentialsService implements OnModuleInit {
     }
   }
 
-  /** Проверяет, что partnerId задан и не ломает URL-путь. */
+  /** Проверяет, что partnerId задан и безопасен для URL-пути (строгий аллоулист). */
   private safePartnerId(id: string | undefined, tenantId: string): string {
     if (!id) {
       throw new Error(`tenant '${tenantId}': partnerId is not set`);
     }
-    // `..` отдельно — иначе path-traversal в пути MC (.../partners/../crossborder).
-    if (UNSAFE_PARTNER_ID.test(id) || id.includes('..')) {
+    // Аллоулист уже исключает `/` → `..`-сегмент невозможен; проверяем явно лишь
+    // на случай, если charset когда-то расширят.
+    if (!SAFE_PARTNER_ID.test(id) || id.includes('..')) {
       throw new Error(`tenant '${tenantId}': invalid partnerId`);
     }
     return id;
+  }
+
+  /** Проверяет, что secretRef безопасен как ключ-путь секрет-стора (анти-traversal). */
+  private safeSecretRef(ref: string, tenantId: string): string {
+    if (!SAFE_SECRET_REF.test(ref) || ref.includes('..')) {
+      throw new Error(`tenant '${tenantId}': invalid secretRef`);
+    }
+    return ref;
   }
 
   /** Нормализует материал ключа (path | base64) в PEM. */

@@ -21,18 +21,24 @@ export class McWebhookEventDto {
   @MaxLength(200)
   notificationId?: string;
 
-  @ApiPropertyOptional({ example: 'STATUS_CHG' })
+  // Длины ограничены и у НЕ-ключевых полей: тело вебхука пока не подписано (C1),
+  // т.е. атакующий с токеном контролирует значения, а они попадают в логи —
+  // без лимита это лог-инъекция/раздувание логов на ≤256kb. Бьём по длине.
+  @ApiPropertyOptional({ example: 'STATUS_CHG', maxLength: 64 })
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   eventType?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ maxLength: 100 })
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   transactionReference?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ maxLength: 64 })
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   partnerId?: string;
 }

@@ -25,6 +25,7 @@ import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
+import { StringQueryPipe } from '../common/string-query.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
@@ -157,7 +158,7 @@ export class CrossBorderController {
   @ApiOperation({ summary: 'Cash Pickup: страны (фильтр cash_pickup_type).' })
   cashPickupCountries(
     @CurrentTenant() ctx: TenantContext,
-    @Query('cash_pickup_type') cashPickupType?: string,
+    @Query('cash_pickup_type', StringQueryPipe) cashPickupType?: string,
   ) {
     return this.svc.cashPickupCountries(ctx.tenantId, cashPickupType);
   }
@@ -166,10 +167,10 @@ export class CrossBorderController {
   @ApiOperation({ summary: 'Cash Pickup: города (Directed).' })
   cashPickupCities(
     @CurrentTenant() ctx: TenantContext,
-    @Query('country') country?: string,
-    @Query('currency') currency?: string,
-    @Query('offset') offset?: string,
-    @Query('limit') limit?: string,
+    @Query('country', StringQueryPipe) country?: string,
+    @Query('currency', StringQueryPipe) currency?: string,
+    @Query('offset', StringQueryPipe) offset?: string,
+    @Query('limit', StringQueryPipe) limit?: string,
   ) {
     return this.svc.cashPickupCities(ctx.tenantId, {
       country,
@@ -183,11 +184,11 @@ export class CrossBorderController {
   @ApiOperation({ summary: 'Cash Pickup: Receiving Service Providers.' })
   cashPickupProviders(
     @CurrentTenant() ctx: TenantContext,
-    @Query('country') country?: string,
-    @Query('currency') currency?: string,
-    @Query('cash_pickup_type') cashPickupType?: string,
-    @Query('offset') offset?: string,
-    @Query('limit') limit?: string,
+    @Query('country', StringQueryPipe) country?: string,
+    @Query('currency', StringQueryPipe) currency?: string,
+    @Query('cash_pickup_type', StringQueryPipe) cashPickupType?: string,
+    @Query('offset', StringQueryPipe) offset?: string,
+    @Query('limit', StringQueryPipe) limit?: string,
   ) {
     return this.svc.cashPickupProviders(ctx.tenantId, {
       country,
@@ -202,11 +203,11 @@ export class CrossBorderController {
   @ApiOperation({ summary: 'Cash Pickup: точки выдачи провайдера.' })
   cashPickupBranches(
     @CurrentTenant() ctx: TenantContext,
-    @Query('provider_id') providerId?: string,
-    @Query('state') state?: string,
-    @Query('city') city?: string,
-    @Query('offset') offset?: string,
-    @Query('limit') limit?: string,
+    @Query('provider_id', StringQueryPipe) providerId?: string,
+    @Query('state', StringQueryPipe) state?: string,
+    @Query('city', StringQueryPipe) city?: string,
+    @Query('offset', StringQueryPipe) offset?: string,
+    @Query('limit', StringQueryPipe) limit?: string,
   ) {
     return this.svc.cashPickupBranches(ctx.tenantId, {
       provider_id: providerId,
@@ -224,10 +225,11 @@ export class CrossBorderController {
   })
   endpointGuide(
     @CurrentTenant() ctx: TenantContext,
-    @Query('payment_type') paymentType?: string,
-    @Query('destination_country') destinationCountry?: string,
-    @Query('destination_currency') destinationCurrency?: string,
-    @Query('destination_payment_instrument')
+    @Query('payment_type', StringQueryPipe) paymentType?: string,
+    @Query('destination_country', StringQueryPipe) destinationCountry?: string,
+    @Query('destination_currency', StringQueryPipe)
+    destinationCurrency?: string,
+    @Query('destination_payment_instrument', StringQueryPipe)
     destinationPaymentInstrument?: string,
   ) {
     return this.svc.endpointGuide(ctx.tenantId, {

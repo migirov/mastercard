@@ -25,11 +25,24 @@ import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
           throw new Error('MastercardModule option "jwtSecret" is not set');
         }
         // Алгоритм пинуется явно (HS256) и на подписи, и на проверке — защита
-        // от algorithm-confusion / 'none'. issuer тоже проверяется.
+        // от algorithm-confusion / 'none'. issuer + audience проверяются: aud
+        // привязывает merchant-токен к нашему API (нельзя переиграть в другой
+        // JWT-потребитель). maxAge — независимый от подписи потолок TTL: даже
+        // если signer когда-то поднимет expiresIn, verify не примет токен старше
+        // 15м (дублирует exp по claim iat).
         return {
           secret,
-          signOptions: { algorithm: 'HS256', issuer: 'mc-gateway' },
-          verifyOptions: { algorithms: ['HS256'], issuer: 'mc-gateway' },
+          signOptions: {
+            algorithm: 'HS256',
+            issuer: 'mc-gateway',
+            audience: 'mc-gateway-merchant',
+          },
+          verifyOptions: {
+            algorithms: ['HS256'],
+            issuer: 'mc-gateway',
+            audience: 'mc-gateway-merchant',
+            maxAge: '15m',
+          },
         };
       },
     }),

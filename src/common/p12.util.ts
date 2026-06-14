@@ -6,8 +6,33 @@ import * as forge from 'node-forge';
 // Кэш распарсенного PEM по контенту (хэш материала+пароля). forge PKCS#12-декод
 // CPU-тяжёлый (~десятки мс); без кэша он повторялся бы на КАЖДОЕ истечение TTL
 // кредов на живом запросе. Ключ по содержимому → ротация ключа (новый материал)
-// = новый ключ кэша = честный ре-парс. Размер ограничен числом ключей (≈ партнёров).
+// = новый ключ кэша = честный ре-парс.
+//
+// Ёмкость ОГРАНИЧЕНА (LRU): без неё кэш рос бы монотонно — каждая ротация ключа
+// добавляет запись навсегда, и старые (отозванные) приватные PEM-ключи висели бы
+// в памяти процесса до рестарта (и память, и срок жизни секрета). При переполнении
+// выселяем least-recently-used (Map хранит порядок вставки; на hit двигаем в конец).
+const PEM_CACHE_MAX = 256;
 const pemCache = new Map<string, string>();
+
+function pemCacheGet(key: string): string | undefined {
+  const pem = pemCache.get(key);
+  if (pem !== undefined) {
+    // recency: переставляем в конец (most-recently-used).
+    pemCache.delete(key);
+    pemCache.set(key, pem);
+  }
+  return pem;
+}
+
+function pemCacheSet(key: string, pem: string): void {
+  pemCache.set(key, pem);
+  while (pemCache.size > PEM_CACHE_MAX) {
+    const oldest = pemCache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    pemCache.delete(oldest);
+  }
+}
 
 /** Извлекает приватный ключ (PEM) из DER-строки PKCS#12. */
 function privateKeyPemFromDer(
@@ -20,7 +45,7 @@ function privateKeyPemFromDer(
     .update('\0')
     .update(password)
     .digest('hex');
-  const cached = pemCache.get(cacheKey);
+  const cached = pemCacheGet(cacheKey);
   if (cached) return cached;
 
   const asn1 = forge.asn1.fromDer(der);
@@ -46,7 +71,7 @@ function privateKeyPemFromDer(
     throw new Error(`No private key found in ${label}`);
   }
   const pem = forge.pki.privateKeyToPem(keyBag.key);
-  pemCache.set(cacheKey, pem);
+  pemCacheSet(cacheKey, pem);
   return pem;
 }
 
