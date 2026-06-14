@@ -24,6 +24,8 @@ import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
+import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
+import { RfiUpdateRequestDto } from './dto/rfi-update-request.dto';
 
 /** Бизнес/клиентские статусы Mastercard, которые осмысленно пробрасывать мерчанту. */
 const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
@@ -301,6 +303,82 @@ export class CrossBorderService {
       creds,
       `/crossborder/endpoint-guide/specifications${this.qs(q)}`,
       'endpointGuide',
+    );
+  }
+
+  // --- RFI (Request for Information) APIs ---
+
+  /**
+   * Получить текущее состояние RFI-запроса (GET). Путь — с partner-id; requestId
+   * уже проверен SafeIdPipe в контроллере. Тела/шифрования нет → на sandbox
+   * проверяемо (стаб: request-id с префиксом `33…` → статус OPEN).
+   */
+  async retrieveRfi(tenantId: string, requestId: string) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'GET',
+        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/requests/${encodeURIComponent(requestId)}`,
+      },
+      'retrieveRfi',
+    );
+  }
+
+  /**
+   * Отправить ответ Customer'а на RFI-запрос (POST, обязательный шаг ответа).
+   * Тело (обёртка updateRequest) шифруется в MTF/Prod интерцептором. requestId
+   * проверен SafeIdPipe.
+   */
+  async updateRfi(
+    tenantId: string,
+    requestId: string,
+    body: RfiUpdateRequestDto,
+  ) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'POST',
+        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/requests/${encodeURIComponent(requestId)}`,
+        body,
+      },
+      'updateRfi',
+    );
+  }
+
+  /**
+   * Загрузить документ (<1 MB) в RFI-систему (POST). MC возвращает documentId,
+   * который затем линкуется к запросу через updateRfi. Тело (base64 в обёртке
+   * uploadDocumentRequest) шифруется в MTF/Prod интерцептором.
+   */
+  async uploadRfiDocument(tenantId: string, body: RfiDocumentUploadRequestDto) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'POST',
+        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/documents`,
+        body,
+      },
+      'uploadRfiDocument',
+    );
+  }
+
+  /**
+   * Скачать документ, приложенный к RFI-запросу (GET). documentId проверен
+   * SafeIdPipe. Ответ (base64 в обёртке downloadDocumentResponse) расшифровывается
+   * интерцептором в MTF/Prod.
+   */
+  async downloadRfiDocument(tenantId: string, documentId: string) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'GET',
+        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/documents/${encodeURIComponent(documentId)}`,
+      },
+      'downloadRfiDocument',
     );
   }
 
