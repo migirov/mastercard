@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JweEncryption } from 'mastercard-client-encryption';
 import { GatewayConfig } from '../config/gateway-config';
+import { McCredentials } from '../credentials/credentials.types';
 import * as path from 'path';
 
 /** Постоянный ключ конфигурации путей (шифруем тело целиком одинаково для всех). */
@@ -18,6 +19,15 @@ interface EncryptedEnvelope {
  *
  * Шифрование запроса использует Mastercard Encryption Key (публичный cert),
  * расшифровка ответа — наш Client Encryption private key.
+ *
+ * ⚠️ ПЕРЕХОД НА PER-TENANT (открытый блокер): сейчас сервис строит ОДИН
+ * `JweEncryption` из ПЛАТФОРМЕННЫХ путей в конструкторе. У OWN-партнёров —
+ * собственные MC encryption-ключи (`creds.encryptionCertPem`/`encryptionFingerprint`/
+ * `decryptionKeyPem` уже резолвятся в `McCredentials`, но пока НЕ используются).
+ * Методы намеренно принимают `creds` в сигнатуре — контракт уже per-tenant, так
+ * что когда будет доступ к MTF + реальные ключи, меняется ТОЛЬКО нутро здесь
+ * (кэш per-tenant `JweEncryption` по fingerprint), а интерцептор `MastercardClient`
+ * трогать не придётся. До тех пор `creds` игнорируется (одноключевой режим).
  */
 @Injectable()
 export class EncryptionService {
@@ -35,15 +45,24 @@ export class EncryptionService {
     }
   }
 
-  /** Шифрует тело запроса. Возвращает тело и флаг, было ли шифрование. */
-  encryptRequest(body: unknown): { body: unknown; encrypted: boolean } {
+  /**
+   * Шифрует тело запроса креды-зависимо. `creds` — для будущего per-tenant ключа
+   * (см. заметку на классе); сейчас игнорируется (платформенный ключ).
+   */
+  encryptRequest(
+    _creds: McCredentials,
+    body: unknown,
+  ): { body: unknown; encrypted: boolean } {
     if (!this.enabled || !this.jwe) return { body, encrypted: false };
     const out = this.jwe.encrypt(ENDPOINT, {}, body);
     return { body: out.body, encrypted: true };
   }
 
-  /** Расшифровывает тело ответа, если оно зашифровано; иначе passthrough. */
-  decryptResponse<T = unknown>(body: T): T {
+  /**
+   * Расшифровывает тело ответа, если зашифровано; иначе passthrough. `creds` —
+   * для будущего per-tenant ключа расшифровки; сейчас игнорируется.
+   */
+  decryptResponse<T = unknown>(_creds: McCredentials, body: T): T {
     if (!this.enabled || !this.jwe) return body;
     const env = body as unknown as EncryptedEnvelope;
     if (!env?.encrypted_payload?.data) return body; // уже plain

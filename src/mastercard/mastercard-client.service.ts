@@ -136,10 +136,14 @@ export class MastercardClient {
         throw new Error('MastercardClient: missing creds in request config');
       }
 
-      // 1) шифрование (passthrough, если выключено)
+      // 1) шифрование (passthrough, если выключено). creds — для per-tenant ключа
+      // (EncryptionService пока одноключевой; контракт уже креды-зависимый).
       let body = config.data;
       if (body != null) {
-        const { body: out, encrypted } = this.encryption.encryptRequest(body);
+        const { body: out, encrypted } = this.encryption.encryptRequest(
+          creds,
+          body,
+        );
         body = out;
         if (encrypted) config.headers.set('x-encrypted', 'true');
       }
@@ -174,10 +178,15 @@ export class MastercardClient {
       return config;
     });
 
-    // RESPONSE: расшифровываем тело (passthrough, если plain/выключено)
+    // RESPONSE: расшифровываем тело (passthrough, если plain/выключено). creds
+    // достаём из config ответа (для будущего per-tenant ключа расшифровки).
     this.http.interceptors.response.use((response) => {
+      const creds = (response.config as McAxiosConfig).mcCreds;
       try {
-        response.data = this.encryption.decryptResponse(response.data);
+        response.data = this.encryption.decryptResponse(
+          creds as McCredentials,
+          response.data,
+        );
       } catch (e) {
         this.logger.error(
           `Расшифровка ответа MC не удалась: ${(e as Error).message}`,

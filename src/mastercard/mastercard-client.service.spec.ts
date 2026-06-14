@@ -30,8 +30,13 @@ function setup(decrypt?: (d: unknown) => unknown) {
   (axios.create as jest.Mock).mockReturnValue(fakeHttp);
 
   const encryption = {
-    encryptRequest: (body: unknown) => ({ body, encrypted: false }),
-    decryptResponse: jest.fn(decrypt ?? ((d: unknown) => d)),
+    encryptRequest: (_creds: unknown, body: unknown) => ({
+      body,
+      encrypted: false,
+    }),
+    decryptResponse: jest.fn((_creds: unknown, d: unknown) =>
+      decrypt ? decrypt(d) : d,
+    ),
   } as unknown as EncryptionService;
   const config = { baseUrl: 'https://mc.test' } as GatewayConfig;
 
