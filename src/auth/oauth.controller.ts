@@ -69,7 +69,9 @@ function extractCreds(
   if (authHeader?.startsWith('Basic ')) {
     const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
     const i = decoded.indexOf(':');
-    if (i >= 0) {
+    // i > 0 (а не >= 0): пустой client_id (":secret") — невалиден. Согласовано с
+    // OAuthThrottlerGuard.clientIdFrom, чтобы оба парсера трактовали вход одинаково.
+    if (i > 0) {
       return {
         clientId: decoded.slice(0, i),
         clientSecret: decoded.slice(i + 1),
