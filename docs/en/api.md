@@ -23,7 +23,7 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = customer-hosted webhook | — | ❌ | ❌ (opt-in) |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (needs payload encryption) | ✅ |
-| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | — | ⚠️ (fixed cases; ASV not in sandbox) | ❌ (opt-in) |
+| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations` (Bank Lookup + IBAN Gen pending) | ⚠️ (needs encryption; ASV not in sandbox) | ⚠️ (1/3) |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ✅ | ❌ (opt-in) |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
 | 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` | ✅ | ✅ (receiver) |
@@ -34,13 +34,14 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; signature pending C1) |
 
-**Implemented (9 + 1 partial):** 1, 2, 4, **5**, 9, 10, 12, 13, 14 (+15 partial).
-**Not yet (5 groups):** Carded Rate (3), Account Validation suite (6), Cash Pickup (7),
-Endpoint Guide (8), RFI (11) — all auxiliary/opt-in MC services.
+**Implemented (9 + 2 partial):** 1, 2, 4, **5**, 9, 10, 12, 13, 14 (+ **6** Account Validation 1/3, +15).
+**Not yet:** Carded Rate (3), Account Validation remainder (6: Bank Lookup + IBAN Gen),
+Cash Pickup (7), Endpoint Guide (8), RFI (11) — all auxiliary/opt-in MC services.
 
-> **Address Validation (5)** is implemented as a passthrough, but **cannot be verified live on
-> our sandbox**: MC requires the payload to be JWE-encrypted, and field-level encryption is
-> disabled in sandbox (plain → MC `062000 INVALID_INPUT_FORMAT`). The gateway wiring is e2e-
+> **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
+> **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
+> field-level encryption is disabled in sandbox (plain → MC `062000 INVALID_INPUT_FORMAT` for
+> address, `150001` "Encrypted Payload" SYSTEM_ERROR for account). The gateway wiring is e2e-
 > verified (route, OAuth1 signature, required `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers,
 > error forwarding); the body is auto-encrypted by the request interceptor in MTF/Prod.
 > Several other groups likewise have **no sandbox** (Carded Rate) or fixed test cases only.
