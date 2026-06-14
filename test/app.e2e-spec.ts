@@ -317,4 +317,19 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(413);
     expect(r.status).not.toBe(500);
   });
+
+  it('POST /crossborder/carded-rates (Carded Rate Pull — sandbox недоступен) → проводка шлюза (не 500)', async () => {
+    // Carded Rate не поддерживается sandbox'ом (по доке MC) — успех недостижим;
+    // проверяем лишь, что шлюз не падает внутренне, а доходит до MC и форвардит.
+    const r = await http.post('/crossborder/carded-rates', undefined, {
+      headers: internal,
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      '   carded-rate MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(500);
+  });
 });

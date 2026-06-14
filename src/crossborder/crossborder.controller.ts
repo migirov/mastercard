@@ -75,6 +75,16 @@ export class CrossBorderController {
     return this.svc.getRates(ctx.tenantId);
   }
 
+  @Post('carded-rates')
+  @HttpCode(200) // получение курсов, не создание ресурса
+  @ApiOperation({
+    summary:
+      'Carded Rate Pull: FX-курсы коридоров (MC Carded Rate, POST без тела).',
+  })
+  cardedRatePull(@CurrentTenant() ctx: TenantContext) {
+    return this.svc.cardedRatePull(ctx.tenantId);
+  }
+
   @Post('quotes')
   @HttpCode(200) // котировка — вычисление, не создание ресурса
   @ApiOperation({
