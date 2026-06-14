@@ -20,7 +20,7 @@
 |---|---|---|---|---|---|
 | 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
 | 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = вебхук на стороне клиента | — | ❌ | ❌ (opt-in) |
+| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates` (без тела); Push = вебхук на стороне клиента | `POST /crossborder/carded-rates` | ❌ (нет sandbox у MC) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
 | 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (нужно шифрование; ASV нет в sandbox) | ✅ |
@@ -34,8 +34,7 @@
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
 
-**Реализовано (13 + 1 частично):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 частично).
-**Ещё нет (1 группа):** Carded Rate (3) — opt-in, нет sandbox.
+**Реализовано — все 15 (14 + 1 частично):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 частично, ждёт спеку подписи C1).
 
 > **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
 > нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
@@ -60,6 +59,12 @@
 > /crossborder/rfi/documents` задан **route-scoped лимит тела 2MB** (глобальный 256kb для всех
 > прочих маршрутов сохранён); e2e: ~500KB-файл проходит парсер (НЕ 413). Push-вебхук RFI
 > приходит на общий `/webhooks/mastercard`.
+>
+> **Carded Rate (3)** — Pull реализован как `POST /crossborder/carded-rates` (БЕЗ тела) к MC
+> `POST …/v1/partners/{pid}/crossborder/rates`. **MC не предоставляет sandbox для Carded Rate**
+> (явно в доке) → успех недостижим; e2e проверяет лишь, что шлюз не падает внутренне и
+> форвардит ответ MC (получили проброшенный 400). Push-вариант — вебхук на стороне клиента
+> (общий `/webhooks/mastercard`). Проверится вживую в MTF/Prod на сконфигурированном коридоре.
 
 > Сверх списка со скрина у нас уже есть: `GET /crossborder/rates` (generic FX-курсы).
 > Префиксы путей MC неоднородны (по офиц. доке): `/send/v1/…` — quotes/payment/carded-rate/

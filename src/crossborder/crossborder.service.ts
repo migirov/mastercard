@@ -73,6 +73,25 @@ export class CrossBorderService {
   }
 
   /**
+   * Carded Rate Pull (POST, БЕЗ тела): FX-курсы для сконфигурированных коридоров
+   * до инициации платежа (opt-in). Тот же MC-путь, что generic getRates, но
+   * метод POST (carded-вариант). Sandbox для Carded Rate НЕДОСТУПЕН (по доке MC)
+   * → проверяется только проводка шлюза. Push-вариант — вебхук на стороне
+   * клиента (приходит на общий /webhooks/mastercard).
+   */
+  async cardedRatePull(tenantId: string) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'POST',
+        path: `/send/v1/partners/${this.partner(creds)}/crossborder/rates`,
+      },
+      'cardedRatePull',
+    );
+  }
+
+  /**
    * Запрос котировки (POST). Шифрование тела (MTF/Prod) и подпись — прозрачно
    * в axios-интерцепторе `MastercardClient`; здесь отдаём чистый объект.
    */

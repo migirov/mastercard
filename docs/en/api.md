@@ -20,7 +20,7 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 |---|---|---|---|---|---|
 | 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
 | 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = customer-hosted webhook | — | ❌ | ❌ (opt-in) |
+| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates` (no body); Push = customer-hosted webhook | `POST /crossborder/carded-rates` | ❌ (no MC sandbox) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (needs payload encryption) | ✅ |
 | 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (needs encryption; ASV not in sandbox) | ✅ |
@@ -34,8 +34,7 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; signature pending C1) |
 
-**Implemented (13 + 1 partial):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial).
-**Not yet (1 group):** Carded Rate (3) — opt-in, no sandbox.
+**Implemented — all 15 (14 + 1 partial):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial, awaiting signature spec C1).
 
 > **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
 > **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
@@ -60,6 +59,12 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 > `POST /crossborder/rfi/documents` gets a **route-scoped 2MB body limit** (the global 256kb is
 > kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
 > webhook arrives on the shared `/webhooks/mastercard`.
+>
+> **Carded Rate (3)** — Pull implemented as `POST /crossborder/carded-rates` (no body) → MC
+> `POST …/v1/partners/{pid}/crossborder/rates`. **MC provides no sandbox for Carded Rate**
+> (stated in the docs) → success is unreachable; e2e only asserts the gateway doesn't 500 and
+> forwards MC's response (a forwarded 400 was observed). The Push variant is a customer-hosted
+> webhook (shared `/webhooks/mastercard`). Verifiable live in MTF/Prod on a configured corridor.
 
 > Extra we already expose beyond the screenshot list: `GET /crossborder/rates` (generic FX rates).
 > MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/
