@@ -49,28 +49,18 @@ export class CrossBorderService {
 
   /** Список счетов и балансов (GET, без шифрования). */
   async getBalances(tenantId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.balances(this.partner(creds)),
-      },
-      'getBalances',
-    );
+    return this.run(tenantId, 'getBalances', (c) => ({
+      method: 'GET',
+      path: mcPath.balances(this.partner(c)),
+    }));
   }
 
   /** Доступные FX-курсы (GET). */
   async getRates(tenantId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.rates(this.partner(creds)),
-      },
-      'getRates',
-    );
+    return this.run(tenantId, 'getRates', (c) => ({
+      method: 'GET',
+      path: mcPath.rates(this.partner(c)),
+    }));
   }
 
   /**
@@ -81,15 +71,10 @@ export class CrossBorderService {
    * клиента (приходит на общий /webhooks/mastercard).
    */
   async cardedRatePull(tenantId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.rates(this.partner(creds)),
-      },
-      'cardedRatePull',
-    );
+    return this.run(tenantId, 'cardedRatePull', (c) => ({
+      method: 'POST',
+      path: mcPath.rates(this.partner(c)),
+    }));
   }
 
   /**
@@ -97,16 +82,11 @@ export class CrossBorderService {
    * в axios-интерцепторе `MastercardClient`; здесь отдаём чистый объект.
    */
   async createQuote(tenantId: string, body: QuoteRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.quotes(this.partner(creds)),
-        body,
-      },
-      'createQuote',
-    );
+    return this.run(tenantId, 'createQuote', (c) => ({
+      method: 'POST',
+      path: mcPath.quotes(this.partner(c)),
+      body,
+    }));
   }
 
   /**
@@ -149,41 +129,26 @@ export class CrossBorderService {
 
   /** Статус платежа по transaction id (GET). id уже проверен SafeIdPipe в контроллере. */
   async getPayment(tenantId: string, paymentId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.paymentById(this.partner(creds), paymentId),
-      },
-      'getPayment',
-    );
+    return this.run(tenantId, 'getPayment', (c) => ({
+      method: 'GET',
+      path: mcPath.paymentById(this.partner(c), paymentId),
+    }));
   }
 
   /** Статус платежа по transaction reference (GET ?ref=). ref проверен SafeIdPipe. */
   async getPaymentByRef(tenantId: string, ref: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.paymentByRef(this.partner(creds), ref),
-      },
-      'getPaymentByRef',
-    );
+    return this.run(tenantId, 'getPaymentByRef', (c) => ({
+      method: 'GET',
+      path: mcPath.paymentByRef(this.partner(c), ref),
+    }));
   }
 
   /** Отмена платежа (POST). id уже проверен SafeIdPipe в контроллере. */
   async cancelPayment(tenantId: string, paymentId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.cancelPayment(this.partner(creds), paymentId),
-      },
-      'cancelPayment',
-    );
+    return this.run(tenantId, 'cancelPayment', (c) => ({
+      method: 'POST',
+      path: mcPath.cancelPayment(this.partner(c), paymentId),
+    }));
   }
 
   /**
@@ -192,14 +157,13 @@ export class CrossBorderService {
    * в пути; OAuth1-подпись всё равно ставится по creds тенанта в интерцепторе.
    */
   async validateAddress(tenantId: string, body: AddressValidationRequestDto) {
-    const creds = await this.resolveActive(tenantId);
     // У Address Validation СВОЯ база (без /crossborder и без partner-id в пути).
-    return this.callRef(
-      creds,
-      mcPath.addressValidations(),
+    return this.run(tenantId, 'validateAddress', (c) => ({
+      method: 'POST',
+      path: mcPath.addressValidations(),
       body,
-      'validateAddress',
-    );
+      headers: this.mcRefHeaders(c),
+    }));
   }
 
   /**
@@ -208,50 +172,46 @@ export class CrossBorderService {
    * На sandbox проверяемо для IBAN/CES-кейсов; ASV (requestType=ASV) в sandbox нет.
    */
   async validateAccount(tenantId: string, body: AccountValidationRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callRef(
-      creds,
-      mcPath.accountValidations(this.partner(creds)),
+    return this.run(tenantId, 'validateAccount', (c) => ({
+      method: 'POST',
+      path: mcPath.accountValidations(this.partner(c)),
       body,
-      'validateAccount',
-    );
+      headers: this.mcRefHeaders(c),
+    }));
   }
 
   /** Поиск реквизитов банка получателя (POST, MC Bank Information Lookup API). */
   async lookupBank(tenantId: string, body: BankLookupRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callRef(
-      creds,
-      mcPath.bankDetails(this.partner(creds)),
+    return this.run(tenantId, 'lookupBank', (c) => ({
+      method: 'POST',
+      path: mcPath.bankDetails(this.partner(c)),
       body,
-      'lookupBank',
-    );
+      headers: this.mcRefHeaders(c),
+    }));
   }
 
   /** Генерация IBAN из реквизитов счёта (POST, MC IBAN Generation API). */
   async generateIban(tenantId: string, body: IbanGenerationRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callRef(
-      creds,
-      mcPath.generateIbans(this.partner(creds)),
+    return this.run(tenantId, 'generateIban', (c) => ({
+      method: 'POST',
+      path: mcPath.generateIbans(this.partner(c)),
       body,
-      'generateIban',
-    );
+      headers: this.mcRefHeaders(c),
+    }));
   }
 
   // --- Cash Pickup Locations (GET-каталоги; partner-id в ЗАГОЛОВКЕ, не в пути) ---
 
   /** Список стран с выдачей наличных (GET, фильтр по cash_pickup_type). */
   async cashPickupCountries(tenantId: string, cashPickupType?: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callCatalog(
-      creds,
-      mcPath.cashPickup(
+    return this.run(tenantId, 'cashPickupCountries', (c) => ({
+      method: 'GET',
+      path: mcPath.cashPickup(
         'countries',
         this.qs({ cash_pickup_type: cashPickupType }),
       ),
-      'cashPickupCountries',
-    );
+      headers: this.catalogHeaders(c),
+    }));
   }
 
   /** Города с выдачей наличных (GET, Directed). */
@@ -259,12 +219,11 @@ export class CrossBorderService {
     tenantId: string,
     q: { country?: string; currency?: string; offset?: string; limit?: string },
   ) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callCatalog(
-      creds,
-      mcPath.cashPickup('cities', this.qs(q)),
-      'cashPickupCities',
-    );
+    return this.run(tenantId, 'cashPickupCities', (c) => ({
+      method: 'GET',
+      path: mcPath.cashPickup('cities', this.qs(q)),
+      headers: this.catalogHeaders(c),
+    }));
   }
 
   /** Receiving Service Providers (GET). */
@@ -278,12 +237,11 @@ export class CrossBorderService {
       limit?: string;
     },
   ) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callCatalog(
-      creds,
-      mcPath.cashPickup('providers', this.qs(q)),
-      'cashPickupProviders',
-    );
+    return this.run(tenantId, 'cashPickupProviders', (c) => ({
+      method: 'GET',
+      path: mcPath.cashPickup('providers', this.qs(q)),
+      headers: this.catalogHeaders(c),
+    }));
   }
 
   /** Точки выдачи конкретного провайдера (GET). */
@@ -297,12 +255,11 @@ export class CrossBorderService {
       limit?: string;
     },
   ) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callCatalog(
-      creds,
-      mcPath.cashPickup('branches', this.qs(q)),
-      'cashPickupBranches',
-    );
+    return this.run(tenantId, 'cashPickupBranches', (c) => ({
+      method: 'GET',
+      path: mcPath.cashPickup('branches', this.qs(q)),
+      headers: this.catalogHeaders(c),
+    }));
   }
 
   /**
@@ -321,12 +278,11 @@ export class CrossBorderService {
       destination_payment_instrument?: string;
     },
   ) {
-    const creds = await this.resolveActive(tenantId);
-    return this.callGuide(
-      creds,
-      mcPath.endpointGuide(this.qs(q)),
-      'endpointGuide',
-    );
+    return this.run(tenantId, 'endpointGuide', (c) => ({
+      method: 'GET',
+      path: mcPath.endpointGuide(this.qs(q)),
+      headers: this.mcRefHeaders(c),
+    }));
   }
 
   // --- RFI (Request for Information) APIs ---
@@ -337,15 +293,10 @@ export class CrossBorderService {
    * проверяемо (стаб: request-id с префиксом `33…` → статус OPEN).
    */
   async retrieveRfi(tenantId: string, requestId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.rfiRequest(this.partner(creds), requestId),
-      },
-      'retrieveRfi',
-    );
+    return this.run(tenantId, 'retrieveRfi', (c) => ({
+      method: 'GET',
+      path: mcPath.rfiRequest(this.partner(c), requestId),
+    }));
   }
 
   /**
@@ -358,16 +309,11 @@ export class CrossBorderService {
     requestId: string,
     body: RfiUpdateRequestDto,
   ) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.rfiRequest(this.partner(creds), requestId),
-        body,
-      },
-      'updateRfi',
-    );
+    return this.run(tenantId, 'updateRfi', (c) => ({
+      method: 'POST',
+      path: mcPath.rfiRequest(this.partner(c), requestId),
+      body,
+    }));
   }
 
   /**
@@ -376,16 +322,11 @@ export class CrossBorderService {
    * uploadDocumentRequest) шифруется в MTF/Prod интерцептором.
    */
   async uploadRfiDocument(tenantId: string, body: RfiDocumentUploadRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.rfiDocuments(this.partner(creds)),
-        body,
-      },
-      'uploadRfiDocument',
-    );
+    return this.run(tenantId, 'uploadRfiDocument', (c) => ({
+      method: 'POST',
+      path: mcPath.rfiDocuments(this.partner(c)),
+      body,
+    }));
   }
 
   /**
@@ -394,29 +335,19 @@ export class CrossBorderService {
    * интерцептором в MTF/Prod.
    */
   async downloadRfiDocument(tenantId: string, documentId: string) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path: mcPath.rfiDocument(this.partner(creds), documentId),
-      },
-      'downloadRfiDocument',
-    );
+    return this.run(tenantId, 'downloadRfiDocument', (c) => ({
+      method: 'GET',
+      path: mcPath.rfiDocument(this.partner(c), documentId),
+    }));
   }
 
   /** Подтверждение котировки (POST). Шифрование — в интерцепторе. */
   async confirmQuote(tenantId: string, body: ConfirmationRequestDto) {
-    const creds = await this.resolveActive(tenantId);
-    return this.call(
-      creds,
-      {
-        method: 'POST',
-        path: mcPath.quoteConfirmations(this.partner(creds)),
-        body,
-      },
-      'confirmQuote',
-    );
+    return this.run(tenantId, 'confirmQuote', (c) => ({
+      method: 'POST',
+      path: mcPath.quoteConfirmations(this.partner(c)),
+      body,
+    }));
   }
 
   // --- инфраструктура ---
@@ -453,22 +384,25 @@ export class CrossBorderService {
   }
 
   /**
-   * POST в MC validation/lookup-сервис (Address/Account/Bank/IBAN): единое
-   * построение запроса с ref-заголовками (mcRefHeaders) + разворачивание ответа
-   * через call(). path передаётся готовым — у сервисов разные базы (Address —
-   * своя, прочие — /send/partners/.../crossborder).
+   * Единый раннер операции: gating (resolveActive) → строим McRequest по
+   * резолвленным creds → вызываем MC и разворачиваем ответ (call). Публичные
+   * методы становятся одной строкой; вся повторяющаяся обвязка (резолв + диспатч)
+   * здесь. `build` получает creds, потому что путь часто зависит от partner(creds).
+   * Заголовочную стратегию метод выбирает явно на месте: `mcRefHeaders(c)` для
+   * validation/guide, `catalogHeaders(c)` для cash-pickup, либо без заголовков.
    */
-  private callRef(
-    creds: McCredentials,
-    path: string,
-    body: unknown,
+  private async run<T>(
+    tenantId: string,
     ctx: string,
-  ): Promise<unknown> {
-    return this.call(
-      creds,
-      { method: 'POST', path, body, headers: this.mcRefHeaders(creds) },
-      ctx,
-    );
+    build: (creds: McCredentials) => McRequest,
+  ): Promise<T> {
+    const creds = await this.resolveActive(tenantId);
+    return this.call<T>(creds, build(creds), ctx);
+  }
+
+  /** Заголовки Cash Pickup-каталога: partner-id в ЗАГОЛОВКЕ (сырой, анти-CRLF). */
+  private catalogHeaders(creds: McCredentials): Record<string, string> {
+    return { 'partner-id': this.headerSafe(creds.partnerId) };
   }
 
   /**
@@ -481,43 +415,6 @@ export class CrossBorderService {
       .filter(([, v]) => typeof v === 'string' && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);
     return pairs.length ? `?${pairs.join('&')}` : '';
-  }
-
-  /**
-   * GET в MC Cash Pickup-каталог: partner-id передаётся ЗАГОЛОВКОМ (не в пути).
-   * Сырой partnerId (в заголовке не URL-кодируем), но через headerSafe (анти-CRLF).
-   */
-  private callCatalog(
-    creds: McCredentials,
-    path: string,
-    ctx: string,
-  ): Promise<unknown> {
-    return this.call(
-      creds,
-      {
-        method: 'GET',
-        path,
-        headers: { 'partner-id': this.headerSafe(creds.partnerId) },
-      },
-      ctx,
-    );
-  }
-
-  /**
-   * GET в MC-сервис, идентифицируемый ref-заголовками (Endpoint Guide): partner-id
-   * передаётся как Partner-Ref-Id (+ X-Mc-Correlation-Id), не в пути и не как
-   * заголовок `partner-id` (в отличие от Cash Pickup). Тела нет.
-   */
-  private callGuide(
-    creds: McCredentials,
-    path: string,
-    ctx: string,
-  ): Promise<unknown> {
-    return this.call(
-      creds,
-      { method: 'GET', path, headers: this.mcRefHeaders(creds) },
-      ctx,
-    );
   }
 
   /**
