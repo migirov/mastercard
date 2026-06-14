@@ -171,4 +171,39 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(404);
     expect(r.status).not.toBe(500);
   });
+
+  it('POST /crossborder/bank-lookups (sandbox test case) → доходит до MC', async () => {
+    const r = await http.post(
+      '/crossborder/bank-lookups',
+      {
+        bank: {
+          name: '*of Africa United Kingdom*SUC20004',
+          country: 'GBR',
+          bic: { type: null, value: null },
+        },
+      },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   bank-lookup MC resp:', r.status, JSON.stringify(r.data));
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
+
+  it('POST /crossborder/iban-generations (sandbox test case) → доходит до MC', async () => {
+    const r = await http.post(
+      '/crossborder/iban-generations',
+      {
+        accountUri: { type: 'ban', value: '20041010050500013M02606' },
+        country: 'FRA',
+        branchCode: '2004101005',
+        accountNo: '0500013026',
+      },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   iban-gen MC resp:', r.status, JSON.stringify(r.data));
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
 });
