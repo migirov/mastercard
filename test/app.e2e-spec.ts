@@ -159,4 +159,16 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(404);
     expect(r.status).not.toBe(500);
   });
+
+  it('POST /crossborder/account-validations (sandbox IBAN test case) → доходит до MC', async () => {
+    const r = await http.post(
+      '/crossborder/account-validations',
+      { accountUri: { type: 'IBAN', value: 'FR070331234567890123456' } },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   acct-val MC resp:', r.status, JSON.stringify(r.data));
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
 });
