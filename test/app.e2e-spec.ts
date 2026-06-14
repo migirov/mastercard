@@ -14,6 +14,10 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
+import {
+  RFI_UPLOAD_PATH,
+  rfiUploadBodyParser,
+} from '../src/common/rfi-upload.bodyparser';
 
 const PORT = 3999;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -30,6 +34,8 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
       bufferLogs: false,
       rawBody: true,
     });
+    // как в main.ts: увеличенный лимит тела ТОЛЬКО для RFI-загрузки документа
+    app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
     app.useBodyParser('json', { limit: '256kb' });
     app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
     // как в main.ts: глобального pipe НЕТ — каждый контроллер несёт свой.
@@ -234,6 +240,81 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
       JSON.stringify(r.data).slice(0, 200),
     );
     expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
+
+  it('GET /crossborder/rfi/requests/:id (sandbox стаб 33… → OPEN, GET — без шифрования) → доходит до MC', async () => {
+    const r = await http.get(
+      '/crossborder/rfi/requests/33000000-0000-0000-0000-000000000000',
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   rfi retrieve MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(500);
+  });
+
+  it('POST /crossborder/rfi/requests/:id (update — нужно шифрование) → доходит до MC', async () => {
+    const r = await http.post(
+      '/crossborder/rfi/requests/33000000-0000-0000-0000-000000000000',
+      { updateRequest: { sender: { firstName: 'John', lastName: 'Doe' } } },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   rfi update MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
+
+  it('POST /crossborder/rfi/documents (upload — нужно шифрование) → доходит до MC', async () => {
+    const r = await http.post(
+      '/crossborder/rfi/documents',
+      { uploadDocumentRequest: { fileName: 'proof.pdf', file: 'dGVzdA==' } },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   rfi upload MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
+  });
+
+  it('GET /crossborder/rfi/documents/:id (download magic-id с кодом ошибки 082000) → доходит до MC', async () => {
+    const r = await http.get(
+      '/crossborder/rfi/documents/10000000-0000-0000-0000-000000082000',
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log(
+      '   rfi download MC resp:',
+      r.status,
+      JSON.stringify(r.data).slice(0, 200),
+    );
+    expect(r.status).not.toBe(500);
+  });
+
+  it('POST /crossborder/rfi/documents с ~500KB файлом → НЕ 413 (route-scoped лимит тела)', async () => {
+    // ~500KB base64 — выше глобального 256kb, но в пределах route-scoped 2mb.
+    // Доказывает, что крупный документ доходит до MC, а не режется парсером (413).
+    const bigFile = 'A'.repeat(500_000);
+    const r = await http.post(
+      '/crossborder/rfi/documents',
+      { uploadDocumentRequest: { fileName: 'big.pdf', file: bigFile } },
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   rfi upload(~500KB) MC resp:', r.status);
+    expect(r.status).not.toBe(413);
     expect(r.status).not.toBe(500);
   });
 });

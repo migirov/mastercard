@@ -34,6 +34,8 @@ import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
 import { mcPassthroughPipe } from './dto/mc-passthrough.pipe';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
+import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
+import { RfiUpdateRequestDto } from './dto/rfi-update-request.dto';
 import { CrossBorderService } from './crossborder.service';
 
 /**
@@ -224,6 +226,52 @@ export class CrossBorderController {
       destination_currency: destinationCurrency,
       destination_payment_instrument: destinationPaymentInstrument,
     });
+  }
+
+  // --- RFI (Request for Information) ---
+
+  @Get('rfi/requests/:requestId')
+  @ApiOperation({
+    summary: 'RFI: получить состояние запроса (MC Retrieve RFI).',
+  })
+  retrieveRfi(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('requestId', SafeIdPipe) requestId: string,
+  ) {
+    return this.svc.retrieveRfi(ctx.tenantId, requestId);
+  }
+
+  @Post('rfi/requests/:requestId')
+  @HttpCode(200) // ответ на запрос — изменение состояния RFI, не создание
+  @ApiOperation({ summary: 'RFI: отправить ответ Customer (MC Update RFI).' })
+  @UsePipes(mcPassthroughPipe())
+  updateRfi(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('requestId', SafeIdPipe) requestId: string,
+    @Body() body: RfiUpdateRequestDto,
+  ) {
+    return this.svc.updateRfi(ctx.tenantId, requestId, body);
+  }
+
+  @Post('rfi/documents')
+  @ApiOperation({
+    summary: 'RFI: загрузить документ <1MB (MC Upload Document).',
+  })
+  @UsePipes(mcPassthroughPipe())
+  uploadRfiDocument(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: RfiDocumentUploadRequestDto,
+  ) {
+    return this.svc.uploadRfiDocument(ctx.tenantId, body);
+  }
+
+  @Get('rfi/documents/:documentId')
+  @ApiOperation({ summary: 'RFI: скачать документ (MC Download Document).' })
+  downloadRfiDocument(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('documentId', SafeIdPipe) documentId: string,
+  ) {
+    return this.svc.downloadRfiDocument(ctx.tenantId, documentId);
   }
 
   @Post('quotes/confirmations')

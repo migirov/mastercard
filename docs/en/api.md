@@ -28,14 +28,14 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (reaches MC; sandbox → HTML 500 for generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` | ✅ | ✅ (receiver) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
-| 11 | **RFI APIs** (suite) | `GET/POST …/crossborder/rfi/requests/{id}`, `…/rfi/documents[/{id}]`, push webhook | — | ⚠️ (push N/A; rest fixed cases) | ❌ |
+| 11 | **RFI APIs** (suite ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` same; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` same, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox canned-rejects non-onboarded pid; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; signature pending C1) |
 
-**Implemented (12 + 1 partial):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, 12, 13, 14 (+15 partial).
-**Not yet (2 groups):** Carded Rate (3), RFI (11) — auxiliary/opt-in MC services.
+**Implemented (13 + 1 partial):** 1, 2, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial).
+**Not yet (1 group):** Carded Rate (3) — opt-in, no sandbox.
 
 > **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
 > **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
@@ -51,6 +51,15 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 > generic partner-id — per MC docs, corridor specifications are only available after partner
 > onboarding (sandbox = generic endpoint setup). The gateway correctly hides the HTML 5xx and
 > returns 502 (no body leak). Verifiable live in MTF/Prod with an onboarded partner-id.
+>
+> **RFI (11)** — all 4 operations implemented (Retrieve/Update/Upload/Download), partner-id in
+> path, body wrappers `updateRequest`/`uploadDocumentRequest`. e2e confirms all 4 routes reach
+> MC, but the sandbox canned-rejects with `062000` for a non-onboarded partner-id (even a
+> well-formed request-id; RFI is an opt-in suite requiring onboarding). Update/Upload require
+> body encryption (like validation). **Upload Document** carries a base64 file up to ~1MB, so
+> `POST /crossborder/rfi/documents` gets a **route-scoped 2MB body limit** (the global 256kb is
+> kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
+> webhook arrives on the shared `/webhooks/mastercard`.
 
 > Extra we already expose beyond the screenshot list: `GET /crossborder/rates` (generic FX rates).
 > MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/

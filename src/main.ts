@@ -5,6 +5,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import {
+  RFI_UPLOAD_PATH,
+  rfiUploadBodyParser,
+} from './common/rfi-upload.bodyparser';
 
 /** В production не даём стартовать со слабыми/дефолтными секретами. */
 function assertProdSecrets(): void {
@@ -63,6 +67,9 @@ async function bootstrap() {
   // Безопасные HTTP-заголовки + скрытие x-powered-by.
   app.use(helmet());
 
+  // RFI-загрузка документа — увеличенный лимит ТОЛЬКО для своего маршрута
+  // (см. RFI_UPLOAD_PATH выше). Должен идти ДО глобального json-парсера.
+  app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
   // Лимит размера тела — защита от крупных payload-ов (DoS).
   app.useBodyParser('json', { limit: '256kb' });
   // urlencoded — стандарт для OAuth2 token endpoint (RFC 6749): клиенты шлют
