@@ -8,7 +8,6 @@ import {
   NotFoundException,
   Param,
   Post,
-  UseFilters,
   UseGuards,
   UseInterceptors,
   UsePipes,
@@ -22,9 +21,9 @@ import {
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { plainToInstance } from 'class-transformer';
 import { AdminAuthGuard } from '../auth/guards/admin-auth.guard';
-import { AuditInterceptor } from '../audit/audit.interceptor';
 import { AuditService } from '../audit/audit.service';
-import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
+import { ApiErrorResponses } from '../common/api-error-responses.decorator';
+import { UseGatewayContract } from '../common/gateway-contract.decorator';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { strictDtoPipe } from '../common/validation.pipe';
 import { TenantRegistry } from '../tenants/tenant.registry';
@@ -37,15 +36,15 @@ import { TenantViewDto } from './dto/tenant-view.dto';
 /** Admin-API: ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов. */
 @ApiTags('admin')
 @ApiSecurity('admin')
+@ApiErrorResponses()
 @Controller('admin')
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
 @UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
-@UseFilters(GatewayExceptionFilter)
-// Per-controller (не глобально — модуль встраиваемый, не навязывает хосту):
-// ClassSerializerInterceptor чтит class-transformer-декораторы при сериализации
-// (страхует @Exclude на TenantEntity.secretRef); AuditInterceptor пишет audit-лог
-// по нашим admin-роутам.
-@UseInterceptors(ClassSerializerInterceptor, AuditInterceptor)
+@UseGatewayContract() // единый error-фильтр + audit (как у прочих контроллеров)
+// ClassSerializerInterceptor (per-controller, не глобально — модуль встраиваемый):
+// чтит class-transformer-декораторы при сериализации (страхует @Exclude на
+// TenantEntity.secretRef). AuditInterceptor добавляет UseGatewayContract.
+@UseInterceptors(ClassSerializerInterceptor)
 export class AdminController {
   constructor(
     private readonly admin: AdminService,
@@ -140,6 +139,7 @@ export class AdminController {
 
   @Delete('clients/:clientId')
   @ApiOperation({ summary: 'Отозвать OAuth-клиента.' })
+  @ApiResponse({ status: 404, description: 'Клиент не найден / уже отозван.' })
   async revokeClient(@Param('clientId', SafeIdPipe) clientId: string) {
     const res = await this.admin.revokeClient(clientId);
     // 404 на несуществующий/уже отозванный клиент — иначе 200 {revoked:false}

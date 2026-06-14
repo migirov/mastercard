@@ -3,17 +3,21 @@ import {
   Controller,
   HttpCode,
   Post,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { AuditInterceptor } from '../audit/audit.interceptor';
-import { mcPassthroughPipe } from '../crossborder/dto/mc-passthrough.pipe';
-import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
+import {
+  ApiOperation,
+  ApiResponse,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiErrorResponses } from '../common/api-error-responses.decorator';
+import { UseGatewayContract } from '../common/gateway-contract.decorator';
+import { mcPassthroughPipe } from '../common/mc-passthrough.pipe';
 import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
+import { WebhookAckDto } from './dto/webhook-ack.dto';
 import { WebhookAuthGuard } from './webhook-auth.guard';
 import { WebhookHandler } from './webhook.handler';
 
@@ -33,11 +37,11 @@ import { WebhookHandler } from './webhook.handler';
  */
 @ApiTags('webhooks')
 @ApiSecurity('webhook')
+@ApiErrorResponses()
 @Controller('webhooks')
 @UseGuards(WebhookAuthGuard, ThrottlerGuard)
 @Throttle({ default: { limit: 1200, ttl: 60_000 } })
-@UseFilters(GatewayExceptionFilter)
-@UseInterceptors(AuditInterceptor)
+@UseGatewayContract()
 export class MastercardWebhookController {
   constructor(private readonly handler: WebhookHandler) {}
 
@@ -45,9 +49,10 @@ export class MastercardWebhookController {
   @ApiOperation({
     summary: 'Приём push-уведомлений MC (X-Webhook-Token, fail-closed).',
   })
+  @ApiResponse({ status: 200, type: WebhookAckDto })
   @HttpCode(200)
   @UsePipes(mcPassthroughPipe())
-  receive(@Body() event: McWebhookEventDto) {
+  receive(@Body() event: McWebhookEventDto): Promise<WebhookAckDto> {
     return this.handler.handle(event);
   }
 }

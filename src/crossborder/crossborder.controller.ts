@@ -6,22 +6,23 @@ import {
   Param,
   Post,
   Query,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
+  ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { AuditInterceptor } from '../audit/audit.interceptor';
 import { CurrentTenant, TenantContext } from '../auth/current-tenant.decorator';
 import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
+import { ApiErrorResponses } from '../common/api-error-responses.decorator';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
-import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
+import { UseGatewayContract } from '../common/gateway-contract.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
@@ -32,7 +33,7 @@ import { AddressValidationRequestDto } from './dto/address-validation-request.dt
 import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
-import { mcPassthroughPipe } from './dto/mc-passthrough.pipe';
+import { mcPassthroughPipe } from '../common/mc-passthrough.pipe';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
@@ -47,20 +48,23 @@ import { CrossBorderService } from './crossborder.service';
  */
 @ApiTags('cross-border')
 @ApiBearerAuth('merchant')
-@ApiResponse({
-  status: 403,
-  type: ErrorResponseDto,
-  description: 'Тенант не ACTIVE (нет двойного одобрения).',
+@ApiSecurity('internal') // альтернативный путь: X-Internal-Token + X-Tenant-Id
+@ApiHeader({
+  name: 'X-Tenant-Id',
+  required: false,
+  description:
+    'ID тенанта — ОБЯЗАТЕЛЕН при internal-аутентификации (X-Internal-Token).',
 })
+@ApiErrorResponses()
 @ApiResponse({
   status: 502,
   type: ErrorResponseDto,
-  description: 'Ошибка связи с Mastercard / её ответ скрыт.',
+  description:
+    'Ошибка связи с Mastercard / её ответ (или upstream-статус) скрыт.',
 })
 @Controller('crossborder')
 @UseGuards(TenantAuthGuard, TenantThrottlerGuard)
-@UseFilters(GatewayExceptionFilter)
-@UseInterceptors(AuditInterceptor)
+@UseGatewayContract()
 export class CrossBorderController {
   constructor(private readonly svc: CrossBorderService) {}
 
@@ -301,6 +305,12 @@ export class CrossBorderController {
 
   @Post('payments')
   @ApiOperation({ summary: 'Инициировать платёж. Idempotency-Key опционален.' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description:
+      'Опциональный ключ идемпотентности (≤128, [A-Za-z0-9._:-]). Тот же ключ+тело → тот же результат без повторного вызова MC.',
+  })
   @UsePipes(mcPassthroughPipe())
   payment(
     @CurrentTenant() ctx: TenantContext,
@@ -312,7 +322,14 @@ export class CrossBorderController {
 
   /** Поиск платежа по reference: GET /crossborder/payments?ref=... */
   @Get('payments')
-  @ApiOperation({ summary: 'Статус платежа по transaction_reference (?ref=).' })
+  @ApiOperation({
+    summary: 'Статус платежа по transaction_reference (lookup, не список).',
+  })
+  @ApiQuery({
+    name: 'ref',
+    required: true,
+    description: 'transaction_reference.',
+  })
   getPaymentByRef(
     @CurrentTenant() ctx: TenantContext,
     @Query('ref', SafeIdPipe) ref: string,

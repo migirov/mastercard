@@ -6,15 +6,12 @@ import {
   HttpCode,
   Post,
   UnauthorizedException,
-  UseFilters,
   UseGuards,
-  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { AuditInterceptor } from '../audit/audit.interceptor';
-import { GatewayExceptionFilter } from '../common/gateway-exception.filter';
+import { UseGatewayContract } from '../common/gateway-contract.decorator';
 import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
 import { strictDtoPipe } from '../common/validation.pipe';
 import { TokenRequestDto } from './dto/token-request.dto';
@@ -26,8 +23,7 @@ import { OAuthService } from './oauth.service';
 @Controller('oauth')
 @UseGuards(OAuthThrottlerGuard) // лимит по client_id — защита от brute-force секретов
 @UsePipes(strictDtoPipe()) // строгая валидация тела на нашей границе
-@UseFilters(GatewayExceptionFilter) // ошибки токена — в формате RFC 6749 §5.2
-@UseInterceptors(AuditInterceptor) // audit-лог по /oauth
+@UseGatewayContract() // error-контракт (RFC 6749 §5.2 для /oauth/token) + audit
 export class OAuthController {
   constructor(private readonly oauth: OAuthService) {}
 
