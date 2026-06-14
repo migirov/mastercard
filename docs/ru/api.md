@@ -23,7 +23,7 @@
 | 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates`; Push = вебхук на стороне клиента | — | ❌ | ❌ (opt-in) |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
-| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | — | ⚠️ (фикс. кейсы; ASV нет в sandbox) | ❌ (opt-in) |
+| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations` (Bank Lookup + IBAN Gen — в работе) | ⚠️ (нужно шифрование; ASV нет в sandbox) | ⚠️ (1/3) |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | — | ✅ | ❌ (opt-in) |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | — | ✅ (generic) | ❌ |
 | 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ | ✅ (приём) |
@@ -34,14 +34,15 @@
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
 | 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
 
-**Реализовано (9 + 1 частично):** 1, 2, 4, **5**, 9, 10, 12, 13, 14 (+15 частично).
-**Ещё нет (5 групп):** Carded Rate (3), Account Validation сьют (6), Cash Pickup (7),
-Endpoint Guide (8), RFI (11) — вспомогательные/opt-in сервисы MC.
+**Реализовано (9 + 2 частично):** 1, 2, 4, **5**, 9, 10, 12, 13, 14 (+ **6** Account Validation 1/3, +15).
+**Ещё нет:** Carded Rate (3), остаток Account Validation (6: Bank Lookup + IBAN Gen),
+Cash Pickup (7), Endpoint Guide (8), RFI (11) — вспомогательные/opt-in сервисы MC.
 
-> **Address Validation (5)** реализован passthrough'ом, но **на нашем sandbox вживую не
-> проверить**: MC требует, чтобы payload был зашифрован (JWE), а field-level encryption в
-> sandbox выключена (plain → MC `062000 INVALID_INPUT_FORMAT`). Проводка шлюза проверена e2e
-> (маршрут, OAuth1-подпись, обязательные заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`,
+> **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
+> нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
+> field-level encryption в sandbox выключена (plain → MC `062000 INVALID_INPUT_FORMAT` для
+> address, `150001` "Encrypted Payload" SYSTEM_ERROR для account). Проводка шлюза проверена
+> e2e (маршрут, OAuth1-подпись, обязательные заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`,
 > проброс ошибки); тело авто-шифруется request-интерцептором в MTF/Prod. У ряда других групп
 > тоже **нет sandbox** (Carded Rate) или только фикс. тест-кейсы.
 

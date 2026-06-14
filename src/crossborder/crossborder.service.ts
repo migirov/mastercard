@@ -17,6 +17,7 @@ import {
 } from '../mastercard/mastercard-client.service';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { effectiveStatus, isActive } from '../tenants/tenant.types';
+import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { PaymentRequestDto } from './dto/payment-request.dto';
@@ -172,21 +173,31 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
+        // У Address Validation СВОЯ база (без /crossborder и без partner-id в пути).
         path: `/send/address-validation-service/addresses/validations`,
         body,
-        // Этот сервис MC требует доп. заголовки (дока api-ref Address Validation):
-        // X-Mc-Correlation-Id — уникальный per-request trace; Partner-Ref-Id —
-        // «reference ID of the business partner» (берём partnerId как идентичность
-        // партнёра; per-request уникальность уже даёт correlation-id). Семантику
-        // Partner-Ref-Id уточнить у MC при интеграции (открытый вопрос, как C1/E1) —
-        // проверить на sandbox нельзя: сервис требует ШИФРОВАНИЯ payload, а FLE в
-        // sandbox выключен (MC отвергает plain → 062000 INVALID_INPUT_FORMAT).
-        headers: {
-          'X-Mc-Correlation-Id': randomUUID(),
-          'Partner-Ref-Id': this.partner(creds),
-        },
+        headers: this.mcRefHeaders(creds),
       },
       'validateAddress',
+    );
+  }
+
+  /**
+   * Валидация счёта получателя ДО платежа (POST, MC Account Validation API).
+   * accountUri = { type: IBAN|PAN|BAN, value }. Путь — с partner-id (как quote).
+   * На sandbox проверяемо для IBAN/CES-кейсов; ASV (requestType=ASV) в sandbox нет.
+   */
+  async validateAccount(tenantId: string, body: AccountValidationRequestDto) {
+    const creds = await this.resolveActive(tenantId);
+    return this.call(
+      creds,
+      {
+        method: 'POST',
+        path: `/send/partners/${this.partner(creds)}/crossborder/accounts/validations`,
+        body,
+        headers: this.mcRefHeaders(creds),
+      },
+      'validateAccount',
     );
   }
 
@@ -209,6 +220,22 @@ export class CrossBorderService {
   /** partner-id, безопасно подставляемый в путь (защита от path-injection в OWN). */
   private partner(creds: McCredentials): string {
     return encodeURIComponent(creds.partnerId);
+  }
+
+  /**
+   * Доп. заголовки, которые MC требует у validation/lookup-сервисов (Address /
+   * Account / Bank): X-Mc-Correlation-Id — уникальный per-request trace;
+   * Partner-Ref-Id — «reference ID of the business partner». Берём СЫРОЙ partnerId
+   * (НЕ partner()=encodeURIComponent — это кодировщик URL-ПУТИ; в заголовке нужно
+   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы). partnerId уже
+   * провалидирован safePartnerId (нет CRLF/пробелов) → как заголовок безопасен.
+   * (Семантику Partner-Ref-Id — id партнёра vs per-request ref — уточнить у MC.)
+   */
+  private mcRefHeaders(creds: McCredentials): Record<string, string> {
+    return {
+      'X-Mc-Correlation-Id': randomUUID(),
+      'Partner-Ref-Id': creds.partnerId,
+    };
   }
 
   /**
