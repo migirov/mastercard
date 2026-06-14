@@ -301,3 +301,58 @@ webhook без токена→401, с токеном→200).
 > Важно про среду: «Bash»-инструмент — Git Bash/MINGW на Windows (видит проект по
 > UNC, НЕ видит `/home`); Docker и git запускать через `wsl -d Ubuntu ...`. Node —
 > Windows, через `pushd`. Postgres-контейнер `mc-gateway-postgres`.
+
+---
+
+## ТЕКУЩЕЕ СОСТОЯНИЕ (2026-06-14)
+
+После 5 замечаний тимлида проделано много: глубокие аудиты (баги/опт/безопасность,
+регрессии), фундамент тестов (jest), единый error-filter, зачистка `any`. Затем —
+доведение по конвенциям NestJS, сверенное с **официальной докой** (скачана локально
+в `valeri/docs.nestjs.com`): ClassSerializerInterceptor+`@Exclude` на `secretRef`;
+убраны `process.env`-течи из встраиваемого модуля; `Idempotency-Key`→pipe; lifecycle —
+таймер аудита в `onModuleInit`; единый список entity (`mastercard.entities.ts`);
+перенос `src/scripts`→`scripts/` и e2e→`test/app.e2e-spec.ts` (jest-e2e); **REC-1** —
+`AuditInterceptor` переведён с глобального `APP_INTERCEPTOR` на per-controller
+(последний глобальный `APP_*` устранён); **REC-2** — `HostIntegrityService`
+(старт-самопроверка контракта встраивания) + host-checklist в README; named throttler.
+Полный doc-grounded аудит (4 агента) — HIGH/MED-отклонений нет.
+
+**Ингресс:** в КОДЕ зависимости от ингресса 0 (вебхук fail-closed токен в сервисе,
+throttler самодостаточный per-pod). Доки переформулированы: auth/rate-limit = В СЕРВИСЕ,
+mTLS/ingress — опциональный доп. слой, не authoritative; `TRUST_PROXY` — только для `req.ip`.
+
+### Покрытие Mastercard API (клиент прислал скрин API Reference — нужны ВСЕ 15)
+Карта — в `docs/{ru,en}/api.md` раздел «Покрытие Mastercard API Reference» (порядок
+как на скрине, столбец **Sandbox** + статус). **Реализовано 11 из 15 (+1 частично):**
+1 Quotes, 2 Quote Confirmation, 4 Payment, **5 Address Validation**, **6 Account
+Validation сьют ×3** (account-validations + bank-lookups + iban-generations), **7 Cash
+Pickup ×4 GET**, 9 Status Change Push (вебхук), 10 Retrieve Payment, 12 Cancel, 13
+Balance, 14 Payload Encryption; 15 Push Notifications — частично (подпись C1).
+**Осталось 3 группы:** #3 Carded Rate, #8 Endpoint Guide (GET, sandbox — проверится
+вживую), #11 RFI.
+
+**ВАЖНО про реализацию новых API:**
+- Точные MC-пути НЕОДНОРОДНЫ — брать из `api-mastercard.md` (не угадывать): `/send/v1/`
+  (quotes/payment/carded/retrieve/cancel), `/send/` без v1 (confirmations/account-validation/
+  RFI), `/crossborder/` без /send и без partner-сегмента (cash-pickup/endpoint-guide),
+  `/send/address-validation-service/` (address). partner-id: в ПУТИ (`this.partner()`=
+  encodeURIComponent) у account-validation/RFI; в ЗАГОЛОВКЕ (сырой, через `headerSafe()`)
+  у cash-pickup.
+- **Validation-POST'ы (#5/#6) требуют ШИФРОВАНИЯ payload** → на sandbox успех недостижим
+  (FLE off): MC отдаёт `062000`/`150001 "Encrypted Payload"`. Проверяется КОНТРАКТ шлюза
+  (e2e: доходит до MC, проброс); в MTF/Prod тело шифруется request-интерцептором. **GET-
+  каталоги (#7) шифрования НЕ требуют → работают вживую** (e2e: cash-pickup countries → 200
+  с реальным списком стран).
+- Паттерн: GET-каталог — `qs()`+`callCatalog()`; POST validation/lookup — `callRef()`+
+  `mcRefHeaders()`. Все новые роуты в `CrossBorderController` (наследуют auth/throttle/
+  audit/filter), gated `resolveActive` (ACTIVE-тенант). e2e после каждого: `node
+  node_modules\jest\bin\jest.js --config ./test/jest-e2e.json` (нужен Postgres).
+
+### Открытые блокеры (внешние)
+per-tenant encryption (прод-OWN+JWE; JWE-либа требует файлы, ключи=Vault PEM, нельзя e2e
+без MTF); подпись вебхука по C1 (ждёт спеку MC); прод-ключи Client Encryption (портал).
+
+> `.agentic-security/` (вывод плагина-сканера) — в `.gitignore`, НЕ коммитить. Коммиты:
+> секрет-гейт → `git commit -F` → push origin main (push отдельным шагом, если авто-режим
+> блокирует add+commit+push одной командой).
