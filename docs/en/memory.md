@@ -298,3 +298,59 @@ Secret-gate clean before every commit.
 > Important about the environment: the "Bash" tool is Git Bash/MINGW on Windows (sees
 > the project over UNC, does NOT see `/home`); run Docker and git via `wsl -d Ubuntu ...`.
 > Node — Windows, via `pushd`. Postgres container `mc-gateway-postgres`.
+
+---
+
+## CURRENT STATE (2026-06-14)
+
+Since the 5 team-lead points: deep audits (bugs/opt/security, regressions), a test
+foundation (jest), a unified error filter, `any` cleanup. Then a NestJS-conventions
+pass verified against the **official docs** (downloaded locally to
+`valeri/docs.nestjs.com`): ClassSerializerInterceptor + `@Exclude` on `secretRef`;
+removed `process.env` leaks from the embeddable module; `Idempotency-Key` → pipe;
+lifecycle — audit timer in `onModuleInit`; single entity list (`mastercard.entities.ts`);
+moved `src/scripts` → `scripts/` and e2e → `test/app.e2e-spec.ts` (jest-e2e); **REC-1** —
+`AuditInterceptor` moved from a global `APP_INTERCEPTOR` to per-controller (the last
+global `APP_*` removed); **REC-2** — `HostIntegrityService` (startup self-check of the
+host contract) + host checklist in the README; named throttler. Full doc-grounded audit
+(4 agents) — no HIGH/MED deviations.
+
+**Ingress:** zero code dependency on the ingress (webhook fail-closed token in the
+service, self-standing per-pod throttler). Docs reframed: auth/rate-limit happen IN the
+service; mTLS/ingress is an optional additional layer, not authoritative; `TRUST_PROXY`
+is only for `req.ip`.
+
+### Mastercard API coverage (client sent the API Reference screenshot — all 15 wanted)
+Map: `docs/{en,ru}/api.md` → "Mastercard API Reference — coverage" (screenshot order,
+**Sandbox** column + status). **Implemented 11 of 15 (+1 partial):** 1 Quotes, 2 Quote
+Confirmation, 4 Payment, **5 Address Validation**, **6 Account Validation suite ×3**
+(account-validations + bank-lookups + iban-generations), **7 Cash Pickup ×4 GET**, 9
+Status Change Push (webhook), 10 Retrieve Payment, 12 Cancel, 13 Balance, 14 Payload
+Encryption; 15 Push Notifications — partial (signature C1). **Remaining 3 groups:** #3
+Carded Rate, #8 Endpoint Guide (GET, sandbox — verifiable live), #11 RFI.
+
+**IMPORTANT for new APIs:**
+- MC paths are INCONSISTENT — take them from `api-mastercard.md` (don't guess): `/send/v1/`
+  (quotes/payment/carded/retrieve/cancel), `/send/` no v1 (confirmations/account-validation/
+  RFI), `/crossborder/` no /send, no partner segment (cash-pickup/endpoint-guide), `/send/
+  address-validation-service/` (address). partner-id: in the PATH (`this.partner()`=
+  encodeURIComponent) for account-validation/RFI; in a HEADER (raw, via `headerSafe()`) for
+  cash-pickup.
+- **Validation POSTs (#5/#6) require an encrypted payload** → not exercisable on sandbox
+  (FLE off): MC returns `062000` / `150001 "Encrypted Payload"`. The gateway CONTRACT is
+  e2e-verified (reaches MC, forwards); the body is auto-encrypted by the request interceptor
+  in MTF/Prod. **GET catalogs (#7) need no encryption → work live** (e2e: cash-pickup
+  countries → 200 with a real country list).
+- Pattern: GET catalog — `qs()` + `callCatalog()`; POST validation/lookup — `callRef()` +
+  `mcRefHeaders()`. New routes live in `CrossBorderController` (inherit auth/throttle/audit/
+  filter), gated by `resolveActive` (ACTIVE tenant). e2e: `node node_modules\jest\bin\jest.js
+  --config ./test/jest-e2e.json` (needs Postgres).
+
+### Open blockers (external)
+per-tenant encryption (prod-OWN+JWE; the JWE lib needs files, keys = Vault PEM, can't e2e
+without MTF); webhook signature per C1 (awaits the MC spec); prod Client Encryption keys
+(portal).
+
+> `.agentic-security/` (security-plugin scanner output) is in `.gitignore` — do NOT commit.
+> Commits: secret-gate → `git commit -F` → push origin main (push as a separate step if
+> auto-mode blocks add+commit+push in one command).
