@@ -322,12 +322,16 @@ is only for `req.ip`.
 
 ### Mastercard API coverage (client sent the API Reference screenshot — all 15 wanted)
 Map: `docs/{en,ru}/api.md` → "Mastercard API Reference — coverage" (screenshot order,
-**Sandbox** column + status). **Implemented 11 of 15 (+1 partial):** 1 Quotes, 2 Quote
-Confirmation, 4 Payment, **5 Address Validation**, **6 Account Validation suite ×3**
-(account-validations + bank-lookups + iban-generations), **7 Cash Pickup ×4 GET**, 9
-Status Change Push (webhook), 10 Retrieve Payment, 12 Cancel, 13 Balance, 14 Payload
-Encryption; 15 Push Notifications — partial (signature C1). **Remaining 3 groups:** #3
-Carded Rate, #8 Endpoint Guide (GET, sandbox — verifiable live), #11 RFI.
+**Sandbox** column + status). **ALL 15 implemented (14 + #15 partial):** 1 Quotes, 2 Quote
+Confirmation, **3 Carded Rate Pull** (POST no body, no MC sandbox), 4 Payment, **5 Address
+Validation**, **6 Account Validation suite ×3** (account-validations + bank-lookups +
+iban-generations), **7 Cash Pickup ×4 GET**, **8 Endpoint Guide** (GET; sandbox HTML-500 for
+generic pid), 9 Status Change Push (webhook), 10 Retrieve Payment, **11 RFI suite ×4**
+(retrieve/update/upload/download; sandbox canned-rejects non-onboarded pid; upload uses a
+route-scoped 2MB body limit), 12 Cancel, 13 Balance, 14 Payload Encryption; 15 Push
+Notifications — partial (receiver done, signature awaiting spec C1).
+**Coverage complete.** Only externally-blocked items remain (per-tenant encryption/MTF,
+webhook signature C1, prod Client Decryption keys).
 
 **IMPORTANT for new APIs:**
 - MC paths are INCONSISTENT — take them from `api-mastercard.md` (don't guess): `/send/v1/`

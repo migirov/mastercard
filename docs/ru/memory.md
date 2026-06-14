@@ -324,13 +324,16 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
 
 ### Покрытие Mastercard API (клиент прислал скрин API Reference — нужны ВСЕ 15)
 Карта — в `docs/{ru,en}/api.md` раздел «Покрытие Mastercard API Reference» (порядок
-как на скрине, столбец **Sandbox** + статус). **Реализовано 11 из 15 (+1 частично):**
-1 Quotes, 2 Quote Confirmation, 4 Payment, **5 Address Validation**, **6 Account
-Validation сьют ×3** (account-validations + bank-lookups + iban-generations), **7 Cash
-Pickup ×4 GET**, 9 Status Change Push (вебхук), 10 Retrieve Payment, 12 Cancel, 13
-Balance, 14 Payload Encryption; 15 Push Notifications — частично (подпись C1).
-**Осталось 3 группы:** #3 Carded Rate, #8 Endpoint Guide (GET, sandbox — проверится
-вживую), #11 RFI.
+как на скрине, столбец **Sandbox** + статус). **Реализованы ВСЕ 15 (14 + #15 частично):**
+1 Quotes, 2 Quote Confirmation, **3 Carded Rate Pull** (POST без тела, нет sandbox у MC),
+4 Payment, **5 Address Validation**, **6 Account Validation сьют ×3** (account-validations +
+bank-lookups + iban-generations), **7 Cash Pickup ×4 GET**, **8 Endpoint Guide** (GET; sandbox
+даёт HTML-500 для generic pid), 9 Status Change Push (вебхук), 10 Retrieve Payment, **11 RFI
+сьют ×4** (retrieve/update/upload/download; sandbox canned-отказ для не-онбордженного pid;
+upload — route-scoped лимит тела 2MB), 12 Cancel, 13 Balance, 14 Payload Encryption; 15 Push
+Notifications — частично (приём готов, подпись ждёт спеку C1).
+**Покрытие завершено.** Осталось только ВНЕШНЕ-заблокированное (per-tenant encryption/MTF,
+подпись вебхука C1, прод-ключи Client Decryption).
 
 **ВАЖНО про реализацию новых API:**
 - Точные MC-пути НЕОДНОРОДНЫ — брать из `api-mastercard.md` (не угадывать): `/send/v1/`
