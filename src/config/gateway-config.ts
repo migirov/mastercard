@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isWeakSecret } from '../common/secret-strength';
 
 /**
  * Конфиг встраиваемого модуля. Хост-приложение (b24club-api или dev-харнесс)
@@ -70,11 +71,9 @@ export class GatewayConfig {
     // не срабатывали). Теперь модуль сам не даёт стартовать в проде со слабыми
     // секретами или dev-секрет-стором — одинаково standalone и embedded.
     if (this.isProduction) {
-      const weak = (v?: string) =>
-        !v || v.length < 24 || v.includes('change-me') || v.startsWith('dev-');
       const bad = (
         ['jwtSecret', 'internalToken', 'adminToken', 'webhookToken'] as const
-      ).filter((k) => weak(opts[k]));
+      ).filter((k) => isWeakSecret(opts[k]));
       if (bad.length) {
         throw new Error(
           `production: weak/default secrets — set strong values: ${bad.join(', ')}`,

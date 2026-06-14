@@ -9,12 +9,11 @@ import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
 } from './common/rfi-upload.bodyparser';
+import { isWeakSecret } from './common/secret-strength';
 
 /** В production не даём стартовать со слабыми/дефолтными секретами. */
 function assertProdSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
-  const weak = (v?: string) =>
-    !v || v.length < 24 || v.includes('change-me') || v.startsWith('dev-');
   // MC_WEBHOOK_TOKEN — теперь ОБЯЗАТЕЛЕН и должен быть сильным: аутентификация
   // вебхука fail-closed в самом сервисе (не полагаемся на mTLS на ингрессе).
   const bad = [
@@ -22,7 +21,7 @@ function assertProdSecrets(): void {
     'MC_INTERNAL_TOKEN',
     'MC_ADMIN_TOKEN',
     'MC_WEBHOOK_TOKEN',
-  ].filter((k) => weak(process.env[k]));
+  ].filter((k) => isWeakSecret(process.env[k]));
   if (bad.length) {
     throw new Error(
       `production: weak/default secrets — set strong values: ${bad.join(', ')}`,

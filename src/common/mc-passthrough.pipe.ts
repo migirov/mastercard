@@ -9,7 +9,9 @@ import { ValidationPipe } from '@nestjs/common';
  *   - `transform: false` — НЕ конвертируем типы (суммы MC — СТРОКИ, превращение
  *     в number сломало бы payload и подпись). Хендлер получает исходный объект.
  *
- * Строгая валидация — только на НАШИХ границах (admin/oauth), не здесь.
+ * Парный к `strictDtoPipe` (строгая валидация на НАШИХ границах — admin/oauth).
+ * Лежит в `common/`, т.к. используется и crossborder, и webhooks (а не только
+ * crossborder) — общий cross-cutting, не приватная деталь одного модуля.
  */
 export const mcPassthroughPipe = (): ValidationPipe =>
   new ValidationPipe({

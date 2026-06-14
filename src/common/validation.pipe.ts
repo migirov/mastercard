@@ -5,7 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
  * отвергаем лишние, приводим типы. Навешивается на контроллер/маршрут явно —
  * модуль НЕ полагается на глобальный pipe (его в хост-монолите может не быть или
  * он может быть другим). MC-passthrough маршруты используют свой мягкий pipe
- * (см. crossborder/dto/mc-passthrough.pipe).
+ * (см. common/mc-passthrough.pipe).
  */
 export const strictDtoPipe = (): ValidationPipe =>
   new ValidationPipe({
