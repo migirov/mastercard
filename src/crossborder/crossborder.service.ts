@@ -22,6 +22,7 @@ import { AddressValidationRequestDto } from './dto/address-validation-request.dt
 import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
+import { mcPath } from './mc-paths';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
@@ -53,7 +54,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/partners/${this.partner(creds)}/crossborder/accounts?include_balance=true`,
+        path: mcPath.balances(this.partner(creds)),
       },
       'getBalances',
     );
@@ -66,7 +67,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder/rates`,
+        path: mcPath.rates(this.partner(creds)),
       },
       'getRates',
     );
@@ -85,7 +86,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder/rates`,
+        path: mcPath.rates(this.partner(creds)),
       },
       'cardedRatePull',
     );
@@ -101,7 +102,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder/quotes`,
+        path: mcPath.quotes(this.partner(creds)),
         body,
       },
       'createQuote',
@@ -137,7 +138,7 @@ export class CrossBorderService {
           creds,
           {
             method: 'POST',
-            path: `/send/v1/partners/${this.partner(creds)}/crossborder/payment`,
+            path: mcPath.payment(this.partner(creds)),
             body,
           },
           'createPayment',
@@ -153,7 +154,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder/${encodeURIComponent(paymentId)}`,
+        path: mcPath.paymentById(this.partner(creds), paymentId),
       },
       'getPayment',
     );
@@ -166,7 +167,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder?ref=${encodeURIComponent(ref)}`,
+        path: mcPath.paymentByRef(this.partner(creds), ref),
       },
       'getPaymentByRef',
     );
@@ -179,7 +180,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/v1/partners/${this.partner(creds)}/crossborder/${encodeURIComponent(paymentId)}/cancel`,
+        path: mcPath.cancelPayment(this.partner(creds), paymentId),
       },
       'cancelPayment',
     );
@@ -195,7 +196,7 @@ export class CrossBorderService {
     // У Address Validation СВОЯ база (без /crossborder и без partner-id в пути).
     return this.callRef(
       creds,
-      `/send/address-validation-service/addresses/validations`,
+      mcPath.addressValidations(),
       body,
       'validateAddress',
     );
@@ -210,7 +211,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callRef(
       creds,
-      `/send/partners/${this.partner(creds)}/crossborder/accounts/validations`,
+      mcPath.accountValidations(this.partner(creds)),
       body,
       'validateAccount',
     );
@@ -221,7 +222,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callRef(
       creds,
-      `/send/partners/${this.partner(creds)}/crossborder/banks/details`,
+      mcPath.bankDetails(this.partner(creds)),
       body,
       'lookupBank',
     );
@@ -232,7 +233,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callRef(
       creds,
-      `/send/partners/${this.partner(creds)}/crossborder/accounts/generate-ibans`,
+      mcPath.generateIbans(this.partner(creds)),
       body,
       'generateIban',
     );
@@ -245,7 +246,10 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callCatalog(
       creds,
-      `/crossborder/cash-pickup/countries${this.qs({ cash_pickup_type: cashPickupType })}`,
+      mcPath.cashPickup(
+        'countries',
+        this.qs({ cash_pickup_type: cashPickupType }),
+      ),
       'cashPickupCountries',
     );
   }
@@ -258,7 +262,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callCatalog(
       creds,
-      `/crossborder/cash-pickup/cities${this.qs(q)}`,
+      mcPath.cashPickup('cities', this.qs(q)),
       'cashPickupCities',
     );
   }
@@ -277,7 +281,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callCatalog(
       creds,
-      `/crossborder/cash-pickup/providers${this.qs(q)}`,
+      mcPath.cashPickup('providers', this.qs(q)),
       'cashPickupProviders',
     );
   }
@@ -296,7 +300,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callCatalog(
       creds,
-      `/crossborder/cash-pickup/branches${this.qs(q)}`,
+      mcPath.cashPickup('branches', this.qs(q)),
       'cashPickupBranches',
     );
   }
@@ -320,7 +324,7 @@ export class CrossBorderService {
     const creds = await this.resolveActive(tenantId);
     return this.callGuide(
       creds,
-      `/crossborder/endpoint-guide/specifications${this.qs(q)}`,
+      mcPath.endpointGuide(this.qs(q)),
       'endpointGuide',
     );
   }
@@ -338,7 +342,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/requests/${encodeURIComponent(requestId)}`,
+        path: mcPath.rfiRequest(this.partner(creds), requestId),
       },
       'retrieveRfi',
     );
@@ -359,7 +363,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/requests/${encodeURIComponent(requestId)}`,
+        path: mcPath.rfiRequest(this.partner(creds), requestId),
         body,
       },
       'updateRfi',
@@ -377,7 +381,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/documents`,
+        path: mcPath.rfiDocuments(this.partner(creds)),
         body,
       },
       'uploadRfiDocument',
@@ -395,7 +399,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'GET',
-        path: `/send/partners/${this.partner(creds)}/crossborder/rfi/documents/${encodeURIComponent(documentId)}`,
+        path: mcPath.rfiDocument(this.partner(creds), documentId),
       },
       'downloadRfiDocument',
     );
@@ -408,7 +412,7 @@ export class CrossBorderService {
       creds,
       {
         method: 'POST',
-        path: `/send/partners/${this.partner(creds)}/crossborder/quotes/confirmations`,
+        path: mcPath.quoteConfirmations(this.partner(creds)),
         body,
       },
       'confirmQuote',
