@@ -302,18 +302,28 @@ export class CrossBorderService {
   }
 
   /**
+   * Значение HTTP-заголовка без CR/LF — defense-in-depth против header-injection,
+   * НЕ зависящая от валидатора источника. partnerId уже safePartnerId-валиден (нет
+   * CRLF), но safePartnerId — регэксп для URL-ПУТИ; привязываем безопасность
+   * заголовка к самому месту использования: если его когда-то ослабят, заголовки
+   * не пострадают.
+   */
+  private headerSafe(v: string): string {
+    return v.replace(/[\r\n]/g, '');
+  }
+
+  /**
    * Доп. заголовки, которые MC требует у validation/lookup-сервисов (Address /
    * Account / Bank): X-Mc-Correlation-Id — уникальный per-request trace;
    * Partner-Ref-Id — «reference ID of the business partner». Берём СЫРОЙ partnerId
    * (НЕ partner()=encodeURIComponent — это кодировщик URL-ПУТИ; в заголовке нужно
-   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы). partnerId уже
-   * провалидирован safePartnerId (нет CRLF/пробелов) → как заголовок безопасен.
+   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы), но через headerSafe.
    * (Семантику Partner-Ref-Id — id партнёра vs per-request ref — уточнить у MC.)
    */
   private mcRefHeaders(creds: McCredentials): Record<string, string> {
     return {
       'X-Mc-Correlation-Id': randomUUID(),
-      'Partner-Ref-Id': creds.partnerId,
+      'Partner-Ref-Id': this.headerSafe(creds.partnerId),
     };
   }
 
@@ -350,7 +360,7 @@ export class CrossBorderService {
 
   /**
    * GET в MC Cash Pickup-каталог: partner-id передаётся ЗАГОЛОВКОМ (не в пути).
-   * Берём СЫРОЙ partnerId (в заголовке не кодируем; он уже safePartnerId-валиден).
+   * Сырой partnerId (в заголовке не URL-кодируем), но через headerSafe (анти-CRLF).
    */
   private callCatalog(
     creds: McCredentials,
@@ -359,7 +369,11 @@ export class CrossBorderService {
   ): Promise<unknown> {
     return this.call(
       creds,
-      { method: 'GET', path, headers: { 'partner-id': creds.partnerId } },
+      {
+        method: 'GET',
+        path,
+        headers: { 'partner-id': this.headerSafe(creds.partnerId) },
+      },
       ctx,
     );
   }
