@@ -125,12 +125,23 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   // после разрыва коннекта (ошибка «Connection terminated», потеря записей).
   async beforeApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    // Двойной флаш, как в recent(): если на момент shutdown шёл флаш по таймеру,
+    // первый await вернул ЕГО промис (re-entrancy-гард), а записи, добавленные
+    // во время него, остались бы в буфере и потерялись на остановке — добиваем
+    // их вторым флашем (гард уже снят → реальная вставка).
     await this.flush();
+    if (this.buffer.length > 0) await this.flush();
   }
 
   async recent(limit = 100): Promise<AuditEntry[]> {
-    // чтобы /admin/audit отражал и ещё не сброшенные записи
+    // чтобы /admin/audit отражал и ещё не сброшенные записи. Если флаш уже шёл,
+    // первый await вернул ЕГО промис (re-entrancy-гард), а записи, накопленные
+    // за время того флаша, остались в буфере — добиваем их вторым флашем (гард
+    // снят → реальная вставка). Гарантия best-effort: записи, добавленные уже во
+    // время ВТОРОГО флаша, попадут в выборку лишь на следующем вызове — для
+    // debug-вью /admin/audit это приемлемо (в БД они не теряются, ждут таймер).
     await this.flush();
+    if (this.buffer.length > 0) await this.flush();
     const rows = await this.repo.find({ order: { id: 'DESC' }, take: limit });
     return rows.map((r) => ({
       ts: r.ts.toISOString(),

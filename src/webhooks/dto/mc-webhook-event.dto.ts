@@ -30,10 +30,12 @@ export class McWebhookEventDto {
   @MaxLength(64)
   eventType?: string;
 
-  @ApiPropertyOptional({ maxLength: 100 })
+  // Лимит ЩЕДРЫЙ (256 — ширина kv-колонки): достаточно ограничить лог-инъекцию,
+  // но не отвергнуть легитимный длинный ref MC (тело не подписано → 400 = MC-ретрай).
+  @ApiPropertyOptional({ maxLength: 256 })
   @IsOptional()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(256)
   transactionReference?: string;
 
   @ApiPropertyOptional({ maxLength: 64 })
