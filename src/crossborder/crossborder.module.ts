@@ -6,6 +6,7 @@ import { IdempotencyService } from '../idempotency/idempotency.service';
 import { MastercardClientModule } from '../mastercard/mastercard.module';
 import { TenantModule } from '../tenants/tenant.module';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
+import { TransactionStatusModule } from '../webhooks/transaction-status.module';
 import { CrossBorderService } from './crossborder.service';
 import { CrossBorderController } from './crossborder.controller';
 
@@ -16,6 +17,7 @@ import { CrossBorderController } from './crossborder.controller';
     MastercardClientModule,
     AuthModule,
     AuditModule,
+    TransactionStatusModule,
   ],
   // IdempotencyService — приватный провайдер (единственный потребитель —
   // CrossBorderService); работает поверх глобального KV_STORE.

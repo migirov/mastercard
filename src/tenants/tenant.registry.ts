@@ -102,6 +102,20 @@ export class TenantRegistry implements OnModuleInit {
     return this.repo.find({ order: { createdAt: 'ASC' } });
   }
 
+  /**
+   * Резолв tenantId по partnerId для OWN-тенантов (атрибуция входящих
+   * push-уведомлений). Только OWN: у PLATFORM partner-id общий → однозначно
+   * тенанта не определить, такие события идут в общий пул (вернём null). Если
+   * OWN-тенанта с таким partnerId нет — тоже null.
+   */
+  async findOwnTenantIdByPartnerId(partnerId: string): Promise<string | null> {
+    const t = await this.repo.findOne({
+      where: { partnerId, credentialMode: CredentialMode.OWN },
+      select: ['id'],
+    });
+    return t?.id ?? null;
+  }
+
   async create(input: CreateTenantInput): Promise<Tenant> {
     const id = input.id ?? `t_${randomToken(6)}`;
     const entity = this.repo.create({

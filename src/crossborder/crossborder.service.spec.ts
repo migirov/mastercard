@@ -9,6 +9,7 @@ import {
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { Tenant } from '../tenants/tenant.types';
 import { UpstreamHttpException } from '../common/upstream.exception';
+import { TransactionStatusStore } from '../webhooks/transaction-status.store';
 import { CrossBorderService } from './crossborder.service';
 
 const PID = 'SANDBOX_1234567';
@@ -48,13 +49,15 @@ function make(opts?: {
         producer(),
     ),
   };
+  const statusEvents = { findForTenant: jest.fn(async () => []) };
   const svc = new CrossBorderService(
     registry as unknown as TenantRegistry,
     credentials as unknown as CredentialsService,
     client as unknown as MastercardClient,
     idempotency as unknown as IdempotencyService,
+    statusEvents as unknown as TransactionStatusStore,
   );
-  return { svc, client, registry, credentials };
+  return { svc, client, registry, credentials, statusEvents };
 }
 
 /** Достаёт McRequest, переданный в client.request. */
@@ -71,18 +74,36 @@ describe('CrossBorderService — path construction', () => {
     });
   });
 
-  it('rates (GET) и cardedRatePull (POST) — один путь /send/v1/.../rates, разный метод', async () => {
+  it('rates (Carded/FX Rate Pull) — GET /send/v1/.../rates без тела', async () => {
     const a = make();
     await a.svc.getRates('acme');
     expect(reqOf(a.client)).toMatchObject({
       method: 'GET',
       path: `/send/v1/partners/${PID}/crossborder/rates`,
     });
-    const b = make();
-    await b.svc.cardedRatePull('acme');
-    expect(reqOf(b.client)).toMatchObject({
+  });
+
+  it('confirm/cancel confirmed quote — POST /send/partners/.../quotes/{confirmations,cancellations}', async () => {
+    const c = make();
+    await c.svc.confirmQuote('acme', {} as never);
+    expect(reqOf(c.client)).toMatchObject({
       method: 'POST',
-      path: `/send/v1/partners/${PID}/crossborder/rates`,
+      path: `/send/partners/${PID}/crossborder/quotes/confirmations`,
+    });
+    const x = make();
+    await x.svc.cancelConfirmedQuote('acme', {} as never);
+    expect(reqOf(x.client)).toMatchObject({
+      method: 'POST',
+      path: `/send/partners/${PID}/crossborder/quotes/cancellations`,
+    });
+  });
+
+  it('retrieveConfirmedQuote — GET .../quotes/{ref}/proposals/{proposalId}, оба сегмента кодируются', async () => {
+    const { svc, client } = make();
+    await svc.retrieveConfirmedQuote('acme', '40C123', 'pen_4000 99');
+    expect(reqOf(client)).toMatchObject({
+      method: 'GET',
+      path: `/send/partners/${PID}/crossborder/quotes/40C123/proposals/${encodeURIComponent('pen_4000 99')}`,
     });
   });
 
@@ -185,5 +206,39 @@ describe('CrossBorderService — gating', () => {
       ForbiddenException,
     );
     expect(client.request).not.toHaveBeenCalled();
+  });
+});
+
+describe('CrossBorderService — status events (локальное чтение)', () => {
+  const ownTenant = {
+    id: 'own-1',
+    credentialMode: 'OWN',
+  } as unknown as Tenant;
+  const platformTenant = {
+    id: 'acme',
+    credentialMode: 'PLATFORM',
+  } as unknown as Tenant;
+
+  it('OWN-тенант → findForTenant(id, ref, includePool=false); MC не вызывается', async () => {
+    const rows = [{ id: 1, transactionReference: 'TX1' }];
+    const { svc, statusEvents, client } = make();
+    (statusEvents.findForTenant as jest.Mock).mockResolvedValue(rows);
+    await expect(svc.getStatusEvents(ownTenant, 'TX1')).resolves.toBe(rows);
+    expect(statusEvents.findForTenant).toHaveBeenCalledWith(
+      'own-1',
+      'TX1',
+      false,
+    );
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('PLATFORM-тенант → includePool=true (читает общий null-пул)', async () => {
+    const { svc, statusEvents } = make();
+    await svc.getStatusEvents(platformTenant, 'TX2');
+    expect(statusEvents.findForTenant).toHaveBeenCalledWith(
+      'acme',
+      'TX2',
+      true,
+    );
   });
 });

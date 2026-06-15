@@ -132,7 +132,8 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 ## Фаза 6 — Полнота ✅ (покрытие MC API — ПОЛНОЕ)
 
 - ✅ Операции **payment / retrieve(by-id, by-ref) / cancel / quote-confirmation /
-  balance**. Эндпоинты под `/crossborder/`. Проверено: доходят до MC.
+  quote-cancellation / retrieve-confirmed-quote / balance**. Эндпоинты под
+  `/crossborder/`. Проверено: доходят до MC.
 - ✅ Аудит Ф6 (фикс): `assertSafeId` — paymentId не меняет структуру URL.
 - ✅ DTO-валидация: **глобального `ValidationPipe` НЕТ** — каждый контроллер
   объявляет свой pipe (строгий для admin/oauth, `mcPassthrough` для тел,
@@ -140,19 +141,25 @@ partnerId; санитизация `secretRef`; passthrough строкового 
 
 ### Полное покрытие MC API Reference ✅
 
-Реализованы **все 15 групп** MC API Reference (14 полностью + #15 Push
-Notifications частично). Поверх ядра quote/payment/retrieve/cancel/confirm/balance
-добавлены и протестированы вживую как gateway-контракт:
+Реализованы **все 15 групп** MC API Reference. Поверх ядра
+quote/payment/retrieve/cancel/confirm/balance добавлены и протестированы вживую
+как gateway-контракт:
+- ✅ **Quote Confirmation Suite** (3/3): confirm + cancel-confirmed
+  (`/quotes/cancellations`) + retrieve-confirmed (`/quotes/{ref}/proposals/{id}`).
 - ✅ **Address Validation**.
 - ✅ **Account Validation** (account-validations + bank-lookups + iban-generations).
 - ✅ **Cash Pickup** (4 GET-каталога — работают вживую на sandbox).
 - ✅ **Endpoint Guide** (GET).
 - ✅ **RFI** (retrieve / update / upload / download).
-- ✅ **Carded Rate Pull**.
-- ✅ **#15 Push Notifications** — приёмник вебхука + дедуп готовы. Авторитетная
-  аутентичность вебхука у MC — **mTLS, а не подпись payload** (выяснено по доке MC,
-  бывший «вопрос C1»); настраивается при деплое — нужен публичный mTLS-cert от MC
-  (см. ниже «Открытые вопросы», п. 2, и `api.md` → Webhooks).
+- ✅ **Carded / FX Rate Pull** — **GET** `/crossborder/rates` (операция MC
+  `getFxRates`, без тела; прежний ошибочный POST-вариант удалён).
+- ✅ **#15 Push Notifications** — приёмник + дедуп + **персист статусов в
+  `tx_status`** (STATUS_CHG/QUOTE_STATUS_CHG: атомарный дедуп по UNIQUE(eventRef),
+  атрибуция OWN→partnerId / PLATFORM→общий пул; нормализация camel/snake). Доставка
+  мерчанту — polling через `GET /crossborder/status-events?ref=`. Аутентичность
+  вебхука у MC — **mTLS** (не подпись payload), настраивается при деплое.
+  🟡 Остаётся для MTF/Prod: декрипт зашифрованного push (нужен Client-ключ +
+  per-tenant seam) — сейчас зашифрованное тело подтверждается без обработки.
 
 **Оговорки sandbox:** validation-POST'ы требуют JWE-шифрования (на sandbox FLE
 выключен → проверяем только gateway-контракт, тело авто-шифруется в MTF/Prod);

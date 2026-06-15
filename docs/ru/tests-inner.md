@@ -14,7 +14,7 @@
 
 ## 0. Юнит-набор (Jest, `src/**/*.spec.ts`)
 
-**20 наборов / 147 тестов — все зелёные.** Запуск: `node node_modules\jest\bin\jest.js`
+**20 наборов / 159 тестов — все зелёные.** Запуск: `node node_modules\jest\bin\jest.js`
 (про связку Windows + WSL-UNC см. [tests.md](./tests.md#запуск-набора)).
 
 | Набор | Что фиксирует |
@@ -27,11 +27,11 @@
 | `idempotency.service` | захват замка/кэш; 4xx освобождает замок; 5xx/unknown **держит** (анти двойное списание); reuse по фингерпринту тела → 422 |
 | `oauth.service` | выпуск Bearer для валидного клиента; `invalid_client` и никогда не подписывает на кривых кредах |
 | `webhook-auth.guard` | fail-closed (токен не настроен → отказ); отсутствующий/неверный токен; verifier подписи false → отказ |
-| `webhook.handler` | accept + дедуп по `eventRef`; fallback на `notificationId`; accept без ref |
+| `webhook.handler` | статус-события (STATUS_CHG/QUOTE_STATUS_CHG) → персист в `tx_status` (record), дубль record=false→duplicate; атрибуция OWN-partnerId→tenantId, иначе общий пул (null); нормализация snake_case; извлечение status/stage из `quote.confirmStatus`; не-статусные (CARDFX_PUB) → KV-дедуп по `eventRef`/`notificationId`, без персиста; зашифрованный push → accept без обработки; пустое/undefined тело → accept (не 500) |
 | `tenant-serialization` (admin) | `@Exclude` скрывает `secretRef`; whitelist `TenantViewDto`; `IssuedClientDto` показывает `clientSecret` один раз |
 | `host-integrity.service` | предупреждает при отсутствии DataSource / сущностей / ScheduleModule / пустом webhookToken |
 | `gateway-exception.filter` | единый конверт; вкладывает тело MC под `upstream`; формы `/oauth/token` по RFC 6749; внутренности не утекают |
-| **`crossborder.service`** (новый) | сборка MC-пути по операциям + диспетч `call()`: 2xx→данные, форвардимый объект 4xx→`UpstreamHttpException`, не-объект 4xx→скрыт 502, 401/403/5xx и сеть/сбой расшифровки→502; `encodeURIComponent` на id в пути; CRLF срезан в `Partner-Ref-Id`; не-ACTIVE тенант → Forbidden, MC не вызван |
+| **`crossborder.service`** | сборка MC-пути по операциям (вкл. Carded/FX Rate Pull = GET `/rates`; confirm/cancel confirmed quote; retrieve confirmed quote с encodeURIComponent обоих сегментов) + диспетч `call()`: 2xx→данные, форвардимый объект 4xx→`UpstreamHttpException`, не-объект 4xx→скрыт 502, 401/403/5xx и сеть/сбой расшифровки→502; `encodeURIComponent` на id в пути; CRLF срезан в `Partner-Ref-Id`; не-ACTIVE тенант → Forbidden, MC не вызван; `getStatusEvents` — локальное чтение `tx_status` (OWN→includePool=false, PLATFORM→true), MC не вызван |
 | **`mastercard-client.service`** (новый) | матрица ретраев — GET ретраит транзиентные 502/503/504 до 3×, POST никогда не ретраится (анти двойное списание); регресс decrypt-no-retry: детерминированный сбой расшифровки НЕ ретраится даже на GET |
 | **`audit.service`** (новый) | re-entrancy флаша (без двойного insert); `capBuffer` сбрасывает **старейшие** при переполнении + логирует drop; второй флаш в `recent()` добивает in-flight записи; сбой insert переочередует батч |
 | **`credentials.service`** (новый) | дедуп stampede OWN-кэша (одновременные resolve → один fetch); потолок LRU ≤500 (старейший вытеснен); rejected fetch выселяется (не залипает на TTL); allowlist `partnerId` + анти-traversal `secretRef` (`..`) + валидация бандла |
@@ -123,9 +123,9 @@ curl.exe -s $base/ready    # {"status":"ok","info":{"database":{"status":"up"}},
   + 2 раундов регрессий + 4-линзового код-ревью качества правки зафиксированы в
   автоматическом наборе. Добавлены четыре новых юнит-набора (`crossborder.service`,
   `mastercard-client.service`, `audit.service`, `credentials.service`). Текущий статус:
-  **юнит 20 наборов / 147 тестов зелёные**, **E2E 23/23 зелёные** против живого
-  sandbox (ранее открытый пункт «E2E на Postgres ещё не прогнан» теперь часть обычной
-  верификации). Покрыты все 15 групп MC API.
+  **юнит 20 наборов / 159 тестов зелёные** (после доработки покрытия: confirm-suite 3/3,
+  carded-rate GET, push-персист в `tx_status` — +3 раунда анализа баги/опт/безопасность),
+  **E2E** против живого sandbox. Покрыты все 15 групп MC API.
 
 ## Не покрыто (внутреннее)
 

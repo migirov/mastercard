@@ -130,7 +130,8 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
 ## Phase 6 — Completeness ✅ (MC API coverage — COMPLETE)
 
 - ✅ Operations **payment / retrieve(by-id, by-ref) / cancel / quote-confirmation /
-  balance**. Endpoints under `/crossborder/`. Verified: they reach MC.
+  quote-cancellation / retrieve-confirmed-quote / balance**. Endpoints under
+  `/crossborder/`. Verified: they reach MC.
 - ✅ Phase 6 audit (fix): `assertSafeId` — paymentId cannot change the URL structure.
 - ✅ DTO validation: **there is NO global `ValidationPipe`** — each controller
   declares its own pipe (strict for admin/oauth, `mcPassthrough` for bodies forwarded
@@ -138,19 +139,25 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
 
 ### Full MC API Reference coverage ✅
 
-**All 15 groups** of the MC API Reference are implemented (14 fully + #15 Push
-Notifications partial). On top of the quote/payment/retrieve/cancel/confirm/balance
-core, the following were added and live-tested as the gateway contract:
+**All 15 groups** of the MC API Reference are implemented. On top of the
+quote/payment/retrieve/cancel/confirm/balance core, the following were added and
+live-tested as the gateway contract:
+- ✅ **Quote Confirmation Suite** (3/3): confirm + cancel-confirmed
+  (`/quotes/cancellations`) + retrieve-confirmed (`/quotes/{ref}/proposals/{id}`).
 - ✅ **Address Validation**.
 - ✅ **Account Validation** (account-validations + bank-lookups + iban-generations).
 - ✅ **Cash Pickup** (4 GET catalogs — work live on sandbox).
 - ✅ **Endpoint Guide** (GET).
 - ✅ **RFI** (retrieve / update / upload / download).
-- ✅ **Carded Rate Pull**.
-- ✅ **#15 Push Notifications** — webhook receiver + dedup done. Mastercard's
-  authoritative webhook authenticity is **mTLS, not a payload signature** (established
-  from the MC docs, the former "question C1"); configured at deployment — needs the
-  public mTLS cert from MC (see "Open questions" #2 below, and `api.md` → Webhooks).
+- ✅ **Carded / FX Rate Pull** — **GET** `/crossborder/rates` (MC op `getFxRates`, no
+  body; the previous erroneous POST variant was removed).
+- ✅ **#15 Push Notifications** — receiver + dedup + **status persistence to `tx_status`**
+  (STATUS_CHG/QUOTE_STATUS_CHG: atomic dedup by UNIQUE(eventRef), attribution
+  OWN→partnerId / PLATFORM→shared pool; camel/snake normalization). Merchant delivery —
+  polling via `GET /crossborder/status-events?ref=`. Webhook authenticity at MC is
+  **mTLS** (not a payload signature), configured at deployment.
+  🟡 Remaining for MTF/Prod: decrypting an encrypted push (needs the Client key + a
+  per-tenant seam) — for now an encrypted body is acked without processing.
 
 **Sandbox caveats:** validation POSTs need JWE encryption (FLE is off on sandbox → only
 the gateway contract is verifiable, the body auto-encrypts in MTF/Prod); endpoint-guide

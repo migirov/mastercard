@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { TenantModule } from '../tenants/tenant.module';
+import { TransactionStatusModule } from './transaction-status.module';
 import { WebhookAuthGuard } from './webhook-auth.guard';
 import { WebhookHandler } from './webhook.handler';
 import { MastercardWebhookController } from './mastercard-webhook.controller';
@@ -9,7 +11,7 @@ import {
 } from './webhook-signature.verifier';
 
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, TenantModule, TransactionStatusModule],
   providers: [
     WebhookAuthGuard,
     WebhookHandler,

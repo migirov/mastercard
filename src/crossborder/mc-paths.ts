@@ -5,7 +5,7 @@
  * (где `/send/` vs `/send/v1/` легко перепутать незаметно). Сгруппировано по базе:
  *
  *   - `/send/partners/{pid}/crossborder/...`     (БЕЗ v1): balances, account-/bank-/
- *     iban-lookup, RFI, quote-confirmations;
+ *     iban-lookup, RFI, quote-confirmations/-cancellations, retrieve-confirmed-quote;
  *   - `/send/v1/partners/{pid}/crossborder/...`  (v1):     rates, quotes, payment,
  *     retrieve/cancel;
  *   - `/crossborder/...`                          (без /send и без partner-id в пути;
@@ -26,6 +26,10 @@ export const mcPath = {
     `/send/partners/${p}/crossborder/accounts/generate-ibans`,
   quoteConfirmations: (p: string) =>
     `/send/partners/${p}/crossborder/quotes/confirmations`,
+  quoteCancellations: (p: string) =>
+    `/send/partners/${p}/crossborder/quotes/cancellations`,
+  retrieveConfirmedQuote: (p: string, ref: string, proposalId: string) =>
+    `/send/partners/${p}/crossborder/quotes/${encodeURIComponent(ref)}/proposals/${encodeURIComponent(proposalId)}`,
   rfiRequest: (p: string, requestId: string) =>
     `/send/partners/${p}/crossborder/rfi/requests/${encodeURIComponent(requestId)}`,
   rfiDocuments: (p: string) => `/send/partners/${p}/crossborder/rfi/documents`,
