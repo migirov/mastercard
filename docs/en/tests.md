@@ -20,7 +20,7 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 # Postgres (E2E needs it) — inside WSL
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
 
-# Unit suites: 16 suites / 112 tests (rootDir src, *.spec.ts)
+# Unit suites: 20 suites / 147 tests (rootDir src, *.spec.ts)
 node node_modules\jest\bin\jest.js
 
 # E2E against the LIVE sandbox: 23/23

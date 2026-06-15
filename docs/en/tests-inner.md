@@ -14,7 +14,7 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 
 ## 0. Unit suite (Jest, `src/**/*.spec.ts`)
 
-**16 suites / 112 tests — all green.** Run: `node node_modules\jest\bin\jest.js`
+**20 suites / 147 tests — all green.** Run: `node node_modules\jest\bin\jest.js`
 (see [tests.md](./tests.md#running-the-suite) for the Windows + WSL-UNC note).
 
 | Suite | What it locks in |
@@ -125,7 +125,7 @@ curl.exe -s $base/ready    # {"status":"ok","info":{"database":{"status":"up"}},
   rounds + a 4-lens code-quality review, the fixes were locked into the automated
   suite. Four new unit suites (`crossborder.service`, `mastercard-client.service`,
   `audit.service`, `credentials.service`) were added. Current status:
-  **unit 16 suites / 112 tests green**, **E2E 23/23 green** against the live sandbox
+  **unit 20 suites / 147 tests green**, **E2E 23/23 green** against the live sandbox
   (the previously-open "E2E on Postgres not yet run" item is now part of normal
   verification). Coverage spans all 15 MC API groups.
 

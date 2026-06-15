@@ -12,7 +12,8 @@ Reflects the **actually implemented** state of the service. Related documents:
 > dev-harness `AppModule` via `main.ts`) imports in one line — every sub-module is a
 > private implementation detail. The host imports the public symbols (`MastercardModule`,
 > `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`, `rfiUploadBodyParser`, `GatewayConfig`,
-> `MastercardModuleOptions`) **only** from the public-api barrel `src/index.ts`, never
+> `MastercardModuleOptions`, plus the host-facing contracts `ErrorResponseDto`,
+> `CredentialMode`/`TenantStatus`) **only** from the public-api barrel `src/index.ts`, never
 > by deep path. Config arrives as options and is distributed via a global `GatewayConfig`
 > (`src/config/gateway-config.ts`) — services do NOT read `process.env`/`ConfigService`.
 > There is no global `ValidationPipe`/`APP_FILTER`/`APP_INTERCEPTOR`: cross-cutting
@@ -21,7 +22,7 @@ Reflects the **actually implemented** state of the service. Related documents:
 > `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
 > override the host's error handling. Webhook auth is fail-closed in-service (+ a
 > signature-verifier scaffold), not "trust the ingress". Thin modules
-> (Encryption/Idempotency/Health) are collapsed into providers/a controller. The single
+> (Encryption/Idempotency) are collapsed into providers; health probes moved to the dev harness (not the umbrella). The single
 > entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
 > the umbrella for the host `DataSource`); entities are co-located in their modules. A
 > startup `HostIntegrityService` warns if the host omits the `DataSource`/`ScheduleModule`/
@@ -187,13 +188,16 @@ in documentation.md).
 ## 10. NestJS modules
 
 The host imports **only** `MastercardModule` (the umbrella). Everything below is a
-private sub-module wired up inside it. The umbrella registers `HealthController` and
-the per-pod `ThrottlerModule` directly, provides `GatewayConfig` (from the
-`forRootAsync` options) and `HostIntegrityService`, and re-exports `MASTERCARD_ENTITIES`.
+private sub-module wired up inside it. The umbrella registers the per-pod
+`ThrottlerModule` directly, provides `GatewayConfig` (from the `forRootAsync` options)
+and `HostIntegrityService`, and re-exports `MASTERCARD_ENTITIES`. Health probes
+(`/health`, `/ready`) live in the dev harness (`AppModule`), NOT in the umbrella —
+root-level probes would collide with the host monolith's own (when embedded the host
+owns liveness/readiness).
 
 | Module / unit | Responsibility |
 |---|---|
-| `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `HealthController` + `ThrottlerModule` + `HostIntegrityService` |
+| `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` + `HostIntegrityService` |
 | `StoreModule` | `KvStore` → `PostgresKvStore` (idempotency, webhook dedup) + `KvCleanupService`; `KvEntity` co-located |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses, seeds; `TenantEntity` co-located |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory cache (LRU 500 + TTL) |
@@ -205,7 +209,7 @@ the per-pod `ThrottlerModule` directly, provides `GatewayConfig` (from the
 | `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup |
 | `CrossBorderModule` | business endpoints (all 15 MC API groups); uses `mc-paths.ts` (centralized MC URL builder) |
 | `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
-| `HealthController` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered by the umbrella (no separate module) |
+| `HealthController` (dev harness) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered in `AppModule` (harness), NOT the umbrella — root probes would collide with the host; when embedded the host owns probes |
 | `IdempotencyService` | provider (via `KvStore`); collapsed from the old `IdempotencyModule` |
 | `common/` | shared cross-cutting utilities (see below) |
 
@@ -234,7 +238,7 @@ vs the address-validation base; now in one auditable place).
 Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` inside the umbrella;
   one named set `default` 120/min, per-pod), with a per-route override on `/oauth/token`.
-- **Health probes** — `@nestjs/terminus` (`HealthController` registered by the umbrella) for k8s.
+- **Health probes** — `@nestjs/terminus` (`HealthController` in the dev harness `AppModule`; when embedded the host owns probes) for k8s.
 - **ENV validation** — at the dev-harness boundary (`env.validation.ts`, class-validator,
   fail-fast at startup); when embedded the host passes typed `MastercardModuleOptions` and
   `GatewayConfig` enforces the prod gate.
@@ -275,7 +279,7 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
   iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
 - ✅ **Quality:** a 10-round security/bug/optimization audit + 2 regression rounds + a
-  4-lens code review (Tier 1 applied). Tests: unit 16 suites / 112, e2e 23/23 on the live sandbox.
+  4-lens code review (Tier 1 applied). Tests: unit 20 suites / 147, e2e 23/23 on the live sandbox.
 - ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
   key — see §6), webhook signature (C1), private Client decryption key, Vault implementation,
   metrics/tracing (Prometheus/OTel) — see [production-questions.md](./production-questions.md).

@@ -20,7 +20,7 @@
 # Postgres (нужен для E2E) — внутри WSL
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
 
-# Юнит-наборы: 16 наборов / 112 тестов (rootDir src, *.spec.ts)
+# Юнит-наборы: 20 наборов / 147 тестов (rootDir src, *.spec.ts)
 node node_modules\jest\bin\jest.js
 
 # E2E против ЖИВОГО sandbox: 23/23

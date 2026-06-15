@@ -99,7 +99,7 @@ round = audit→fix, all verified). **No open HIGH/MED issues.** Then a 4-perspe
 code-quality review (architecture / maintainability / API contract / testing) → "Tier
 1" refactors landed (centralized MC path map; a composed `UseGatewayContract()`
 decorator; barrel `src/index.ts`; Swagger gaps filled; +4 regression specs). Tests:
-16 suites / 112 unit tests + 23/23 e2e against the live sandbox (on live Postgres).
+20 suites / 147 unit tests + 23/23 e2e against the live sandbox (on live Postgres).
 
 The earlier 4-cycle bug audit (2026-06-10), all fixes passed typecheck:
 1. Tenant-seeding race when many pods start → `INSERT … ON CONFLICT DO NOTHING`.

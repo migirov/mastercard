@@ -12,7 +12,8 @@
 > dev-харнесс `AppModule` через `main.ts`) импортирует одной строкой — каждый
 > под-модуль является приватной деталью реализации. Хост импортирует публичные
 > символы (`MastercardModule`, `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`,
-> `rfiUploadBodyParser`, `GatewayConfig`, `MastercardModuleOptions`) **только** из
+> `rfiUploadBodyParser`, `GatewayConfig`, `MastercardModuleOptions`, а также host-facing
+> контракты `ErrorResponseDto`, `CredentialMode`/`TenantStatus`) **только** из
 > публичного barrel `src/index.ts`, а не по глубоким путям. Конфиг приходит опциями и
 > раздаётся через глобальный `GatewayConfig` (`src/config/gateway-config.ts`) —
 > сервисы НЕ читают `process.env`/`ConfigService`. Глобального
@@ -21,8 +22,8 @@
 > `mcPassthroughPipe` без `transform` для тел, идущих в MC — плюс композитный декоратор
 > `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
 > ошибок хоста. Аутентификация вебхука — fail-closed в сервисе (+ каркас проверки
-> подписи), а не «доверие к ингрессу». Тонкие модули (Encryption/Idempotency/Health)
-> свёрнуты в провайдеры/контроллер. Единый список сущностей — в
+> подписи), а не «доверие к ингрессу». Тонкие модули (Encryption/Idempotency)
+> свёрнуты в провайдеры; health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
 > `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
 > модулем для `DataSource` хоста); сами entity co-located в своих модулях. Старт-сервис
 > `HostIntegrityService` предупреждает, если хост не подключил `DataSource`/
@@ -189,13 +190,15 @@ documentation.md).
 ## 10. Модули NestJS
 
 Хост импортирует **только** `MastercardModule` (зонтичный). Всё ниже — приватные
-под-модули, собранные внутри него. Зонтичный модуль напрямую регистрирует
-`HealthController` и per-pod `ThrottlerModule`, предоставляет `GatewayConfig` (из опций
-`forRootAsync`) и `HostIntegrityService`, реэкспортирует `MASTERCARD_ENTITIES`.
+под-модули, собранные внутри него. Зонтичный модуль напрямую регистрирует per-pod
+`ThrottlerModule`, предоставляет `GatewayConfig` (из опций `forRootAsync`) и
+`HostIntegrityService`, реэкспортирует `MASTERCARD_ENTITIES`. Health-пробы (`/health`,
+`/ready`) живут в dev-харнессе (`AppModule`), а НЕ в зонтичном модуле — корневые пробы
+конфликтовали бы с пробами хост-монолита (при встраивании liveness/readiness — за хостом).
 
 | Модуль / единица | Ответственность |
 |---|---|
-| `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `HealthController` + `ThrottlerModule` + `HostIntegrityService` |
+| `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` + `HostIntegrityService` |
 | `StoreModule` | `KvStore` → `PostgresKvStore` (идемпотентность, дедуп вебхуков) + `KvCleanupService`; `KvEntity` co-located |
 | `TenantModule` | `TenantRegistry` поверх Postgres, статусы, сиды; `TenantEntity` co-located |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory кэш (LRU 500 + TTL) |
@@ -207,7 +210,7 @@ documentation.md).
 | `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп |
 | `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API); использует `mc-paths.ts` (централизованный билдер URL MC) |
 | `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
-| `HealthController` | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется зонтичным модулем (без отдельного модуля) |
+| `HealthController` (dev-харнесс) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется в `AppModule` (харнесс), НЕ в зонтичном модуле — корневые пробы конфликтовали бы с хостом; при встраивании пробы даёт хост |
 | `IdempotencyService` | провайдер (через `KvStore`); свёрнут из прежнего `IdempotencyModule` |
 | `common/` | общие cross-cutting утилиты (см. ниже) |
 
@@ -236,7 +239,7 @@ address-validation; теперь в одном аудируемом месте).
 Платформенные возможности Nest (взяты готовыми, без самописа):
 - **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` внутри зонтичного модуля;
   один именованный сет `default` 120/мин, per-pod), с per-route override на `/oauth/token`.
-- **Health-пробы** — `@nestjs/terminus` (`HealthController` регистрирует зонтичный модуль) для k8s.
+- **Health-пробы** — `@nestjs/terminus` (`HealthController` в dev-харнессе `AppModule`; при встраивании пробы даёт хост) для k8s.
 - **Валидация ENV** — на границе dev-харнесса (`env.validation.ts`, class-validator,
   fail-fast на старте); при встраивании хост передаёт типизированные `MastercardModuleOptions`,
   а прод-гейт проверяет `GatewayConfig`.
@@ -277,7 +280,7 @@ address-validation; теперь в одном аудируемом месте).
   (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
   iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
 - ✅ **Качество:** 10-раундовый аудит безопасности/багов/оптимизаций + 2 раунда регрессий +
-  4-линзовый код-ревью (Tier 1 применён). Тесты: unit 16 сьютов / 112, e2e 23/23 на живом sandbox.
+  4-линзовый код-ревью (Tier 1 применён). Тесты: unit 20 сьютов / 147, e2e 23/23 на живом sandbox.
 - ⬜ **Перед прод:** per-tenant encryption (JWE-интерцептор всё ещё на платформенном
   ключе — см. §6), подпись вебхука (C1), приватный Client-ключ дешифрования,
   Vault-реализация, метрики/трейсинг (Prometheus/OTel) — см. [production-questions.md](./production-questions.md).

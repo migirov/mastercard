@@ -239,7 +239,7 @@ All verified live (boot + functionally):
 
 ### Tests ✅
 
-- ✅ Unit (jest): **16 suites / 112 tests** — green.
+- ✅ Unit (jest): **20 suites / 147 tests** — green.
 - ✅ E2E: **23/23** against the **live Mastercard sandbox** (`test/app.e2e-spec.ts`),
   including a run on live Postgres. Part of normal verification.
 

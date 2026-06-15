@@ -257,7 +257,8 @@ warning — the client has the same combo).
    scaffold (Noop until MC spec, C1). `main.ts` prod gate requires `MC_WEBHOOK_TOKEN`.
    Throttler "authoritative = ingress" comment removed (per-pod limit is self-sufficient).
 4. ✅ **Thin modules collapsed.** EncryptionModule→provider of MastercardClientModule;
-   IdempotencyModule→provider of CrossBorderModule; HealthModule→controller in the umbrella.
+   IdempotencyModule→provider of CrossBorderModule; HealthModule→controller (later moved
+   to the dev harness `AppModule` — see "Latest milestones").
    Genuine feature modules kept (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
    Secrets/Store/Audit).
 5. ✅ **Entities co-located** (commit `09c4ece`). Removed the central `database/entities/`
@@ -347,7 +348,22 @@ is only for `req.ip`.
   closure (JSDoc kept, header strategy explicit at the call site); createPayment keeps its
   idempotency wrapper. **Tier 3 (prom-client metrics, requestId↔X-Mc-Correlation-Id↔audit
   tracing, options grouping) — NOT done** (needs client coordination).
-- **Tests:** unit jest — **16 suites / 112 tests**; e2e: **hermetic 10/10** (CI default,
+- **Two more senior code-review passes** (behavior-preserving, pushed): **(1) 8 fixes**
+  (`bfedb57`): `HealthController` moved out of the umbrella into the dev harness `AppModule`
+  (root `/health`,`/ready` would otherwise collide with the host's probes); `EncryptionService`
+  fail-loud guard (refuses to encrypt an OWN tenant with the platform key) + JWE built in
+  `onModuleInit`; `AuditService` exponential flush backoff on DB outage; `safeTokenEqual`
+  (one primitive for the 3 guards); `parseClientCredentials` (shared OAuth parser, Basic
+  precedence — closes a rate-limit bucket bypass); `CreateTenantDto.partnerId` charset; typed
+  `UnprocessableEntity (422)` instead of raw `Error` in `CredentialsService`; `agent.destroy()`
+  on shutdown. **(2) tests + polish** (`1178bcb`): +4 specs (EncryptionService,
+  parseClientCredentials, both auth guards), guard instead of the `as McCredentials` cast,
+  non-retryable crypto errors, barrel exports of host-facing types (`ErrorResponseDto`,
+  `CredentialMode`/`TenantStatus`), `readonly` value objects, dedup
+  `TokenResponse`↔`TokenResponseDto`, shared cash-pickup/endpoint-guide query types. 3rd
+  review verdict (incl. tooling/config): senior/staff-level, no regressions; the open tooling
+  items (CI/engines/coverage-gate) were decided AGAINST.
+- **Tests:** unit jest — **20 suites / 147 tests**; e2e: **hermetic 10/10** (CI default,
   stubbed MC) + **live 23/23** on the live sandbox (`npm run test:e2e:live`).
   ⚠️ verify commands CHANGED: `jest --config ./test/jest-e2e.json` is now the HERMETIC
   suite (needs only Postgres + .env, no live MC); the live sandbox is `npm run test:e2e:live`.
