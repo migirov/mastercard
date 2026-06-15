@@ -6,7 +6,12 @@ export enum CredentialMode {
   OWN = 'OWN',
 }
 
-/** Вычисляемый статус доступа партнёра (для отображения). */
+/**
+ * Вычисляемый статус доступа партнёра (для отображения). ВАЖНО: члены —
+ * НЕЗАВИСИМЫЕ частичные состояния одобрения, а НЕ линейная последовательность
+ * (platformApproved и mcApproved приходят из разных мест); порядок в enum —
+ * не машина состояний (см. effectiveStatus).
+ */
 export enum TenantStatus {
   PENDING = 'PENDING',
   PLATFORM_APPROVED = 'PLATFORM_APPROVED',
@@ -21,16 +26,16 @@ export enum TenantStatus {
  * вычисляется, а не хранится — чтобы нельзя было «выставить ACTIVE» в обход.
  */
 export interface Tenant {
-  id: string;
-  name: string;
-  credentialMode: CredentialMode;
+  readonly id: string;
+  readonly name: string;
+  readonly credentialMode: CredentialMode;
   /** Только для OWN: собственный partner-id. Для PLATFORM берётся общий. */
-  partnerId?: string;
+  readonly partnerId?: string;
   /** Только для OWN: путь к секретам партнёра в Vault. */
-  secretRef?: string;
-  platformApproved: boolean;
-  mcApproved: boolean;
-  suspended: boolean;
+  readonly secretRef?: string;
+  readonly platformApproved: boolean;
+  readonly mcApproved: boolean;
+  readonly suspended: boolean;
 }
 
 /** Транзакции разрешены только при двойном одобрении и без блокировки. */

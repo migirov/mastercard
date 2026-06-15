@@ -53,3 +53,34 @@ export const mcPath = {
   addressValidations: () =>
     `/send/address-validation-service/addresses/validations`,
 } as const;
+
+// Формы query-параметров каталогов (snake_case = как ждёт MC). Держим тип в ОДНОМ
+// месте рядом с путями — контроллер строит литерал, сервис принимает этот тип, и
+// компилятор ловит рассинхрон имён полей (опечатка → ошибка типа, а не тихо
+// пропавший фильтр).
+export interface CashPickupCitiesQuery {
+  country?: string;
+  currency?: string;
+  offset?: string;
+  limit?: string;
+}
+export interface CashPickupProvidersQuery {
+  country?: string;
+  currency?: string;
+  cash_pickup_type?: string;
+  offset?: string;
+  limit?: string;
+}
+export interface CashPickupBranchesQuery {
+  provider_id?: string;
+  state?: string;
+  city?: string;
+  offset?: string;
+  limit?: string;
+}
+export interface EndpointGuideQuery {
+  payment_type?: string;
+  destination_country?: string;
+  destination_currency?: string;
+  destination_payment_instrument?: string;
+}

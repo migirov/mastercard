@@ -4,13 +4,13 @@
  * платформы или собственные ключи мерчанта.
  */
 export interface McCredentials {
-  consumerKey: string;
+  readonly consumerKey: string;
   /** Приватный ключ подписи в формате PEM. */
-  signingKeyPem: string;
-  partnerId: string;
+  readonly signingKeyPem: string;
+  readonly partnerId: string;
   /** Для JWE-шифрования запросов (Фаза 4). */
-  encryptionCertPem?: string;
-  encryptionFingerprint?: string;
+  readonly encryptionCertPem?: string;
+  readonly encryptionFingerprint?: string;
   /** Для расшифровки ответов (Фаза 4). */
-  decryptionKeyPem?: string;
+  readonly decryptionKeyPem?: string;
 }

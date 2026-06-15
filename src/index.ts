@@ -18,3 +18,7 @@ export {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
 } from './common/rfi-upload.bodyparser';
+// Host-facing контракты: единый формат ошибок шлюза (хост может на него полагаться
+// при обработке наших ответов) и enum'ы для онбординга тенантов через admin-API.
+export { ErrorResponseDto } from './common/dto/error-response.dto';
+export { CredentialMode, TenantStatus } from './tenants/tenant.types';

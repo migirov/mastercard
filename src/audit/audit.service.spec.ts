@@ -95,4 +95,25 @@ describe('AuditService', () => {
     await svc.recent().catch(() => undefined);
     expect(repo.insert.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('backoff: после провала НЕпринудительный флаш пропускается в окне; force (recent/shutdown) его игнорирует', async () => {
+    // @ts-expect-error: find заглушаем для recent()
+    repo.find = jest.fn().mockResolvedValue([]);
+    repo.insert.mockRejectedValueOnce(new Error('db down')); // 1-й insert падает
+
+    fill(100); // MAX_BUFFER → flush #1 → insert #1 → fail → backoff (~2с), батч возвращён
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repo.insert).toHaveBeenCalledTimes(1);
+
+    // НЕпринудительный флаш в окне backoff (record при >=100) → пропускается
+    svc.record(entry(101));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(repo.insert).toHaveBeenCalledTimes(1); // не вызван — backoff
+
+    // recent() форсит флаш мимо backoff → вставка проходит
+    await svc.recent();
+    expect(repo.insert).toHaveBeenCalledTimes(2);
+  });
 });

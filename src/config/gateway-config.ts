@@ -9,36 +9,36 @@ import { isWeakSecret } from '../common/secret-strength';
  */
 export interface MastercardModuleOptions {
   /** Базовый URL Mastercard (sandbox/MTF/prod). */
-  baseUrl: string;
+  readonly baseUrl: string;
   /** Платформенные креды (режим PLATFORM; демо-сид OWN в dev). */
-  consumerKey: string;
-  partnerId: string;
-  signingKeyPath?: string;
-  signingKeyPassword?: string;
+  readonly consumerKey: string;
+  readonly partnerId: string;
+  readonly signingKeyPath?: string;
+  readonly signingKeyPassword?: string;
   /** Field-level encryption (JWE): включается в MTF/Prod. */
-  encryptionEnabled?: boolean;
-  encryptionCertPath?: string;
-  encryptionFingerprint?: string;
-  decryptionKeyPath?: string;
+  readonly encryptionEnabled?: boolean;
+  readonly encryptionCertPath?: string;
+  readonly encryptionFingerprint?: string;
+  readonly decryptionKeyPath?: string;
   /** Источник секретов мерчантов: 'local' (dev) | 'vault' (prod). */
-  secretStore?: 'local' | 'vault';
+  readonly secretStore?: 'local' | 'vault';
   /** TTL кэша OWN-кредов, мс. */
-  credsCacheTtlMs?: number;
+  readonly credsCacheTtlMs?: number;
   /** Секрет подписи внутренних JWT мерчантов. */
-  jwtSecret: string;
+  readonly jwtSecret: string;
   /** Токен внутренних (service-to-service) вызовов. */
-  internalToken: string;
+  readonly internalToken: string;
   /** Токен admin-API. */
-  adminToken: string;
+  readonly adminToken: string;
   /** Shared-secret аутентификации вебхуков MC (обязателен — guard fail-closed). */
-  webhookToken?: string;
+  readonly webhookToken?: string;
   /**
    * Окружение хоста. `'production'` включает прод-гейты (сильные секреты + vault)
    * и отключает засев тестовых тенантов. Хост ОБЯЗАН передать его в проде; если
    * не передан — модуль считает окружение не-production (гейты off). Модуль НЕ
    * читает `process.env.NODE_ENV` сам — значение только отсюда.
    */
-  nodeEnv?: string;
+  readonly nodeEnv?: string;
 }
 
 const DEFAULT_CREDS_TTL_MS = 10 * 60 * 1000;

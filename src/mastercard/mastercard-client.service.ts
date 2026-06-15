@@ -13,12 +13,12 @@ import { McCredentials } from '../credentials/credentials.types';
 import { EncryptionService } from '../encryption/encryption.service';
 
 export interface McRequest {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  readonly method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** Путь относительно base URL, например /send/v1/partners/.../quotes */
-  path: string;
-  body?: unknown;
+  readonly path: string;
+  readonly body?: unknown;
   /** Доп. заголовки. */
-  headers?: Record<string, string>;
+  readonly headers?: Record<string, string>;
 }
 
 export interface McResponse<T = unknown> {
@@ -30,12 +30,15 @@ export interface McResponse<T = unknown> {
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
 
 /**
- * Ошибка расшифровки ответа MC (в response-интерцепторе). Выделена в отдельный
- * тип, чтобы retry-цикл НЕ принимал её за транзиентный сетевой сбой: расшифровка
- * детерминирована (битый ключ/payload) — повтор бессмыслен (лишние подписанные
- * round-trip'ы к MC), сразу превращаем в 502.
+ * Базовый класс ДЕТЕРМИНИРОВАННЫХ ошибок крипто-конвейера (шифрование запроса /
+ * расшифровка ответа). Retry-цикл их НЕ ретраит: повтор даст тот же результат +
+ * лишние подписанные round-trip'ы к MC — сразу превращаем в 502.
  */
-class ResponseDecryptError extends Error {}
+class NonRetryableMcError extends Error {}
+/** Ошибка шифрования/подготовки запроса (напр. per-tenant fail-loud guard). */
+class RequestEncryptError extends NonRetryableMcError {}
+/** Ошибка расшифровки ответа MC (в response-интерцепторе). */
+class ResponseDecryptError extends NonRetryableMcError {}
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -121,10 +124,10 @@ export class MastercardClient implements OnApplicationShutdown {
         }
         return { status: res.status, data: res.data };
       } catch (e) {
-        // Расшифровка ответа детерминирована — НЕ ретраим (иначе 2 лишних
-        // подписанных round-trip'а к MC и отложенный 502). Только сетевой сбой
-        // транзиентен.
-        if (e instanceof ResponseDecryptError) throw e;
+        // Крипто-ошибки (шифрование запроса / расшифровка ответа) детерминированы —
+        // НЕ ретраим (иначе 2 лишних подписанных round-trip'а к MC и отложенный
+        // 502). Только сетевой сбой транзиентен.
+        if (e instanceof NonRetryableMcError) throw e;
         lastErr = e; // сетевой сбой
         if (attempt < maxAttempts) {
           await delay(attempt * 200);
@@ -149,12 +152,16 @@ export class MastercardClient implements OnApplicationShutdown {
       // (EncryptionService пока одноключевой; контракт уже креды-зависимый).
       let body = config.data;
       if (body != null) {
-        const { body: out, encrypted } = this.encryption.encryptRequest(
-          creds,
-          body,
-        );
-        body = out;
-        if (encrypted) config.headers.set('x-encrypted', 'true');
+        let result: { body: unknown; encrypted: boolean };
+        try {
+          result = this.encryption.encryptRequest(creds, body);
+        } catch (e) {
+          // Детерминированный отказ шифрования (напр. per-tenant fail-loud guard) —
+          // помечаем non-retryable, чтобы GET не ретраил его как сетевой сбой.
+          throw new RequestEncryptError((e as Error).message);
+        }
+        body = result.body;
+        if (result.encrypted) config.headers.set('x-encrypted', 'true');
       }
       const payload =
         body == null
@@ -191,11 +198,13 @@ export class MastercardClient implements OnApplicationShutdown {
     // достаём из config ответа (для будущего per-tenant ключа расшифровки).
     this.http.interceptors.response.use((response) => {
       const creds = (response.config as McAxiosConfig).mcCreds;
+      // Симметрично request-интерцептору: creds всегда ставит request(). Защищаемся
+      // guard'ом (а не кастом `as McCredentials`, который скрыл бы рассинхрон).
+      if (!creds) {
+        throw new ResponseDecryptError('missing creds in response config');
+      }
       try {
-        response.data = this.encryption.decryptResponse(
-          creds as McCredentials,
-          response.data,
-        );
+        response.data = this.encryption.decryptResponse(creds, response.data);
       } catch (e) {
         this.logger.error(
           `Расшифровка ответа MC не удалась: ${(e as Error).message}`,
