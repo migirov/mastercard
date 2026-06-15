@@ -329,8 +329,28 @@ is only for `req.ip`.
   (`src/index.ts`); Swagger gaps filled (`@ApiSecurity('internal')` + `X-Tenant-Id`
   header, `Idempotency-Key` via `@ApiHeader`, `ApiErrorResponses` on all controllers,
   `WebhookAckDto`); +4 new regression test specs. Verdict: senior-level code, no rewrite.
-- **Tests:** unit jest — **16 suites / 112 tests**; e2e — **23/23** on the live sandbox.
-  (Old "11/15 coverage" and low test counts are stale.)
+- **Tier 2 refactors** (same review, behavior-preserving, commit `54a8b0a`, pushed):
+  **#8 EncryptionService seam** — `encryptRequest(creds, body)` / `decryptResponse(creds,
+  body)` (creds threaded from the axios interceptor; implementation STAYS single-key, but
+  the contract is now per-tenant → makes the per-tenant encryption blocker structurally
+  honest: when MTF access arrives only EncryptionService internals change, not the
+  interceptor); **#9 hermetic CI e2e** — split into two suites: `test/app.contract.e2e-spec.ts`
+  (CI default, `jest-e2e.json`) overrides MastercardClient + CredentialsService with stubs
+  (no live MC / certs, only Postgres + dev env) and deterministically asserts the
+  response-mapping branches the live suite can't reach (MC 401/5xx → 502 body hidden,
+  4xx-object → envelope + `upstream`, 4xx-HTML → 502, success → shape) plus input
+  validation — **10/10**; the live suite `test/app.e2e-spec.ts` is now opt-in
+  (`jest-e2e-live.json`, `npm run test:e2e:live`); **#7 CrossBorderService consolidation** —
+  a single private `run(tenantId, ctx, build)` (gating → build McRequest from resolved
+  creds → dispatch) collapsed the four dispatchers (call/callRef/callCatalog/callGuide) +
+  header helpers (mcRefHeaders, catalogHeaders); the ~20 methods drop to a 3–4 line build
+  closure (JSDoc kept, header strategy explicit at the call site); createPayment keeps its
+  idempotency wrapper. **Tier 3 (prom-client metrics, requestId↔X-Mc-Correlation-Id↔audit
+  tracing, options grouping) — NOT done** (needs client coordination).
+- **Tests:** unit jest — **16 suites / 112 tests**; e2e: **hermetic 10/10** (CI default,
+  stubbed MC) + **live 23/23** on the live sandbox (`npm run test:e2e:live`).
+  ⚠️ verify commands CHANGED: `jest --config ./test/jest-e2e.json` is now the HERMETIC
+  suite (needs only Postgres + .env, no live MC); the live sandbox is `npm run test:e2e:live`.
 
 ### Mastercard API coverage (client sent the API Reference screenshot — all 15 wanted)
 Map: `docs/{en,ru}/api.md` → "Mastercard API Reference — coverage" (screenshot order,
