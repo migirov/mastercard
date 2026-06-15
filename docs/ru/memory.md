@@ -259,7 +259,8 @@ class-validator/mapped-types — есть и у клиента).
    prod-гейт требует `MC_WEBHOOK_TOKEN`. Throttler-комментарий «авторитет — ингресс»
    убран (per-pod лимит самодостаточен).
 4. ✅ **Схлопнуты тонкие модули.** EncryptionModule→провайдер MastercardClientModule;
-   IdempotencyModule→провайдер CrossBorderModule; HealthModule→контроллер в зонтичном.
+   IdempotencyModule→провайдер CrossBorderModule; HealthModule→контроллер (позже вынесен
+   в dev-харнесс `AppModule` — см. «Последние вехи»).
    Настоящие feature-модули (Tenant/Auth/Admin/CrossBorder/Webhooks/Credentials/
    Secrets/Store/Audit) оставлены.
 5. ✅ **Сущности co-located** (коммит `09c4ece`). Убрана общая папка
@@ -350,7 +351,22 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   оставлен (idempotency-обёртка). **Tier 3 (метрики prom-client, трассировка
   requestId↔X-Mc-Correlation-Id↔audit, группировка опций) — НЕ делалось** (нужна
   координация с клиентом).
-- **Тесты:** unit jest — **16 сьютов / 112 тестов**; e2e: **hermetic 10/10** (CI-дефолт,
+- **Код-ревью senior-уровня — ещё два прохода** (поведение-сохраняющие, запушено):
+  **(1) 8 правок** (`bfedb57`): `HealthController` вынесен из зонтичного модуля в
+  dev-харнесс `AppModule` (корневые `/health`,`/ready` иначе коллизия с пробами хоста);
+  `EncryptionService` fail-loud guard (отказ шифровать OWN-тенанта платформенным ключом) +
+  сборка JWE в `onModuleInit`; `AuditService` экспоненциальный backoff флаша при отказе БД;
+  `safeTokenEqual` (один примитив для 3 гардов); `parseClientCredentials` (общий OAuth-парсер,
+  приоритет Basic — закрыт обход бакета rate-limit); `CreateTenantDto.partnerId` charset;
+  типизированные `UnprocessableEntity (422)` вместо сырого `Error` в `CredentialsService`;
+  `agent.destroy()` на shutdown. **(2) тесты + полировка** (`1178bcb`): +4 спека
+  (EncryptionService, parseClientCredentials, оба auth-гарда), guard вместо каста
+  `as McCredentials`, non-retryable крипто-ошибки, barrel-экспорт host-facing типов
+  (`ErrorResponseDto`, `CredentialMode`/`TenantStatus`), `readonly` на value-объектах,
+  дедуп `TokenResponse`↔`TokenResponseDto`, общие query-типы cash-pickup/endpoint-guide.
+  Вердикт 3-го ревью (включая тулинг/конфиг): код senior/staff-уровня, регрессий нет;
+  открытое по тулингу (CI/engines/coverage-gate) — решено НЕ делать.
+- **Тесты:** unit jest — **20 сьютов / 147 тестов**; e2e: **hermetic 10/10** (CI-дефолт,
   стаб MC) + **live 23/23** на живом sandbox (`npm run test:e2e:live`).
   ⚠️ verify-команды ИЗМЕНИЛИСЬ: `jest --config ./test/jest-e2e.json` теперь = ГЕРМЕТИЧНЫЙ
   сьют (нужен только Postgres+.env, без live MC); живой sandbox — `npm run test:e2e:live`.
