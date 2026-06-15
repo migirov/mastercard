@@ -332,8 +332,28 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   заголовок `X-Tenant-Id`, `Idempotency-Key` через `@ApiHeader`, `ApiErrorResponses` на
   всех контроллерах, `WebhookAckDto`); +4 новых регрессионных спека. Вердикт: код
   senior-уровня, переписывать не нужно.
-- **Тесты:** unit jest — **16 сьютов / 112 тестов**; e2e — **23/23** на живом sandbox.
-  (Старые «11/15 coverage» и низкие счётчики тестов — устаревшие.)
+- **Tier 2 рефакторинги** (из того же ревью, поведение-сохраняющие, коммит `54a8b0a`,
+  запушено): **#8 EncryptionService seam** — `encryptRequest(creds, body)` /
+  `decryptResponse(creds, body)` (creds протянут из axios-интерцептора; реализация ОСТАЁТСЯ
+  одноключевой, но контракт теперь per-tenant → готовит блокер per-tenant encryption
+  структурно: при доступе к MTF меняется только нутро EncryptionService, не интерцептор);
+  **#9 hermetic CI e2e** — сплит на 2 сьюта: `test/app.contract.e2e-spec.ts` (CI-дефолт,
+  `jest-e2e.json`) с `overrideProvider` MastercardClient+CredentialsService → стабы (без
+  live MC/certs, только Postgres+dev-env), детерминированно проверяет ветки маппинга,
+  которых live не достаёт (MC 401/5xx→502 тело скрыто, 4xx-объект→конверт+`upstream`,
+  4xx-HTML→502, success→форма) + input-валидацию — **10/10**; live-сьют `test/app.e2e-spec.ts`
+  стал opt-in (`jest-e2e-live.json`, `npm run test:e2e:live`); **#7 CrossBorderService
+  консолидация** — единый приватный `run(tenantId, ctx, build)` (gating→build McRequest из
+  резолвленных creds→диспатч), схлопнул 4 диспетчера (call/callRef/callCatalog/callGuide) +
+  хелперы заголовков (mcRefHeaders, catalogHeaders); ~20 методов стали 3-4 строки (build-
+  замыкание, JSDoc сохранён, header-стратегия видна на месте вызова); `createPayment`
+  оставлен (idempotency-обёртка). **Tier 3 (метрики prom-client, трассировка
+  requestId↔X-Mc-Correlation-Id↔audit, группировка опций) — НЕ делалось** (нужна
+  координация с клиентом).
+- **Тесты:** unit jest — **16 сьютов / 112 тестов**; e2e: **hermetic 10/10** (CI-дефолт,
+  стаб MC) + **live 23/23** на живом sandbox (`npm run test:e2e:live`).
+  ⚠️ verify-команды ИЗМЕНИЛИСЬ: `jest --config ./test/jest-e2e.json` теперь = ГЕРМЕТИЧНЫЙ
+  сьют (нужен только Postgres+.env, без live MC); живой sandbox — `npm run test:e2e:live`.
 
 ### Покрытие Mastercard API (клиент прислал скрин API Reference — нужны ВСЕ 15)
 Карта — в `docs/{ru,en}/api.md` раздел «Покрытие Mastercard API Reference» (порядок
