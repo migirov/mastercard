@@ -36,6 +36,31 @@ describe('GatewayExceptionFilter', () => {
     expect(body.timestamp).toEqual(expect.any(String));
   });
 
+  it('prefers the pino-set req.id over the X-Request-Id header', () => {
+    const { host, res } = makeHost({
+      url: '/admin/tenants',
+      path: '/admin/tenants',
+      method: 'POST',
+      id: 'pino-uuid-123',
+      headers: { 'x-request-id': 'client-supplied' },
+    });
+    filter.catch(new BadRequestException('x'), host);
+    expect(res.json.mock.calls[0][0].requestId).toBe('pino-uuid-123');
+  });
+
+  it('drops a malformed X-Request-Id (anti echo-injection) — requestId omitted', () => {
+    const { host, res } = makeHost({
+      url: '/admin/tenants',
+      path: '/admin/tenants',
+      method: 'POST',
+      headers: { 'x-request-id': 'bad\r\ninjected: 1' },
+    });
+    filter.catch(new BadRequestException('x'), host);
+    const body = res.json.mock.calls[0][0];
+    expect(body.requestId).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('injected');
+  });
+
   it('nests the Mastercard body under "upstream"', () => {
     const { host, res } = makeHost({
       url: '/crossborder/quotes',

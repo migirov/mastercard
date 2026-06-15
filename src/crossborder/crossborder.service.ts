@@ -38,6 +38,7 @@ import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
 import { RfiUpdateRequestDto } from './dto/rfi-update-request.dto';
+import { StatusEventViewDto } from './dto/status-event-view.dto';
 import { TransactionStatusStore } from '../webhooks/transaction-status.store';
 
 /** Бизнес/клиентские статусы Mastercard, которые осмысленно пробрасывать мерчанту. */
@@ -365,9 +366,26 @@ export class CrossBorderService {
    * проверен SafeIdPipe в контроллере. `tenant` берём из auth-контекста (mode уже
    * там — без лишнего запроса к реестру).
    */
-  async getStatusEvents(tenant: Tenant, ref: string) {
+  async getStatusEvents(
+    tenant: Tenant,
+    ref: string,
+  ): Promise<StatusEventViewDto[]> {
     const includePool = tenant.credentialMode === CredentialMode.PLATFORM;
-    return this.statusEvents.findForTenant(tenant.id, ref, includePool);
+    const rows = await this.statusEvents.findForTenant(
+      tenant.id,
+      ref,
+      includePool,
+    );
+    // Явный маппинг (whitelist): не отдаём внутренние id/tenantId наружу.
+    return rows.map((r) => ({
+      transactionReference: r.transactionReference ?? null,
+      eventType: r.eventType ?? null,
+      transactionType: r.transactionType ?? null,
+      status: r.status ?? null,
+      stage: r.stage ?? null,
+      receivedAt: r.receivedAt,
+      payload: r.payload,
+    }));
   }
 
   // --- инфраструктура ---

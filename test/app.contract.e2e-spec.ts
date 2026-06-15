@@ -163,4 +163,181 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     });
     expect(r.status).toBe(400);
   });
+
+  // --- новые эндпоинты (доработка покрытия) ---
+
+  it('GET /crossborder/rates (Carded/FX Rate Pull) → MC 2xx форвардится', async () => {
+    stubMc.next = { status: 200, data: { rates: [{ rate_id: 'r1' }] } };
+    const r = await http.get('/crossborder/rates', { headers: internal });
+    expect(r.status).toBe(200);
+    expect(r.data).toEqual({ rates: [{ rate_id: 'r1' }] });
+    // путь и метод, ушедшие в MC (Pull = GET, без тела)
+    const sent = stubMc.request.mock.calls.at(-1)?.[1];
+    expect(sent).toMatchObject({ method: 'GET' });
+    expect(sent.path).toContain('/crossborder/rates');
+  });
+
+  it('POST /crossborder/quotes/cancellations → MC 2xx форвардится', async () => {
+    stubMc.next = { status: 200, data: { status: 'CANCELLED' } };
+    const r = await http.post(
+      '/crossborder/quotes/cancellations',
+      { transactionReference: 'TX1', proposalId: 'pen_1' },
+      { headers: internal },
+    );
+    expect(r.status).toBe(200);
+    expect(r.data).toEqual({ status: 'CANCELLED' });
+    expect(stubMc.request.mock.calls.at(-1)?.[1].path).toContain(
+      '/crossborder/quotes/cancellations',
+    );
+  });
+
+  it('GET /crossborder/quotes/:ref/proposals/:id (Retrieve Confirmed Quote) → MC 2xx форвардится', async () => {
+    stubMc.next = {
+      status: 200,
+      data: { confirmStatus: { status: 'CONFIRMED' } },
+    };
+    const r = await http.get('/crossborder/quotes/TX1/proposals/pen_1', {
+      headers: internal,
+    });
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ confirmStatus: { status: 'CONFIRMED' } });
+    expect(stubMc.request.mock.calls.at(-1)?.[1].path).toContain(
+      '/crossborder/quotes/TX1/proposals/pen_1',
+    );
+  });
+
+  it('Status Change Push: вебхук → персист в tx_status → polling → дедуп (без MC)', async () => {
+    const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
+    // Уникальные ref/eventRef на прогон — tx_status персистентна между запусками.
+    const ref = `E2ETX_${Date.now()}`;
+    const eventRef = `whe2e_${Date.now()}`;
+    const body = {
+      eventRef,
+      eventType: 'STATUS_CHG',
+      transactionReference: ref,
+      partnerId: 'NOT_AN_OWN_PARTNER', // нет OWN-тенанта → общий пул (tenantId=null)
+      transactionType: 'PAYMENT',
+      quote: { confirmStatus: { status: 'CONFIRMED' } },
+    };
+
+    // 1) приём + атомарный персист
+    const post1 = await http.post('/webhooks/mastercard', body, {
+      headers: webhook,
+    });
+    expect(post1.status).toBe(200);
+    expect(post1.data).toEqual({ status: 'accepted' });
+
+    // 2) polling мерчантом (acme = PLATFORM → видит общий пул по ref)
+    const poll = await http.get(`/crossborder/status-events?ref=${ref}`, {
+      headers: internal,
+    });
+    expect(poll.status).toBe(200);
+    expect(Array.isArray(poll.data)).toBe(true);
+    expect(poll.data).toHaveLength(1);
+    expect(poll.data[0]).toMatchObject({
+      transactionReference: ref,
+      eventType: 'STATUS_CHG',
+      transactionType: 'PAYMENT',
+      status: 'CONFIRMED',
+    });
+    // view-DTO whitelist: внутренние поля наружу НЕ отдаются
+    expect(poll.data[0].id).toBeUndefined();
+    expect(poll.data[0].tenantId).toBeUndefined();
+    expect(poll.data[0].payload).toBeDefined();
+
+    // 3) ретрай MC того же eventRef → дубликат (дедуп = UNIQUE(eventRef))
+    const post2 = await http.post('/webhooks/mastercard', body, {
+      headers: webhook,
+    });
+    expect(post2.data).toEqual({ status: 'duplicate' });
+  });
+
+  it('атрибуция/изоляция: OWN видит своё, PLATFORM — общий пул; перекрёстно — нет', async () => {
+    const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
+    // own-demo — сид OWN с partnerId='OWN_PARTNER_TBD' (см. TenantRegistry).
+    const ownInternal = {
+      'x-internal-token': process.env.MC_INTERNAL_TOKEN ?? '',
+      'x-tenant-id': 'own-demo',
+    };
+    const t = Date.now();
+    const refOwn = `E2EOWN_${t}`;
+    const refPool = `E2EPOOL_${t}`;
+
+    // A: partnerId совпадает с OWN-тенантом → атрибуция own-demo
+    const a = await http.post(
+      '/webhooks/mastercard',
+      {
+        eventRef: `whown_${t}`,
+        eventType: 'STATUS_CHG',
+        transactionReference: refOwn,
+        partnerId: 'OWN_PARTNER_TBD',
+        transactionType: 'PAYMENT',
+      },
+      { headers: webhook },
+    );
+    expect(a.data).toEqual({ status: 'accepted' });
+    // B: неизвестный partnerId → общий пул (tenantId=null)
+    const b = await http.post(
+      '/webhooks/mastercard',
+      {
+        eventRef: `whpool_${t}`,
+        eventType: 'STATUS_CHG',
+        transactionReference: refPool,
+        partnerId: 'NOBODY',
+        transactionType: 'PAYMENT',
+      },
+      { headers: webhook },
+    );
+    expect(b.data).toEqual({ status: 'accepted' });
+
+    // OWN видит своё событие; PLATFORM (acme) его НЕ видит (оно не в пуле)
+    const ownSeesOwn = await http.get(
+      `/crossborder/status-events?ref=${refOwn}`,
+      { headers: ownInternal },
+    );
+    expect(ownSeesOwn.data).toHaveLength(1);
+    const platSeesOwn = await http.get(
+      `/crossborder/status-events?ref=${refOwn}`,
+      { headers: internal },
+    );
+    expect(platSeesOwn.data).toHaveLength(0);
+
+    // OWN НЕ видит общий пул; PLATFORM видит пул по ref
+    const ownSeesPool = await http.get(
+      `/crossborder/status-events?ref=${refPool}`,
+      { headers: ownInternal },
+    );
+    expect(ownSeesPool.data).toHaveLength(0);
+    const platSeesPool = await http.get(
+      `/crossborder/status-events?ref=${refPool}`,
+      { headers: internal },
+    );
+    expect(platSeesPool.data).toHaveLength(1);
+  });
+
+  it('overlong status усекается под колонку (varchar 32) — 200, не 500', async () => {
+    const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
+    const t = Date.now();
+    const ref = `E2ETRUNC_${t}`;
+    const post = await http.post(
+      '/webhooks/mastercard',
+      {
+        eventRef: `whtrunc_${t}`,
+        eventType: 'STATUS_CHG',
+        transactionReference: ref,
+        partnerId: 'NOBODY',
+        transactionType: 'PAYMENT',
+        quote: { confirmStatus: { status: 'S'.repeat(50) } },
+      },
+      { headers: webhook },
+    );
+    expect(post.status).toBe(200);
+    expect(post.data).toEqual({ status: 'accepted' });
+
+    const poll = await http.get(`/crossborder/status-events?ref=${ref}`, {
+      headers: internal,
+    });
+    expect(poll.data).toHaveLength(1);
+    expect(poll.data[0].status).toHaveLength(32); // усечено под varchar(32)
+  });
 });
