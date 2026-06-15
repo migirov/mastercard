@@ -99,7 +99,7 @@ an exact global rate-limit is ever needed, it can be reused.
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (issue), `GET /admin/audit`.
-- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, required in prod and dev; mTLS at the ingress optional, additional — not the authentication).
+- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, required in prod and dev; MC's authoritative push-notification authenticity = **mTLS**, not a payload signature — see `api.md` → Webhooks).
 - **Swagger:** `GET /api-docs` (off in production unless `SWAGGER_ENABLED`).
 
 ---
@@ -361,9 +361,10 @@ iban-generations), **7 Cash Pickup ×4 GET**, **8 Endpoint Guide** (GET; sandbox
 generic pid), 9 Status Change Push (webhook), 10 Retrieve Payment, **11 RFI suite ×4**
 (retrieve/update/upload/download; sandbox canned-rejects non-onboarded pid; upload uses a
 route-scoped 2MB body limit), 12 Cancel, 13 Balance, 14 Payload Encryption; 15 Push
-Notifications — partial (receiver done, signature awaiting spec C1).
+Notifications — partial (receiver/dedup done; webhook authenticity = **mTLS** at deployment, not
+a payload signature — the former "C1" is closed by reading the MC docs).
 **Coverage complete.** Only externally-blocked items remain (per-tenant encryption/MTF,
-webhook signature C1, prod Client Decryption keys).
+webhook mTLS cert from MC, prod Client Decryption keys).
 
 **IMPORTANT for new APIs:**
 - MC paths are INCONSISTENT — take them from `api-mastercard.md` (don't guess): `/send/v1/`
@@ -384,7 +385,9 @@ webhook signature C1, prod Client Decryption keys).
 
 ### Open blockers (external)
 per-tenant encryption (prod-OWN+JWE; the JWE lib needs files, keys = Vault PEM, can't e2e
-without MTF); webhook signature per C1 (awaits the MC spec); prod Client Encryption keys
+without MTF); **webhook mTLS authenticity** (the former "C1" — per the MC docs this is mTLS,
+NOT a payload signature; needs the public mTLS cert from MC + trust + cert-chain via the KMP
+portal; details in `api.md`/`plan.md`/`production-questions.md`); prod Client Encryption keys
 (portal).
 
 > `.agentic-security/` (security-plugin scanner output) is in `.gitignore` — do NOT commit.
