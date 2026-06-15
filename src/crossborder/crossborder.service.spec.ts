@@ -219,16 +219,40 @@ describe('CrossBorderService — status events (локальное чтение)
     credentialMode: 'PLATFORM',
   } as unknown as Tenant;
 
-  it('OWN-тенант → findForTenant(id, ref, includePool=false); MC не вызывается', async () => {
-    const rows = [{ id: 1, transactionReference: 'TX1' }];
+  it('OWN-тенант → findForTenant(id, ref, includePool=false); маппинг в view (без id/tenantId); MC не вызывается', async () => {
+    const rows = [
+      {
+        id: 1,
+        tenantId: 'own-1',
+        transactionReference: 'TX1',
+        eventType: 'STATUS_CHG',
+        transactionType: 'PAYMENT',
+        status: 'CONFIRMED',
+        stage: null,
+        receivedAt: new Date(0),
+        payload: { a: 1 },
+      },
+    ];
     const { svc, statusEvents, client } = make();
     (statusEvents.findForTenant as jest.Mock).mockResolvedValue(rows);
-    await expect(svc.getStatusEvents(ownTenant, 'TX1')).resolves.toBe(rows);
+    const out = await svc.getStatusEvents(ownTenant, 'TX1');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'own-1',
       'TX1',
       false,
     );
+    // view-DTO whitelist: внутренние id/tenantId не отдаются наружу
+    expect(out).toEqual([
+      {
+        transactionReference: 'TX1',
+        eventType: 'STATUS_CHG',
+        transactionType: 'PAYMENT',
+        status: 'CONFIRMED',
+        stage: null,
+        receivedAt: new Date(0),
+        payload: { a: 1 },
+      },
+    ]);
     expect(client.request).not.toHaveBeenCalled();
   });
 

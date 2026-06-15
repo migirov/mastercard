@@ -46,10 +46,7 @@ export class GatewayExceptionFilter implements ExceptionFilter {
     // requestId — строкой и ТОЛЬКО при наличии (контракт ErrorResponseDto:
     // optional string, не null/number). path — req.path (без query): не отражаем
     // сырой ввод клиента (?ref=…) в теле ошибки и совпадаем с примером DTO.
-    const requestId =
-      req.id != null
-        ? String(req.id)
-        : (req.headers['x-request-id'] as string | undefined);
+    const requestId = resolveRequestId(req);
     const base = {
       statusCode: status,
       path: req.path,
@@ -93,6 +90,25 @@ export class GatewayExceptionFilter implements ExceptionFilter {
       message: 'Internal server error',
     });
   }
+}
+
+/** Безопасный формат correlation-id (анти log/echo-инъекция). */
+const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * requestId для тела ошибки. Приоритет — `req.id` (его ставит pino genReqId в
+ * харнессе, уже валидированный). Если его нет (встраивание в хост БЕЗ pino —
+ * модуль не должен полагаться на санитайзер харнесса), берём входящий
+ * `X-Request-Id`, но САМИ валидируем формат: иначе сырой клиентский заголовок
+ * (произвольная длина/charset) отразился бы в JSON-ответе. Не подошёл — опускаем.
+ */
+function resolveRequestId(req: Request): string | undefined {
+  if (req.id != null) return String(req.id);
+  const raw = req.headers['x-request-id'];
+  const candidate = Array.isArray(raw) ? raw[0] : raw;
+  return typeof candidate === 'string' && REQUEST_ID_RE.test(candidate)
+    ? candidate
+    : undefined;
 }
 
 /** Допустимые коды ошибок OAuth2 (RFC 6749 §5.2). */

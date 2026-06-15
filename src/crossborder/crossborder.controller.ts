@@ -38,6 +38,7 @@ import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
 import { RfiUpdateRequestDto } from './dto/rfi-update-request.dto';
+import { StatusEventViewDto } from './dto/status-event-view.dto';
 import { CrossBorderService } from './crossborder.service';
 
 /**
@@ -391,6 +392,7 @@ export class CrossBorderController {
     required: true,
     description: 'transaction_reference транзакции/котировки.',
   })
+  @ApiResponse({ status: 200, type: [StatusEventViewDto] })
   getStatusEvents(
     @CurrentTenant() ctx: TenantContext,
     @Query('ref', SafeIdPipe) ref: string,
