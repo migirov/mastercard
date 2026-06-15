@@ -82,9 +82,9 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
   `/oauth/token` 10/min by client_id, admin 120/min. *(Improved later — see below.)*
 - ✅ MC **webhook** scaffold (`POST /webhooks/mastercard`): dedup by `eventRef`,
   always 200. **Authentication = in-service fail-closed token (`X-Webhook-Token`),
-  required in prod and dev**; JWS/HMAC signature verification is the planned
-  authoritative factor (pending MC spec, C1). mTLS at the ingress is optional,
-  additional — not the authentication.
+  required in prod and dev**. Mastercard's authoritative authenticity for push
+  notifications is **mTLS** (not a payload signature; established from the MC docs,
+  the former "C1" — details in `api.md` → Webhooks and "Open questions" #2 below).
 
 ## Phase 4 — JWE field-level encryption ✅ (sandbox plain; ready for MTF/Prod)
 
@@ -147,8 +147,10 @@ core, the following were added and live-tested as the gateway contract:
 - ✅ **Endpoint Guide** (GET).
 - ✅ **RFI** (retrieve / update / upload / download).
 - ✅ **Carded Rate Pull**.
-- ✅ **#15 Push Notifications** — webhook receiver done; cryptographic signature
-  awaits the MC spec (question C1).
+- ✅ **#15 Push Notifications** — webhook receiver + dedup done. Mastercard's
+  authoritative webhook authenticity is **mTLS, not a payload signature** (established
+  from the MC docs, the former "question C1"); configured at deployment — needs the
+  public mTLS cert from MC (see "Open questions" #2 below, and `api.md` → Webhooks).
 
 **Sandbox caveats:** validation POSTs need JWE encryption (FLE is off on sandbox → only
 the gateway contract is verifiable, the body auto-encrypts in MTF/Prod); endpoint-guide
@@ -251,8 +253,20 @@ All verified live (boot + functionally):
    for OWN+MTF/Prod (partners have different MC keys). Known seam fix: pass `creds`
    into `encryptRequest/decryptResponse`. Cannot be implemented/verified without MTF
    access + real per-tenant keys. See [production-questions.md](./production-questions.md).
-2. 🟡 **Webhook signature (C1):** real JWS/HMAC verification awaits Mastercard's
-   signature spec; currently a Noop scaffold, the active factor is the token.
+2. 🟡 **Webhook authenticity = mTLS (former "C1"):** per the official MC docs, push
+   notifications are authenticated via **mTLS**, NOT a payload signature (JWS/HMAC). So
+   there is no payload signature to verify in code; `WebhookSignatureVerifier` stays a
+   scaffold (Noop). The active factor today is the fail-closed `X-Webhook-Token`.
+   MC quote (`api-mastercard.md`): *“Contact your mastercard representative for mTLS
+   push notification mastercard public certificate. This certificate needs to be trusted
+   by the receiving application. Also, please share the server certificate chain for
+   validation (via KMP portal)…”*
+   **Once received — do:** (1) request the public mTLS push-notification cert from the
+   MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit
+   our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token`
+   is delivered (MC doesn't know it — inject at the TLS layer, or a custom header in the
+   portal push config). Decrypting the encrypted webhook body is a separate blocker
+   (same private Client Decryption key, #3).
 3. 🟡 **Private Client Encryption key** to decrypt responses in MTF/Prod
    (`MC_DECRYPTION_KEY_PATH`) — currently only the public cert (needs the portal).
 4. 🟡 **Secret manager** — Vault / AWS / GCP? Only `VaultSecretStore` needs implementing.

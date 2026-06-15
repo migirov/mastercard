@@ -32,9 +32,9 @@
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
-| 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; подпись — C1) |
+| 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; аутентичность вебхука = **mTLS** при деплое — нужен cert от MC, см. ниже) |
 
-**Реализовано — все 15 (14 + 1 частично):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 частично, ждёт спеку подписи C1).
+**Реализовано — все 15 (14 + 1 частично):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 частично: приём/дедуп готовы, авторитетная аутентичность вебхука = mTLS, настраивается при деплое — нужен публичный mTLS-cert от MC; см. раздел «Webhooks»).
 
 > **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
 > нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
@@ -83,7 +83,7 @@
 | `Authorization: Bearer <JWT>` | **внешний мерчант** (партнёр) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | **внутренний** сервис/UI платформы | `/crossborder/*` |
 | `X-Admin-Token` | **оператор платформы** | `/admin/*` |
-| in-service `X-Webhook-Token` (fail-closed; mTLS на ингрессе — опциональный доп. слой) | **Mastercard** | `/webhooks/*` |
+| in-service `X-Webhook-Token` (fail-closed; авторитетная аутентичность у MC = **mTLS**, токен — наш доп. фактор) | **Mastercard** | `/webhooks/*` |
 | — (публичный) | любой с client_id/secret | `/oauth/token` |
 
 **Важно:** `tenantId` НИКОГДА не берётся из тела/query — только из аутентификации
@@ -240,7 +240,26 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 |---|---|---|
 | `POST` | `/webhooks/mastercard` | Приём push-уведомлений (статусы транзакций и т.п.) |
 
-- **Аутентификация:** in-service fail-closed токен (`X-Webhook-Token`), обязателен в prod и dev; проверка подписи JWS/HMAC — планируемый authoritative-фактор (ждёт спеку MC, C1). mTLS на ингрессе — опциональный доп. слой, не аутентификация.
+- **Аутентификация:** in-service fail-closed токен (`X-Webhook-Token`), обязателен в prod и dev.
+  **Авторитетная аутентичность push-уведомлений у Mastercard — это mTLS, а НЕ подпись тела
+  (JWS/HMAC)** — это выяснено по официальной доке MC (`api-mastercard.md`, разделы *FX Rate
+  Push* и *Status Change Push*). То есть отдельной подписи payload, которую можно было бы
+  проверять в коде, у MC нет: `WebhookSignatureVerifier` остаётся каркасом (Noop) на случай,
+  если MC когда-нибудь её добавит. mTLS настраивается на слое TLS-терминации (ингресс/приложение),
+  а наш `X-Webhook-Token` — дополнительный shared-secret фактор поверх него.
+
+  > **Требование Mastercard (дословно, `api-mastercard.md`):**
+  > *“Contact your mastercard representative for mTLS push notification mastercard public
+  > certificate. This certificate needs to be trusted by the receiving application. Also, please
+  > share the server certificate chain for validation (via KMP portal), if those are accepted on
+  > mastercard infrastructure.”*
+
+  **Что нужно сделать при деплое (когда получим cert):** запросить у представителя Mastercard
+  публичный mTLS-сертификат push-уведомлений → добавить его в trust store принимающего
+  приложения/ингресса; передать наш серверный cert-chain через **KMP-портал**. До этого приём
+  держится на fail-closed `X-Webhook-Token`. ⚠️ Учесть: MC **не знает** наш `X-Webhook-Token` и
+  не пришлёт его — токен должен инжектиться TLS-терминирующим слоем после проверки mTLS либо
+  настраиваться кастомным заголовком в Push-конфиге портала MC (подтвердить у MC).
 - **Всегда отвечает `200`** (иначе MC ретраит).
 - **Дедуп** по `eventRef` (MC ретраит до 3 раз): повтор → `{"status":"duplicate"}`,
   иначе `{"status":"accepted"}`.

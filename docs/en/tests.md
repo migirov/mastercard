@@ -116,7 +116,8 @@ Direction **MC → us** (status push notifications). Does not call the MC API ou
 > The webhook dedup-by-`eventRef` path (`kv_store`) is unit-pinned by
 > `webhook.handler.spec` / `webhook-auth.guard.spec` — see [tests-inner.md](./tests-inner.md).
 > Webhook authentication is the in-service fail-closed token (`X-Webhook-Token`),
-> required in prod and dev. mTLS at the ingress is optional, additional — not the authentication.
+> required in prod and dev. Mastercard's authoritative authenticity for push notifications
+> is **mTLS** (not a payload signature; the former "C1" — details in `api.md` → Webhooks).
 
 ---
 
