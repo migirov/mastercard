@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 /**
- * Проверка подлинности входящего вебхука Mastercard ПО СОДЕРЖИМОМУ (подпись), а
- * не по доверию к инфраструктуре. Абстракция — чтобы реализовать схему MC (JWS /
- * HMAC / cert) без изменения вызывающего кода (`WebhookAuthGuard`), как только
- * придёт спецификация подписи от Mastercard (открытый вопрос C1).
+ * Каркас для проверки подлинности входящего вебхука Mastercard ПО СОДЕРЖИМОМУ
+ * (подпись payload), а не по доверию к инфраструктуре.
+ *
+ * ВАЖНО (по доке MC, `api-mastercard.md` → FX Rate Push / Status Change Push):
+ * авторитетная аутентичность push-уведомлений у Mastercard обеспечивается **mTLS**
+ * (публичный mTLS-cert от MC + trust в принимающем приложении + наш серверный
+ * cert-chain через KMP-портал), а НЕ подписью тела (JWS/HMAC). То есть подписи
+ * payload, которую тут можно было бы проверять, у MC сейчас НЕТ — этот интерфейс
+ * остаётся ЗАРЕЗЕРВИРОВАННЫМ на случай, если MC когда-нибудь её добавит (тогда
+ * реализация подключится без правок `WebhookAuthGuard`). Активный фактор
+ * аутентификации сейчас — fail-closed `X-Webhook-Token`. Детали — docs/{ru,en}/api.md → Webhooks.
  */
 export abstract class WebhookSignatureVerifier {
   /**
@@ -19,9 +26,10 @@ export abstract class WebhookSignatureVerifier {
 }
 
 /**
- * Заглушка до получения спецификации подписи MC (C1): не блокирует приём, но
- * однократно предупреждает в логи, что криптопроверка ещё не включена.
- * НЕ использовать как единственную защиту в проде — заменить реализацией по C1.
+ * Реализация по умолчанию: подписи payload у вебхука MC нет (аутентичность
+ * обеспечивается mTLS на слое TLS-терминации), поэтому проверять в коде нечего —
+ * пропускаем, однократно напоминая в лог про требование mTLS. Это НЕ единственная
+ * защита: поверх стоит fail-closed `X-Webhook-Token` (`WebhookAuthGuard`).
  */
 @Injectable()
 export class NoopSignatureVerifier extends WebhookSignatureVerifier {
@@ -31,8 +39,9 @@ export class NoopSignatureVerifier extends WebhookSignatureVerifier {
   verify(): boolean {
     if (!this.warned) {
       this.logger.warn(
-        'Проверка подписи вебхука MC не реализована (ожидается спецификация — вопрос C1). ' +
-          'Аутентификация сейчас держится на shared-token (fail-closed). Заменить на JWS/HMAC по C1.',
+        'Подпись payload у вебхука MC в коде не проверяется: по доке MC аутентичность ' +
+          'push-уведомлений — это mTLS (публичный cert от MC + trust + cert-chain через KMP-портал), ' +
+          'а не подпись тела. Активный фактор — fail-closed X-Webhook-Token. См. api.md → Webhooks.',
       );
       this.warned = true;
     }

@@ -32,9 +32,9 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
-| 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; signature pending C1) |
+| 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; webhook authenticity = **mTLS** at deployment — needs the cert from MC, see below) |
 
-**Implemented — all 15 (14 + 1 partial):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial, awaiting signature spec C1).
+**Implemented — all 15 (14 + 1 partial):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial: receiver/dedup done, authoritative webhook authenticity = mTLS, configured at deployment — needs the public mTLS cert from MC; see the "Webhooks" section).
 
 > **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
 > **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
@@ -83,7 +83,7 @@ Four independent methods — each endpoint group has its own:
 | `Authorization: Bearer <JWT>` | **external merchant** (partner) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | **internal** platform service/UI | `/crossborder/*` |
 | `X-Admin-Token` | **platform operator** | `/admin/*` |
-| in-service `X-Webhook-Token` (fail-closed; mTLS at the ingress is optional, additional) | **Mastercard** | `/webhooks/*` |
+| in-service `X-Webhook-Token` (fail-closed; MC's authoritative authenticity = **mTLS**, the token is our extra factor) | **Mastercard** | `/webhooks/*` |
 | — (public) | anyone with client_id/secret | `/oauth/token` |
 
 **Important:** `tenantId` is NEVER taken from the body/query — only from
@@ -240,7 +240,26 @@ no suspension.
 |---|---|---|
 | `POST` | `/webhooks/mastercard` | Receive push notifications (transaction statuses, etc.) |
 
-- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod and dev; JWS/HMAC signature verification is the planned authoritative factor (pending MC spec, C1). mTLS at the ingress is optional, additional — not the authentication.
+- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod and dev.
+  **Mastercard's authoritative authenticity for push notifications is mTLS, NOT a payload
+  signature (JWS/HMAC)** — established from the official MC docs (`api-mastercard.md`, the *FX
+  Rate Push* and *Status Change Push* sections). So there is no payload signature for us to
+  verify in code: `WebhookSignatureVerifier` stays a scaffold (Noop) in case MC ever adds one.
+  mTLS is configured at the TLS-termination layer (ingress/app); our `X-Webhook-Token` is an
+  additional shared-secret factor on top of it.
+
+  > **Mastercard requirement (verbatim, `api-mastercard.md`):**
+  > *“Contact your mastercard representative for mTLS push notification mastercard public
+  > certificate. This certificate needs to be trusted by the receiving application. Also, please
+  > share the server certificate chain for validation (via KMP portal), if those are accepted on
+  > mastercard infrastructure.”*
+
+  **What to do at deployment (once we get the cert):** request the public mTLS push-notification
+  certificate from the Mastercard representative → add it to the receiving app's/ingress trust
+  store; submit our server cert chain via the **KMP portal**. Until then, ingestion relies on the
+  fail-closed `X-Webhook-Token`. ⚠️ Note: MC does **not** know our `X-Webhook-Token` and won't
+  send it — the token must be injected by the TLS-terminating layer after mTLS validation, or
+  configured as a custom header in MC's portal push config (confirm with MC).
 - **Always responds `200`** (otherwise MC retries).
 - **Dedup** by `eventRef` (MC retries up to 3 times): repeat → `{"status":"duplicate"}`,
   otherwise `{"status":"accepted"}`.

@@ -99,7 +99,7 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (выпуск), `GET /admin/audit`.
-- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, обязателен в prod и dev; mTLS на ингрессе — опциональный доп. слой, не аутентификация).
+- **Webhook:** `POST /webhooks/mastercard` (in-service fail-closed `X-Webhook-Token`, обязателен в prod и dev; авторитетная аутентичность push-уведомлений у MC = **mTLS**, не подпись payload — см. `api.md` → Webhooks).
 - **Swagger:** `GET /api-docs` (выключен в production, если нет `SWAGGER_ENABLED`).
 
 ---
@@ -364,9 +364,10 @@ bank-lookups + iban-generations), **7 Cash Pickup ×4 GET**, **8 Endpoint Guide*
 даёт HTML-500 для generic pid), 9 Status Change Push (вебхук), 10 Retrieve Payment, **11 RFI
 сьют ×4** (retrieve/update/upload/download; sandbox canned-отказ для не-онбордженного pid;
 upload — route-scoped лимит тела 2MB), 12 Cancel, 13 Balance, 14 Payload Encryption; 15 Push
-Notifications — частично (приём готов, подпись ждёт спеку C1).
+Notifications — частично (приём/дедуп готовы; аутентичность вебхука = **mTLS** при деплое, а не
+подпись payload — бывший «C1» закрыт чтением доки MC).
 **Покрытие завершено.** Осталось только ВНЕШНЕ-заблокированное (per-tenant encryption/MTF,
-подпись вебхука C1, прод-ключи Client Decryption).
+mTLS-cert вебхука от MC, прод-ключи Client Decryption).
 
 **ВАЖНО про реализацию новых API:**
 - Точные MC-пути НЕОДНОРОДНЫ — брать из `api-mastercard.md` (не угадывать): `/send/v1/`
@@ -387,7 +388,9 @@ Notifications — частично (приём готов, подпись ждё
 
 ### Открытые блокеры (внешние)
 per-tenant encryption (прод-OWN+JWE; JWE-либа требует файлы, ключи=Vault PEM, нельзя e2e
-без MTF); подпись вебхука по C1 (ждёт спеку MC); прод-ключи Client Encryption (портал).
+без MTF); **mTLS-аутентичность вебхука** (бывший «C1» — по доке MC это mTLS, а НЕ подпись
+payload; нужен публичный mTLS-cert от MC + trust + cert-chain через KMP-портал; детали в
+`api.md`/`plan.md`/`production-questions.md`); прод-ключи Client Encryption (портал).
 
 > `.agentic-security/` (вывод плагина-сканера) — в `.gitignore`, НЕ коммитить. Коммиты:
 > секрет-гейт → `git commit -F` → push origin main (push отдельным шагом, если авто-режим

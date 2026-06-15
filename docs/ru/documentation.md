@@ -538,8 +538,9 @@ in-memory (per-pod). Остальной код работает только с 
 ## Поведение
 
 - **Аутентификация:** in-service fail-closed токен (`X-Webhook-Token`), обязателен в
-  prod и dev; проверка подписи JWS/HMAC — планируемый authoritative-фактор (ждёт спеку
-  MC, C1). mTLS на ингрессе — опциональный доп. слой, не аутентификация.
+  prod и dev. Авторитетная аутентичность push-уведомлений у MC — **mTLS**, а не подпись
+  payload (JWS/HMAC у MC нет; бывший «C1» закрыт чтением доки). `WebhookSignatureVerifier`
+  остаётся каркасом (Noop). Детали и цитата MC — `api.md` → Webhooks.
 - **Дедуп:** `setIfAbsent('wh:<eventRef>')` с TTL сутки — MC ретраит до 3 раз.
   Повтор → `{status:'duplicate'}`, иначе `{status:'accepted'}`.
 - **Ответ всегда 200** (иначе MC ретраит). Диспетчеризация по `eventType`

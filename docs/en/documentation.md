@@ -535,8 +535,10 @@ Code: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts)
 ## Behavior
 
 - **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod
-  and dev; JWS/HMAC signature verification is the planned authoritative factor (pending MC
-  spec, C1). mTLS at the ingress is optional, additional — not the authentication.
+  and dev. Mastercard's authoritative authenticity for push notifications is **mTLS**, not a
+  payload signature (MC has no JWS/HMAC payload signature; the former "C1" is closed by reading
+  the docs). `WebhookSignatureVerifier` stays a scaffold (Noop). Details and the MC quote —
+  `api.md` → Webhooks.
 - **Dedup:** `setIfAbsent('wh:<eventRef>')` with a one-day TTL — MC retries up to 3
   times. Repeat → `{status:'duplicate'}`, otherwise `{status:'accepted'}`.
 - **Always responds 200** (otherwise MC retries). Dispatch by `eventType` (status
