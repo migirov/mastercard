@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { GatewayConfig } from '../config/gateway-config';
 import {
   loadPrivateKeyFromP12,
@@ -143,7 +149,12 @@ export class CredentialsService implements OnModuleInit {
 
   private async fetchOwn(tenant: Tenant): Promise<McCredentials> {
     if (!tenant.secretRef) {
-      throw new Error(`Tenant '${tenant.id}' (OWN) has no secretRef`);
+      // Конфиг тенанта неполон — это не краш сервера (500), а «тенант не
+      // сконфигурирован» → 422. Детали (id) в лог, наружу — без них.
+      this.logger.error(`Tenant '${tenant.id}' (OWN) has no secretRef`);
+      throw new UnprocessableEntityException(
+        'tenant credentials are not configured',
+      );
     }
     const secretRef = this.safeSecretRef(tenant.secretRef, tenant.id);
 
@@ -171,25 +182,37 @@ export class CredentialsService implements OnModuleInit {
 
   // --- helpers ---
 
+  // Провалы резолва credentials — это «тенант не сконфигурирован», а НЕ краш
+  // сервера: бросаем UnprocessableEntity (422), а не сырой Error (→ 500 + паника
+  // алертинга). Чувствительные детали (secretRef) — только в лог, не в ответ.
+
   /** Валидация границы секретов: бандл должен содержать минимум для подписи. */
   private validateBundle(ref: string, b: MerchantSecretBundle): void {
     if (!b.consumerKey) {
-      throw new Error(`SecretStore '${ref}': missing consumerKey`);
+      this.logger.error(`SecretStore '${ref}': missing consumerKey`);
+      throw new UnprocessableEntityException(
+        'credentials bundle is missing consumerKey',
+      );
     }
     if (!b.signing) {
-      throw new Error(`SecretStore '${ref}': missing signing key material`);
+      this.logger.error(`SecretStore '${ref}': missing signing key material`);
+      throw new UnprocessableEntityException(
+        'credentials bundle is missing signing key material',
+      );
     }
   }
 
   /** Проверяет, что partnerId задан и безопасен для URL-пути (строгий аллоулист). */
   private safePartnerId(id: string | undefined, tenantId: string): string {
     if (!id) {
-      throw new Error(`tenant '${tenantId}': partnerId is not set`);
+      this.logger.error(`tenant '${tenantId}': partnerId is not set`);
+      throw new UnprocessableEntityException('partnerId is not set');
     }
     // Аллоулист уже исключает `/` → `..`-сегмент невозможен; проверяем явно лишь
     // на случай, если charset когда-то расширят.
     if (!SAFE_PARTNER_ID.test(id) || id.includes('..')) {
-      throw new Error(`tenant '${tenantId}': invalid partnerId`);
+      this.logger.error(`tenant '${tenantId}': invalid partnerId`);
+      throw new UnprocessableEntityException('invalid partnerId');
     }
     return id;
   }
@@ -197,7 +220,8 @@ export class CredentialsService implements OnModuleInit {
   /** Проверяет, что secretRef безопасен как ключ-путь секрет-стора (анти-traversal). */
   private safeSecretRef(ref: string, tenantId: string): string {
     if (!SAFE_SECRET_REF.test(ref) || ref.includes('..')) {
-      throw new Error(`tenant '${tenantId}': invalid secretRef`);
+      this.logger.error(`tenant '${tenantId}': invalid secretRef`);
+      throw new UnprocessableEntityException('invalid secretRef');
     }
     return ref;
   }
@@ -210,6 +234,6 @@ export class CredentialsService implements OnModuleInit {
     if (key.p12Path) {
       return loadPrivateKeyFromP12(key.p12Path, key.password);
     }
-    throw new Error('KeyMaterial: neither p12Base64 nor p12Path is set');
+    throw new UnprocessableEntityException('invalid key material');
   }
 }

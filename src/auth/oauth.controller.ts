@@ -12,6 +12,7 @@ import {
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { UseGatewayContract } from '../common/gateway-contract.decorator';
+import { parseClientCredentials } from '../common/oauth-credentials';
 import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
 import { strictDtoPipe } from '../common/validation.pipe';
 import { TokenRequestDto } from './dto/token-request.dto';
@@ -45,34 +46,12 @@ export class OAuthController {
     @Headers('authorization') authHeader?: string,
   ) {
     // grant_type валидируется DTO (@IsIn). Креды могут прийти из тела или Basic —
-    // их наличие проверяем после извлечения (это auth, не валидация схемы).
-    const { clientId, clientSecret } = extractCreds(body, authHeader);
+    // их наличие проверяем после извлечения (это auth, не валидация схемы). Парсер
+    // общий с OAuthThrottlerGuard — личность запроса трактуется одинаково.
+    const { clientId, clientSecret } = parseClientCredentials(body, authHeader);
     if (!clientId || !clientSecret) {
       throw new UnauthorizedException('invalid_client');
     }
     return this.oauth.issueToken(clientId, clientSecret);
   }
-}
-
-/** client_id/secret — из тела или из заголовка Basic (RFC 6749 §2.3.1). */
-function extractCreds(
-  body: TokenRequestDto,
-  authHeader?: string,
-): { clientId?: string; clientSecret?: string } {
-  if (body.client_id && body.client_secret) {
-    return { clientId: body.client_id, clientSecret: body.client_secret };
-  }
-  if (authHeader?.startsWith('Basic ')) {
-    const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf8');
-    const i = decoded.indexOf(':');
-    // i > 0 (а не >= 0): пустой client_id (":secret") — невалиден. Согласовано с
-    // OAuthThrottlerGuard.clientIdFrom, чтобы оба парсера трактовали вход одинаково.
-    if (i > 0) {
-      return {
-        clientId: decoded.slice(0, i),
-        clientSecret: decoded.slice(i + 1),
-      };
-    }
-  }
-  return {};
 }

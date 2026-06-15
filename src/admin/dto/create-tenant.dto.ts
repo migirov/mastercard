@@ -31,10 +31,15 @@ export class CreateTenantDto {
   @Matches(/^[A-Za-z0-9._-]+$/, { message: 'id: only [A-Za-z0-9._-]' })
   id?: string;
 
-  @ApiPropertyOptional({ maxLength: 128 })
+  // partnerId уходит в URL-пути/заголовки запросов к MC. Ограничиваем тем же
+  // безопасным charset и длиной, что и CredentialsService.SAFE_PARTNER_ID
+  // (`^[A-Za-z0-9._-]{1,64}$`), иначе плохой partnerId сохранится и упадёт лишь на
+  // первой транзакции непрозрачной ошибкой резолва, а не понятным 400 при создании.
+  @ApiPropertyOptional({ maxLength: 64 })
   @IsOptional()
   @IsString()
-  @MaxLength(128)
+  @MaxLength(64)
+  @Matches(/^[A-Za-z0-9._-]+$/, { message: 'partnerId: only [A-Za-z0-9._-]' })
   partnerId?: string;
 
   // Для режима OWN secretRef ОБЯЗАТЕЛЕН (ключи мерчанта из секрет-стора); для

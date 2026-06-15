@@ -17,3 +17,15 @@ export function safeEqual(a: string, b: string): boolean {
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
 }
+
+/**
+ * Сравнение предъявленного shared-token с ожидаемым в постоянном времени.
+ * Хешируем ОБА входа перед сравнением — это load-bearing: `timingSafeEqual` рано
+ * выходит на разной длине (утекая длину секрета), а sha256 выравнивает длину и
+ * позволяет безопасно сравнивать входы любой длины. Канонический примитив для
+ * гардов: не повторять связку `sha256hex`+`safeEqual` вручную (легко забыть хеш и
+ * вернуть length-leak). См. admin/tenant/webhook auth guards.
+ */
+export function safeTokenEqual(provided: string, expected: string): boolean {
+  return safeEqual(sha256hex(provided), sha256hex(expected));
+}

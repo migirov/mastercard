@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerModule } from '@nestjs/throttler';
 import {
   GatewayConfig,
@@ -19,7 +18,6 @@ import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
-import { HealthController } from './health/health.controller';
 import { HostIntegrityService } from './host-integrity.service';
 
 // Список сущностей — единый источник в mastercard.entities.ts. Ре-экспортируем,
@@ -38,6 +36,12 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  * хост-приложение. Per-pod rate-limit (`ThrottlerModule`) держим ВНУТРИ модуля,
  * чтобы защита не зависела от инфраструктуры (ингресс/прокси).
  *
+ * Health-пробы (`/health`, `/ready`) НЕ входят в зонтичный модуль: это глобальный
+ * корневой маршрут уровня всего приложения, и в монолите `b24club-api` уже есть
+ * свои пробы — встроенный корневой контроллер коллизировал бы с ними. `HealthController`
+ * живёт в dev-харнессе (`AppModule`); в монолите за liveness/readiness отвечает хост
+ * (наши entity уже в его DataSource — readiness покроет и нашу БД).
+ *
  * Конфиг приходит через `forRootAsync` и раздаётся под-сервисам через глобальный
  * `GatewayConfig` (сервисы не читают `process.env`).
  *
@@ -47,7 +51,6 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  */
 @Module({
   imports: [
-    TerminusModule,
     // Per-pod rate-limit как самостоятельная защита (не делегируем ингрессу).
     // Именованный сет 'default' (120/мин) — на него по имени ссылается per-route
     // override `@Throttle({ default: { limit: 10, ... } })` на /oauth/token.
@@ -64,7 +67,6 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
     CrossBorderModule,
     WebhooksModule,
   ],
-  controllers: [HealthController],
   providers: [
     {
       provide: GatewayConfig,

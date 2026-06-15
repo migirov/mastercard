@@ -8,7 +8,7 @@ import {
 import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
 import { JwtService } from '@nestjs/jwt';
-import { safeEqual, sha256hex } from '../../common/crypto.util';
+import { safeTokenEqual } from '../../common/crypto.util';
 import { TenantRegistry } from '../../tenants/tenant.registry';
 import { TenantContext } from '../current-tenant.decorator';
 
@@ -36,7 +36,7 @@ export class TenantAuthGuard implements CanActivate {
 
   private async internal(req: Request, token: string): Promise<boolean> {
     const expected = this.config.internalToken;
-    if (!expected || !safeEqual(sha256hex(token), sha256hex(expected))) {
+    if (!expected || !safeTokenEqual(token, expected)) {
       throw new UnauthorizedException('invalid internal token');
     }
     const tenantId = req.headers['x-tenant-id'];
