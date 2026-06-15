@@ -38,6 +38,10 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   private timer?: NodeJS.Timeout;
   /** In-flight flush: гард ре-энтерабельности (см. flush()). */
   private flushing?: Promise<void>;
+  /** Backoff при затяжном отказе БД: число подряд провалившихся вставок и
+   *  момент (ms), до которого периодический флаш пропускаем (см. doFlush). */
+  private consecutiveFailures = 0;
+  private backoffUntilMs = 0;
 
   constructor(
     @InjectRepository(AuditLogEntity)
@@ -83,9 +87,15 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
    * вызов НЕ запускает параллельную вставку (иначе батчи могли бы продублироваться
    * или переупорядочиться), а ждёт уже идущий флаш.
    */
-  private flush(): Promise<void> {
+  /**
+   * @param force игнорировать backoff-окно (shutdown/recent() должны флашить всегда).
+   */
+  private flush(force = false): Promise<void> {
     if (this.flushing) return this.flushing;
     if (this.buffer.length === 0) return Promise.resolve();
+    // При затяжном отказе БД не долбим её каждую секунду полным батчем (storm +
+    // лог-спам именно когда БД уже плохо). Принудительный флаш backoff игнорирует.
+    if (!force && Date.now() < this.backoffUntilMs) return Promise.resolve();
     this.flushing = this.doFlush().finally(() => {
       this.flushing = undefined;
     });
@@ -107,6 +117,9 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
           ms: e.ms,
         })),
       );
+      // Успех — снимаем backoff.
+      this.consecutiveFailures = 0;
+      this.backoffUntilMs = 0;
     } catch (err) {
       // Транзиентная ошибка БД (deadlock/failover/блип): возвращаем батч в буфер,
       // чтобы следующий тик повторил вставку — иначе записи терялись бы навсегда,
@@ -114,8 +127,13 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
       // затяжном сбое важнее сохранить свежие события (их и расследуют).
       this.buffer.unshift(...batch);
       this.capBuffer();
+      // Экспоненциальный backoff с потолком 60с: при durable-сбое БД повторяем
+      // вставку всё реже, а не каждую секунду (буфер всё равно ограничен capBuffer).
+      this.consecutiveFailures += 1;
+      const backoffMs = Math.min(2 ** this.consecutiveFailures, 60) * 1000;
+      this.backoffUntilMs = Date.now() + backoffMs;
       this.logger.error(
-        `audit batch insert failed (${batch.length} rows, retrying): ${(err as Error).message}`,
+        `audit batch insert failed (${batch.length} rows, retry in ${backoffMs / 1000}s): ${(err as Error).message}`,
       );
     }
   }
@@ -128,9 +146,10 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     // Двойной флаш, как в recent(): если на момент shutdown шёл флаш по таймеру,
     // первый await вернул ЕГО промис (re-entrancy-гард), а записи, добавленные
     // во время него, остались бы в буфере и потерялись на остановке — добиваем
-    // их вторым флашем (гард уже снят → реальная вставка).
-    await this.flush();
-    if (this.buffer.length > 0) await this.flush();
+    // их вторым флашем (гард уже снят → реальная вставка). force=true: на остановке
+    // пробуем записать даже в backoff-окне (последний шанс сохранить буфер).
+    await this.flush(true);
+    if (this.buffer.length > 0) await this.flush(true);
   }
 
   async recent(limit = 100): Promise<AuditEntry[]> {
@@ -140,8 +159,9 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     // снят → реальная вставка). Гарантия best-effort: записи, добавленные уже во
     // время ВТОРОГО флаша, попадут в выборку лишь на следующем вызове — для
     // debug-вью /admin/audit это приемлемо (в БД они не теряются, ждут таймер).
-    await this.flush();
-    if (this.buffer.length > 0) await this.flush();
+    // force=true: вью аудита должно отражать буфер даже в backoff-окне.
+    await this.flush(true);
+    if (this.buffer.length > 0) await this.flush(true);
     const rows = await this.repo.find({ order: { id: 'DESC' }, take: limit });
     return rows.map((r) => ({
       ts: r.ts.toISOString(),

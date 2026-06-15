@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { GatewayConfig } from '../config/gateway-config';
 import axios, {
   AxiosInstance,
@@ -54,10 +54,11 @@ interface McAxiosConfig extends AxiosRequestConfig {
  * (тумблер по среде); при выключенном — passthrough.
  */
 @Injectable()
-export class MastercardClient {
+export class MastercardClient implements OnApplicationShutdown {
   private readonly logger = new Logger(MastercardClient.name);
   private readonly http: AxiosInstance;
   private readonly baseUrl: string;
+  private readonly httpsAgent: https.Agent;
 
   constructor(
     config: GatewayConfig,
@@ -68,17 +69,25 @@ export class MastercardClient {
       throw new Error('MastercardModule option "baseUrl" is not set');
     }
     this.baseUrl = raw.replace(/\/+$/, '');
+    this.httpsAgent = new https.Agent({
+      keepAlive: true,
+      maxSockets: 50,
+      maxFreeSockets: 10,
+      scheduling: 'lifo',
+    });
     this.http = axios.create({
       baseURL: this.baseUrl,
       timeout: 30_000,
-      httpsAgent: new https.Agent({
-        keepAlive: true,
-        maxSockets: 50,
-        maxFreeSockets: 10,
-        scheduling: 'lifo',
-      }),
+      httpsAgent: this.httpsAgent,
     });
     this.installInterceptors();
+  }
+
+  /** Освобождаем пул keep-alive сокетов на остановке — иначе при graceful
+   *  shutdown / повторной инициализации модуля (тесты, HMR) сокеты висят и
+   *  держат event loop дольше нужного. */
+  onApplicationShutdown(): void {
+    this.httpsAgent.destroy();
   }
 
   async request<T = unknown>(
