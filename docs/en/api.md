@@ -19,22 +19,22 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | # | Mastercard API | Upstream MC endpoint(s) | Our gateway endpoint | Sandbox | Status |
 |---|---|---|---|---|---|
 | 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
-| 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates` (no body); Push = customer-hosted webhook | `POST /crossborder/carded-rates` | ❌ (no MC sandbox) | ✅ |
+| 2 | **Quote Confirmation APIs** (suite ×3) | Confirm `POST …/crossborder/quotes/confirmations`; Cancel `POST …/crossborder/quotes/cancellations`; Retrieve `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` | `POST /crossborder/quotes/confirmations`, `POST /crossborder/quotes/cancellations`, `GET /crossborder/quotes/:transactionReference/proposals/:proposalId` | ✅ | ✅ |
+| 3 | **Carded Rate Pull + Push** | Pull `GET /send/v1/partners/{pid}/crossborder/rates` (`getFxRates` op, no body); Push = customer-hosted webhook | `GET /crossborder/rates` | ❌ (no MC sandbox) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (needs payload encryption) | ✅ |
 | 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (needs encryption; ASV not in sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (reaches MC; sandbox → HTML 500 for generic partner-id) | ✅ |
-| 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` | ✅ | ✅ (receiver) |
+| 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` (persisted to `tx_status`); merchant reads via `GET /crossborder/status-events?ref=` | ✅ | ✅ (receiver + persist) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
 | 11 | **RFI APIs** (suite ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` same; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` same, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox canned-rejects non-onboarded pid; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
-| 15 | **Push Notifications Details** | inbound webhook infra + dedup | `POST /webhooks/mastercard` | ✅ | ⚠️ (receiver done; webhook authenticity = **mTLS** at deployment — needs the cert from MC, see below) |
+| 15 | **Push Notifications Details** | inbound webhook + dedup + status persist | `POST /webhooks/mastercard` (+ `tx_status`, read via `GET /crossborder/status-events?ref=`) | ✅ | ✅ (receiver/dedup/persist; encrypted-push decrypt is MTF/Prod, see below; authenticity = **mTLS** at deployment) |
 
-**Implemented — all 15 (14 + 1 partial):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 partial: receiver/dedup done, authoritative webhook authenticity = mTLS, configured at deployment — needs the public mTLS cert from MC; see the "Webhooks" section).
+**Implemented — all 15:** 1, **2**, **3**, 4, **5**, **6**, **7**, **8**, **9**, 10, **11**, 12, 13, 14, **15** (Status Change / Quote Status Change persist to `tx_status` with atomic dedup and tenant attribution; encrypted-push decrypt and mTLS authenticity are configured at deployment in MTF/Prod — see the "Webhooks" section).
 
 > **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
 > **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
@@ -60,17 +60,18 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 > kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
 > webhook arrives on the shared `/webhooks/mastercard`.
 >
-> **Carded Rate (3)** — Pull implemented as `POST /crossborder/carded-rates` (no body) → MC
-> `POST …/v1/partners/{pid}/crossborder/rates`. **MC provides no sandbox for Carded Rate**
-> (stated in the docs) → success is unreachable; e2e only asserts the gateway doesn't 500 and
-> forwards MC's response (a forwarded 400 was observed). The Push variant is a customer-hosted
-> webhook (shared `/webhooks/mastercard`). Verifiable live in MTF/Prod on a configured corridor.
+> **Carded Rate (3)** — Pull implemented as `GET /crossborder/rates` → MC
+> `GET …/v1/partners/{pid}/crossborder/rates` (MC op `getFxRates`, "No Request body" → method is
+> **GET**; the previous erroneous `POST /crossborder/carded-rates` was removed). **MC provides no
+> sandbox for Carded Rate** (stated in the docs) → success is unreachable; e2e only asserts the
+> gateway doesn't 500 and forwards MC's response. The Push variant is a customer-hosted webhook
+> (shared `/webhooks/mastercard`). Verifiable live in MTF/Prod on a configured corridor.
 
-> Extra we already expose beyond the screenshot list: `GET /crossborder/rates` (generic FX rates).
 > MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/
-> carded-rate/retrieve/cancel; `/send/…` (no `v1`) for confirmations/account-validation/RFI;
-> `/crossborder/…` (no `/send`, no partner path) for cash-pickup/endpoint-guide; Address
-> Validation uses a dedicated `/send/address-validation-service/…` base.
+> carded-rate/retrieve/cancel; `/send/…` (no `v1`) for confirmations/cancellations/
+> retrieve-confirmed-quote/account-validation/RFI; `/crossborder/…` (no `/send`, no partner path)
+> for cash-pickup/endpoint-guide; Address Validation uses a dedicated
+> `/send/address-validation-service/…` base.
 
 ---
 
@@ -121,13 +122,16 @@ with the tenant's keys and (in MTF/Prod) JWE-encrypted — transparently.
 | Method | Path | What it does | Upstream Mastercard |
 |---|---|---|---|
 | `GET` | `/crossborder/balances` | Partner accounts and balances | `GET …/crossborder/accounts?include_balance=true` |
-| `GET` | `/crossborder/rates` | Available FX rates | `GET …/crossborder/rates` |
+| `GET` | `/crossborder/rates` | Carded / FX Rate Pull (corridor rates) | `GET …/crossborder/rates` |
 | `POST` | `/crossborder/quotes` | Request a quote (transfer price/rate) | `POST …/crossborder/quotes` |
 | `POST` | `/crossborder/quotes/confirmations` | Confirm a quote | `POST …/crossborder/quotes/confirmations` |
+| `POST` | `/crossborder/quotes/cancellations` | Cancel a confirmed quote (releases the reserve) | `POST …/crossborder/quotes/cancellations` |
+| `GET` | `/crossborder/quotes/:transactionReference/proposals/:proposalId` | Retrieve a confirmed quote | `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` |
 | `POST` | `/crossborder/payments` | Initiate a payment | `POST …/crossborder/payment` |
 | `GET` | `/crossborder/payments/:id` | Payment status by id | `GET …/crossborder/{id}` |
 | `GET` | `/crossborder/payments?ref=…` | Payment status by transaction reference | `GET …/crossborder?ref=…` |
 | `POST` | `/crossborder/payments/:id/cancel` | Cancel a payment | `POST …/crossborder/{id}/cancel` |
+| `GET` | `/crossborder/status-events?ref=…` | Stored push statuses by transaction_reference (local read from `tx_status`, not an MC call) | — |
 
 `…` = `/send[/v1]/partners/{partner-id}/crossborder` — `partner-id` comes from the
 tenant's credentials (not from the request).
@@ -263,6 +267,19 @@ no suspension.
 - **Always responds `200`** (otherwise MC retries).
 - **Dedup** by `eventRef` (MC retries up to 3 times): repeat → `{"status":"duplicate"}`,
   otherwise `{"status":"accepted"}`.
+- **Status persistence:** `STATUS_CHG` / `QUOTE_STATUS_CHG` are stored in the `tx_status` table
+  via a single `INSERT … ON CONFLICT (eventRef) DO NOTHING` — dedup AND write are **atomic** (no
+  "crash between marking dedup and writing the status" window). Other types (Carded Rate Push
+  `CARDFX_PUB`, RFI, etc.) — KV dedup + log (business processing as needed).
+- **Notations:** MC sends fields both in camelCase (`eventRef`/`eventType`/…) and snake_case
+  (`event_ref`/`event_type`/…) — the handler normalizes both (otherwise snake-case events were lost).
+- **Tenant attribution:** an OWN tenant — by `partnerId` (→ its `tenantId`); a PLATFORM/unknown
+  `partnerId` (shared) → the shared pool (`tenantId = NULL`).
+- **Merchant delivery:** polling via `GET /crossborder/status-events?ref=<transaction_reference>`
+  (tenant-scoped: OWN sees strictly its own events, PLATFORM sees its own + the shared pool by ref).
+- **Encrypted push** (`{ encrypted_payload: { data } }`): detected and acked `200` **without
+  processing** — decryption needs the Client key + a per-tenant seam (MTF/Prod; in sandbox push
+  is "Not Applicable").
 
 ---
 

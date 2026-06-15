@@ -206,8 +206,9 @@ owns liveness/readiness).
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |
 | `MastercardClientModule` | the low-level `MastercardClient` (axios + encrypt/sign/decrypt interceptors); `EncryptionService` is a provider here, not its own module |
 | `AuditModule` | `AuditInterceptor` (bound per-controller via `@UseGatewayContract()`) + batched `AuditService` → Postgres; `AuditLogEntity` co-located |
-| `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup |
-| `CrossBorderModule` | business endpoints (all 15 MC API groups); uses `mc-paths.ts` (centralized MC URL builder) |
+| `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup; status events (STATUS_CHG/QUOTE_STATUS_CHG) persist to `tx_status` (atomic dedup+write), tenant attribution (OWN→partnerId / PLATFORM→shared pool), camel/snake normalization |
+| `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); shared by `WebhooksModule` (writes) and `CrossBorderModule` (tenant-scoped reads for polling) |
+| `CrossBorderModule` | business endpoints (all 15 MC API groups) + status polling (`GET /crossborder/status-events`); uses `mc-paths.ts` (centralized MC URL builder) |
 | `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
 | `HealthController` (dev harness) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered in `AppModule` (harness), NOT the umbrella — root probes would collide with the host; when embedded the host owns probes |
 | `IdempotencyService` | provider (via `KvStore`); collapsed from the old `IdempotencyModule` |
@@ -274,12 +275,17 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   TypeORM migrations, cron cleanup of `kv_store`, structured logs (pino) + correlation-id.
 - ✅ **Embeddable umbrella module:** single `MastercardModule` + public-api barrel
   (`src/index.ts`), per-controller cross-cutting binding, `GatewayConfig`, `HostIntegrityService`.
-- ✅ **Full MC API coverage:** all 15 MC API Reference groups (14 + #15 partial) under
-  `/crossborder/*` (balances, rates, carded-rates, quotes(+confirmations), payments
-  (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
-  iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
+- ✅ **Full MC API coverage:** all 15 MC API Reference groups under `/crossborder/*`
+  (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
+  retrieve-confirmed-quote), payments(+Idempotency-Key)/retrieve/cancel, address-/
+  account-validations, bank-lookups, iban-generations, cash-pickup, endpoint-guide,
+  RFI requests/documents) + **Push Notifications**: the webhook persists statuses to
+  `tx_status`, the merchant reads via `GET /crossborder/status-events`.
 - ✅ **Quality:** a 10-round security/bug/optimization audit + 2 regression rounds + a
-  4-lens code review (Tier 1 applied). Tests: unit 20 suites / 147, e2e 23/23 on the live sandbox.
+  4-lens code review (Tier 1 applied); the coverage follow-up (confirm-suite 3/3, carded-rate
+  GET, push persistence) went through 3 more analysis rounds (bugs/optimization/security).
+  Tests: unit 20 suites / 159, e2e on the live sandbox.
 - ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
-  key — see §6), webhook signature (C1), private Client decryption key, Vault implementation,
-  metrics/tracing (Prometheus/OTel) — see [production-questions.md](./production-questions.md).
+  key — see §6), webhook signature (C1) and **encrypted-push decryption** (needs the Client key),
+  private Client decryption key, Vault implementation, metrics/tracing (Prometheus/OTel) —
+  see [production-questions.md](./production-questions.md).

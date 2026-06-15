@@ -75,19 +75,12 @@ export class CrossBorderController {
   }
 
   @Get('rates')
-  @ApiOperation({ summary: 'Доступные FX-курсы (passthrough из MC).' })
-  rates(@CurrentTenant() ctx: TenantContext) {
-    return this.svc.getRates(ctx.tenantId);
-  }
-
-  @Post('carded-rates')
-  @HttpCode(200) // получение курсов, не создание ресурса
   @ApiOperation({
     summary:
-      'Carded Rate Pull: FX-курсы коридоров (MC Carded Rate, POST без тела).',
+      'Carded / FX Rate Pull: FX-курсы коридоров (MC getFxRates, GET без тела).',
   })
-  cardedRatePull(@CurrentTenant() ctx: TenantContext) {
-    return this.svc.cardedRatePull(ctx.tenantId);
+  rates(@CurrentTenant() ctx: TenantContext) {
+    return this.svc.getRates(ctx.tenantId);
   }
 
   @Post('quotes')
@@ -303,7 +296,39 @@ export class CrossBorderController {
     return this.svc.confirmQuote(ctx.tenantId, body);
   }
 
+  @Post('quotes/cancellations')
+  @HttpCode(200) // отмена — изменение состояния котировки, не создание
+  @ApiOperation({
+    summary:
+      'Отмена подтверждённой котировки (transactionReference + proposalId).',
+  })
+  @UsePipes(mcPassthroughPipe())
+  cancelConfirmedQuote(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: ConfirmationRequestDto,
+  ) {
+    return this.svc.cancelConfirmedQuote(ctx.tenantId, body);
+  }
+
+  @Get('quotes/:transactionReference/proposals/:proposalId')
+  @ApiOperation({
+    summary: 'Просмотр подтверждённой котировки (MC Retrieve Quote).',
+  })
+  retrieveConfirmedQuote(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('transactionReference', SafeIdPipe) transactionReference: string,
+    @Param('proposalId', SafeIdPipe) proposalId: string,
+  ) {
+    return this.svc.retrieveConfirmedQuote(
+      ctx.tenantId,
+      transactionReference,
+      proposalId,
+    );
+  }
+
   @Post('payments')
+  // 201 (дефолт POST) намеренно: инициирование платежа СОЗДАёт ресурс-платёж в MC —
+  // в отличие от compute/state-change POST'ов выше, помеченных @HttpCode(200).
   @ApiOperation({ summary: 'Инициировать платёж. Idempotency-Key опционален.' })
   @ApiHeader({
     name: 'Idempotency-Key',
@@ -347,11 +372,31 @@ export class CrossBorderController {
   }
 
   @Post('payments/:id/cancel')
+  @HttpCode(200) // отмена — смена состояния платежа, не создание ресурса
   @ApiOperation({ summary: 'Отмена платежа по id.' })
   cancelPayment(
     @CurrentTenant() ctx: TenantContext,
     @Param('id', SafeIdPipe) id: string,
   ) {
     return this.svc.cancelPayment(ctx.tenantId, id);
+  }
+
+  @Get('status-events')
+  @ApiOperation({
+    summary:
+      'Сохранённые push-статусы по transaction_reference (доставка Status Change Push через polling).',
+  })
+  @ApiQuery({
+    name: 'ref',
+    required: true,
+    description: 'transaction_reference транзакции/котировки.',
+  })
+  getStatusEvents(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('ref', SafeIdPipe) ref: string,
+  ) {
+    // Передаём весь tenant: сервису нужен credentialMode для изоляции (OWN не
+    // читает общий PLATFORM-пул). mode уже в auth-контексте — без запроса к БД.
+    return this.svc.getStatusEvents(ctx.tenant, ref);
   }
 }

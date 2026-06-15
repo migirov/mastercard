@@ -43,4 +43,39 @@ export class McWebhookEventDto {
   @IsString()
   @MaxLength(64)
   partnerId?: string;
+
+  // MC присылает поля в ДВУХ нотациях в зависимости от типа уведомления:
+  // Status Change — camelCase (выше), Carded Rate Push (CARDFX_PUB) и часть
+  // событий — snake_case. Объявляем snake_case-варианты ключевых полей, чтобы
+  // (а) дедуп/диспетчеризация в WebhookHandler работали для обеих нотаций;
+  // (б) сохранить те же лимиты длины (защита от лог-инъекции — тело не подписано).
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  event_ref?: string;
+
+  @ApiPropertyOptional({ maxLength: 200 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  notification_id?: string;
+
+  @ApiPropertyOptional({ example: 'CARDFX_PUB', maxLength: 64 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  event_type?: string;
+
+  @ApiPropertyOptional({ maxLength: 256 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  transaction_reference?: string;
+
+  @ApiPropertyOptional({ maxLength: 64 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  partner_id?: string;
 }

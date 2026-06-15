@@ -16,7 +16,12 @@ import {
   MastercardClient,
 } from '../mastercard/mastercard-client.service';
 import { TenantRegistry } from '../tenants/tenant.registry';
-import { effectiveStatus, isActive } from '../tenants/tenant.types';
+import {
+  CredentialMode,
+  effectiveStatus,
+  isActive,
+  Tenant,
+} from '../tenants/tenant.types';
 import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from './dto/address-validation-request.dto';
 import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
@@ -33,6 +38,7 @@ import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
 import { RfiUpdateRequestDto } from './dto/rfi-update-request.dto';
+import { TransactionStatusStore } from '../webhooks/transaction-status.store';
 
 /** Бизнес/клиентские статусы Mastercard, которые осмысленно пробрасывать мерчанту. */
 const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
@@ -51,6 +57,7 @@ export class CrossBorderService {
     private readonly credentials: CredentialsService,
     private readonly client: MastercardClient,
     private readonly idempotency: IdempotencyService,
+    private readonly statusEvents: TransactionStatusStore,
   ) {}
 
   /** Список счетов и балансов (GET, без шифрования). */
@@ -61,24 +68,17 @@ export class CrossBorderService {
     }));
   }
 
-  /** Доступные FX-курсы (GET). */
+  /**
+   * Carded / FX Rate Pull (GET, БЕЗ тела): FX-курсы для сконфигурированных
+   * коридоров — основной механизм получения курсов до инициации платежа.
+   * По доке MC это операция `getFxRates`: GET, «No Request body» (поэтому НЕ
+   * POST — прежний POST-вариант убран как несуществующий у MC). Sandbox для
+   * Carded Rate НЕДОСТУПЕН (по доке MC) → проверяется только проводка шлюза.
+   * Push-вариант (Carded Rate Push) — вебхук на /webhooks/mastercard.
+   */
   async getRates(tenantId: string) {
     return this.run(tenantId, 'getRates', (c) => ({
       method: 'GET',
-      path: mcPath.rates(this.partner(c)),
-    }));
-  }
-
-  /**
-   * Carded Rate Pull (POST, БЕЗ тела): FX-курсы для сконфигурированных коридоров
-   * до инициации платежа (opt-in). Тот же MC-путь, что generic getRates, но
-   * метод POST (carded-вариант). Sandbox для Carded Rate НЕДОСТУПЕН (по доке MC)
-   * → проверяется только проводка шлюза. Push-вариант — вебхук на стороне
-   * клиента (приходит на общий /webhooks/mastercard).
-   */
-  async cardedRatePull(tenantId: string) {
-    return this.run(tenantId, 'cardedRatePull', (c) => ({
-      method: 'POST',
       path: mcPath.rates(this.partner(c)),
     }));
   }
@@ -325,6 +325,49 @@ export class CrossBorderService {
       path: mcPath.quoteConfirmations(this.partner(c)),
       body,
     }));
+  }
+
+  /**
+   * Отмена ПОДТВЕРЖДЁННОЙ котировки (POST). Тело идентично подтверждению
+   * (`{ transactionReference, proposalId }`) → переиспользуем ConfirmationRequestDto.
+   * До инициации платежа → возврат зарезервированных средств; после — MC отклонит.
+   * Шифрование тела (MTF/Prod) — в интерцепторе.
+   */
+  async cancelConfirmedQuote(tenantId: string, body: ConfirmationRequestDto) {
+    return this.run(tenantId, 'cancelConfirmedQuote', (c) => ({
+      method: 'POST',
+      path: mcPath.quoteCancellations(this.partner(c)),
+      body,
+    }));
+  }
+
+  /**
+   * Просмотр подтверждённой котировки (GET). ref/proposalId уже проверены
+   * SafeIdPipe в контроллере. Тела/шифрования запроса нет; ответ расшифровывается
+   * интерцептором в MTF/Prod.
+   */
+  async retrieveConfirmedQuote(
+    tenantId: string,
+    ref: string,
+    proposalId: string,
+  ) {
+    return this.run(tenantId, 'retrieveConfirmedQuote', (c) => ({
+      method: 'GET',
+      path: mcPath.retrieveConfirmedQuote(this.partner(c), ref, proposalId),
+    }));
+  }
+
+  /**
+   * Push-статусы по transaction_reference из НАШЕЙ БД (polling-доставка
+   * Status Change Push). Локальное чтение, не вызов MC. Изоляция: OWN-тенант
+   * видит СТРОГО свои события; общий null-пул отдаём только PLATFORM-тенанту (у
+   * OWN событий в пуле не бывает — они атрибутируются по partnerId). ref уже
+   * проверен SafeIdPipe в контроллере. `tenant` берём из auth-контекста (mode уже
+   * там — без лишнего запроса к реестру).
+   */
+  async getStatusEvents(tenant: Tenant, ref: string) {
+    const includePool = tenant.credentialMode === CredentialMode.PLATFORM;
+    return this.statusEvents.findForTenant(tenant.id, ref, includePool);
   }
 
   // --- инфраструктура ---

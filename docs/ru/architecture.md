@@ -207,8 +207,9 @@ documentation.md).
 | `AdminModule` | ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов, `GET /admin/audit` |
 | `MastercardClientModule` | низкоуровневый `MastercardClient` (axios + интерцепторы encrypt/sign/decrypt); `EncryptionService` — провайдер здесь, не отдельный модуль |
 | `AuditModule` | `AuditInterceptor` (навешивается per-controller через `@UseGatewayContract()`) + батчевый `AuditService` → Postgres; `AuditLogEntity` co-located |
-| `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп |
-| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API); использует `mc-paths.ts` (централизованный билдер URL MC) |
+| `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп; статусные события (STATUS_CHG/QUOTE_STATUS_CHG) персистятся в `tx_status` (атомарный дедуп+запись), атрибуция тенанту (OWN→partnerId / PLATFORM→общий пул), нормализация camel/snake |
+| `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); общий для `WebhooksModule` (запись) и `CrossBorderModule` (tenant-scoped чтение для polling) |
+| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) + polling статусов (`GET /crossborder/status-events`); использует `mc-paths.ts` (централизованный билдер URL MC) |
 | `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
 | `HealthController` (dev-харнесс) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется в `AppModule` (харнесс), НЕ в зонтичном модуле — корневые пробы конфликтовали бы с хостом; при встраивании пробы даёт хост |
 | `IdempotencyService` | провайдер (через `KvStore`); свёрнут из прежнего `IdempotencyModule` |
@@ -275,12 +276,17 @@ address-validation; теперь в одном аудируемом месте).
   TypeORM-миграции, cron-очистка `kv_store`, структурные логи (pino) + correlation-id.
 - ✅ **Встраиваемый зонтичный модуль:** единый `MastercardModule` + публичный barrel
   (`src/index.ts`), per-controller cross-cutting связывание, `GatewayConfig`, `HostIntegrityService`.
-- ✅ **Полное покрытие MC API:** все 15 групп MC API Reference (14 + #15 частично) под
-  `/crossborder/*` (balances, rates, carded-rates, quotes(+confirmations), payments
-  (+Idempotency-Key)/retrieve/cancel, address-/account-validations, bank-lookups,
-  iban-generations, cash-pickup, endpoint-guide, RFI requests/documents).
+- ✅ **Полное покрытие MC API:** все 15 групп MC API Reference под `/crossborder/*`
+  (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
+  retrieve-confirmed-quote), payments(+Idempotency-Key)/retrieve/cancel, address-/
+  account-validations, bank-lookups, iban-generations, cash-pickup, endpoint-guide,
+  RFI requests/documents) + **Push Notifications**: вебхук персистит статусы в `tx_status`,
+  мерчант читает через `GET /crossborder/status-events`.
 - ✅ **Качество:** 10-раундовый аудит безопасности/багов/оптимизаций + 2 раунда регрессий +
-  4-линзовый код-ревью (Tier 1 применён). Тесты: unit 20 сьютов / 147, e2e 23/23 на живом sandbox.
+  4-линзовый код-ревью (Tier 1 применён); доработка покрытия (confirm-suite 3/3, carded-rate
+  GET, push-персист) прошла ещё 3 раунда анализа (баги/оптимизация/безопасность). Тесты: unit
+  20 сьютов / 159, e2e на живом sandbox.
 - ⬜ **Перед прод:** per-tenant encryption (JWE-интерцептор всё ещё на платформенном
-  ключе — см. §6), подпись вебхука (C1), приватный Client-ключ дешифрования,
-  Vault-реализация, метрики/трейсинг (Prometheus/OTel) — см. [production-questions.md](./production-questions.md).
+  ключе — см. §6), подпись вебхука (C1) и **декрипт зашифрованного push** (нужен Client-ключ),
+  приватный Client-ключ дешифрования, Vault-реализация, метрики/трейсинг (Prometheus/OTel) —
+  см. [production-questions.md](./production-questions.md).

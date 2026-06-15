@@ -14,7 +14,7 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 
 ## 0. Unit suite (Jest, `src/**/*.spec.ts`)
 
-**20 suites / 147 tests — all green.** Run: `node node_modules\jest\bin\jest.js`
+**20 suites / 159 tests — all green.** Run: `node node_modules\jest\bin\jest.js`
 (see [tests.md](./tests.md#running-the-suite) for the Windows + WSL-UNC note).
 
 | Suite | What it locks in |
@@ -27,11 +27,11 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 | `idempotency.service` | lock acquire/cache; 4xx releases the lock; 5xx/unknown **keeps** it (anti double-charge); body-fingerprint reuse → 422 |
 | `oauth.service` | issues Bearer for a valid client; `invalid_client` and never signs for bad creds |
 | `webhook-auth.guard` | fail-closed (no token configured → reject); missing/wrong token; signature-verifier false → reject |
-| `webhook.handler` | accept + dedup by `eventRef`; `notificationId` fallback; accept without a ref |
+| `webhook.handler` | status events (STATUS_CHG/QUOTE_STATUS_CHG) → persist to `tx_status` (record), record=false→duplicate; attribution OWN-partnerId→tenantId else shared pool (null); snake_case normalization; status/stage extracted from `quote.confirmStatus`; non-status (CARDFX_PUB) → KV dedup by `eventRef`/`notificationId`, no persist; encrypted push → accept without processing; empty/undefined body → accept (not 500) |
 | `tenant-serialization` (admin) | `@Exclude` hides `secretRef`; `TenantViewDto` whitelist; `IssuedClientDto` shows `clientSecret` once |
 | `host-integrity.service` | warns on missing DataSource / entities / ScheduleModule / empty webhookToken |
 | `gateway-exception.filter` | unified envelope; nests MC body under `upstream`; RFC 6749 `/oauth/token` shapes; no internals leaked |
-| **`crossborder.service`** (new) | MC path construction per operation + `call()` dispatch: 2xx→data, forwardable object 4xx→`UpstreamHttpException`, non-object 4xx→hidden 502, 401/403/5xx & network/decrypt error→502; `encodeURIComponent` on path ids; CRLF-stripped `Partner-Ref-Id`; non-ACTIVE tenant → Forbidden, MC not called |
+| **`crossborder.service`** | MC path construction per operation (incl. Carded/FX Rate Pull = GET `/rates`; confirm/cancel confirmed quote; retrieve confirmed quote with encodeURIComponent on both segments) + `call()` dispatch: 2xx→data, forwardable object 4xx→`UpstreamHttpException`, non-object 4xx→hidden 502, 401/403/5xx & network/decrypt error→502; `encodeURIComponent` on path ids; CRLF-stripped `Partner-Ref-Id`; non-ACTIVE tenant → Forbidden, MC not called; `getStatusEvents` — local `tx_status` read (OWN→includePool=false, PLATFORM→true), MC not called |
 | **`mastercard-client.service`** (new) | retry matrix — GET retries transient 502/503/504 up to 3×, POST never retried (anti double-charge); decrypt-no-retry regression: a deterministic decryption failure is NOT retried even on GET |
 | **`audit.service`** (new) | flush re-entrancy (no double insert); `capBuffer` drops the **oldest** on overflow + logs the drop; `recent()` second-flush picks up in-flight records; insert failure re-queues the batch |
 | **`credentials.service`** (new) | OWN cache stampede dedup (concurrent resolves → one fetch); LRU cap ≤500 (oldest evicted); rejected fetch evicted (no TTL stick); `partnerId` allowlist + `secretRef` anti-traversal (`..`) + bundle validation |
@@ -125,9 +125,9 @@ curl.exe -s $base/ready    # {"status":"ok","info":{"database":{"status":"up"}},
   rounds + a 4-lens code-quality review, the fixes were locked into the automated
   suite. Four new unit suites (`crossborder.service`, `mastercard-client.service`,
   `audit.service`, `credentials.service`) were added. Current status:
-  **unit 20 suites / 147 tests green**, **E2E 23/23 green** against the live sandbox
-  (the previously-open "E2E on Postgres not yet run" item is now part of normal
-  verification). Coverage spans all 15 MC API groups.
+  **unit 20 suites / 159 tests green** (after the coverage follow-up: confirm-suite 3/3,
+  carded-rate GET, push persistence to `tx_status` — +3 analysis rounds bugs/opt/security),
+  **E2E** against the live sandbox. Coverage spans all 15 MC API groups.
 
 ## Not covered (internal)
 

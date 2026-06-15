@@ -18,10 +18,11 @@ Related documents: [architecture.md](./architecture.md) (design),
 | [Tenant](#tenant) | Postgres `tenants` | Partner/merchant on the platform |
 | [OAuthClient](#oauthclient) | Postgres `oauth_clients` | Partner's OAuth2 client (API access) |
 | [AuditLog](#auditlog-auditentry) | Postgres `audit_log` | Operation log record |
-| [KvEntry](#kventry-kv_store) | Postgres `kv_store` | Idempotency + webhook dedup (with TTL) |
+| [KvEntry](#kventry-kv_store) | Postgres `kv_store` | Idempotency + NON-status webhook dedup (with TTL) |
+| [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Persisted status push notifications (Status Change) |
 | [McCredentials](#mccredentials) | not stored (resolve + cache) | Resolved Mastercard keys for a tenant |
 | [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore/Vault | Partner secrets (keys, consumerKey) |
-| [McWebhookEvent](#mcwebhookevent) | not stored (inbound) | Mastercard push-notification payload |
+| [McWebhookEvent](#mcwebhookevent) | status → `tx_status`; others not stored | Mastercard push-notification payload |
 
 ---
 
@@ -39,7 +40,8 @@ The service is deployed to Docker/Kubernetes on **many pods**. Hence the rule:
 | `oauth_clients` | **Postgres** (TypeORM) | domain | key issued on A → authentication on B |
 | `audit_log` | **Postgres** (TypeORM) | domain | aggregated across all pods |
 | `idempotency` | **Postgres** (`KvStore`→PG, TTL) | domain | payment retry on another pod → otherwise a double charge |
-| webhook dedup | **Postgres** (`KvStore`→PG, TTL) | domain | MC webhook retry on another pod → otherwise a duplicate |
+| webhook dedup (NON-status) | **Postgres** (`KvStore`→PG, TTL) | domain | MC webhook retry on another pod → otherwise a duplicate |
+| `tx_status` (status push) | **Postgres** (TypeORM) | domain | status arrives on pod A → merchant reads on B; dedup = UNIQUE(eventRef) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` | ephemeral | correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative |
 | credentials cache | **in-memory per-pod** | cache | source of truth — Vault/env; pods cache independently from one source, TTL bounds staleness |
 | partner secrets | SecretStore (Vault) | external | managed by the secret manager, not our layer |
@@ -404,7 +406,9 @@ Table `audit_log`.
 **KvEntry** — a universal key-value record with a **TTL**. One table serves two
 mechanisms that need cross-pod consistency:
 1. **payment idempotency** (key `idem:<tenantId>:<Idempotency-Key>`);
-2. **Mastercard webhook dedup** (key `wh:<eventRef>`).
+2. **NON-status Mastercard webhook dedup** (key `wh:<eventRef>`). Status push events
+   (STATUS_CHG/QUOTE_STATUS_CHG) are deduped NOT here but in
+   [`tx_status`](#transactionstatus-tx_status) (UNIQUE(eventRef), dedup+persist atomic).
 
 Code: [`src/store/postgres-kv.store.ts`](../../src/store/postgres-kv.store.ts),
 entity (co-located in the module): [`src/store/kv.entity.ts`](../../src/store/kv.entity.ts).
@@ -432,6 +436,47 @@ Table `kv_store`.
   `@nestjs/schedule`, under a `pg_try_advisory_xact_lock` so only one pod cleans per
   cycle; the `DELETE` is **batched via `LIMIT`/`ctid`** so one pass removes at most
   `CLEANUP_BATCH` rows and never holds a long lock), plus lazily on read.
+
+---
+
+# TransactionStatus (`tx_status`)
+
+**TransactionStatus** — persists MC status push notifications (Status Change / Quote
+Status Change) for merchant delivery via polling. Dedup AND write are **atomic**: a single
+`INSERT … ON CONFLICT (eventRef) DO NOTHING` (no "crash between marking dedup and writing
+the status" window that a separate kv-dedup would have).
+
+Code: [`src/webhooks/transaction-status.store.ts`](../../src/webhooks/transaction-status.store.ts),
+entity: [`src/webhooks/transaction-status.entity.ts`](../../src/webhooks/transaction-status.entity.ts).
+Table `tx_status`.
+
+## Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `serial` PK | Auto-increment. |
+| `eventRef` | `varchar(200)` UNIQUE, null | Dedup key (NULLs don't conflict → ref-less events always insert). |
+| `tenantId` | `varchar(64)` null | OWN → resolved by `partnerId`; PLATFORM/unknown → `NULL` (shared pool). |
+| `transactionReference` | `varchar(256)` null | Transaction/quote reference. |
+| `eventType` | `varchar(32)` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
+| `transactionType` | `varchar(16)` null | `QUOTE` / `PAYMENT`. |
+| `status` | `varchar(32)` null | Status (from `quote.confirmStatus.status` or top level). |
+| `stage` | `varchar(32)` null | Stage (`pendingStage`: Expired/Ambiguous, etc.). |
+| `payload` | `jsonb` | The raw (normalized) event in full. |
+| `receivedAt` | `timestamptz` (indexed) DEFAULT now() | Receipt moment. |
+
+Indexes: UNIQUE(`eventRef`); composite (`transactionReference`, `tenantId`) — for the
+read-by-ref path; (`receivedAt`).
+
+## Behavior
+
+- **Write (`record`)** — an atomic `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
+  `true` = inserted (fresh), `false` = duplicate. String fields are **truncated** to the
+  column widths BEFORE insert (status/stage/… come from an unsigned body not covered by DTO
+  validation → otherwise "value too long" → 500 + an endless MC retry of a permanent error).
+- **Read (`findForTenant`)** — by `transaction_reference`, tenant-scoped: OWN sees STRICTLY
+  its own rows; PLATFORM sees its own + the shared pool (`tenantId IS NULL`). `LIMIT 200`,
+  ordered by `id ASC`. Endpoint: `GET /crossborder/status-events?ref=`.
 
 ---
 
@@ -516,21 +561,25 @@ and `signing`. Encryption fields are optional (needed only with `MC_ENCRYPTION_E
 # McWebhookEvent
 
 **McWebhookEvent** — a Mastercard push-notification payload (`POST /webhooks/mastercard`).
-**Not stored** as an entity; for dedup only a marker by `eventRef` is placed into
+Status events are **persisted** to [`tx_status`](#transactionstatus-tx_status); others
+(Carded Rate Push, RFI, etc.) are not stored, only deduped via a `eventRef` marker in
 [`kv_store`](#kventry-kv_store).
 
 Code: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts).
 
 ## Fields (known; the payload is extensible)
 
-| Field | Type | Description |
+MC sends fields in TWO notations — camelCase and snake_case; the handler normalizes both.
+
+| Field (camel / snake) | Type | Description |
 |---|---|---|
-| `eventRef` | `string?` | Event identifier (dedup key). |
-| `notificationId` | `string?` | Alternative id (dedup fallback). |
-| `eventType` | `string?` | Event type (e.g. `STATUS_CHG`) — for dispatch. |
-| `transactionReference` | `string?` | Reference of the related transaction. |
-| `partnerId` | `string?` | The partner-id it came from. |
-| `[key]` | `unknown` | Other payload fields. |
+| `eventRef` / `event_ref` | `string?` | Event identifier (dedup key). |
+| `notificationId` / `notification_id` | `string?` | Alternative id (dedup fallback). |
+| `eventType` / `event_type` | `string?` | Type (`STATUS_CHG`/`QUOTE_STATUS_CHG`/`CARDFX_PUB`/…) — dispatch. |
+| `transactionReference` / `transaction_reference` | `string?` | Transaction reference. |
+| `partnerId` / `partner_id` | `string?` | Sender partner-id (tenant attribution). |
+| `encrypted_payload.data` | `string?` | Marks an encrypted push (decrypt — MTF/Prod). |
+| `[key]` | `unknown` | Other payload fields (kept in full in `tx_status.payload`). |
 
 ## Behavior
 
@@ -539,8 +588,11 @@ Code: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts)
   payload signature (MC has no JWS/HMAC payload signature; the former "C1" is closed by reading
   the docs). `WebhookSignatureVerifier` stays a scaffold (Noop). Details and the MC quote —
   `api.md` → Webhooks.
-- **Dedup:** `setIfAbsent('wh:<eventRef>')` with a one-day TTL — MC retries up to 3
-  times. Repeat → `{status:'duplicate'}`, otherwise `{status:'accepted'}`.
-- **Always responds 200** (otherwise MC retries). Dispatch by `eventType` (status
-  processing — TODO). At-least-once: if processing fails, the dedup key is released so
-  an MC retry reprocesses.
+- **Status events** (`STATUS_CHG`/`QUOTE_STATUS_CHG`) → persisted to `tx_status` via a single
+  `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup+write atomic). Tenant attribution:
+  OWN → by `partnerId`, PLATFORM/unknown → the shared pool (`tenantId=NULL`).
+- **Other events** → dedup `setIfAbsent('wh:<eventRef>')` (one-day TTL) + log.
+- **Encrypted push** (`encrypted_payload.data`): acked 200 without processing (decrypt —
+  MTF/Prod, needs the Client key).
+- **Always responds 200** (otherwise MC retries). Repeat → `{status:'duplicate'}`,
+  otherwise `{status:'accepted'}`.

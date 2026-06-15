@@ -71,7 +71,7 @@ Tenant header: `x-internal-token` + `x-tenant-id: own-sandbox`.
 | MC-2 | `POST /crossborder/quotes` (unique ref) | ✅ 200/201 — body contains `proposal`/`charged_amount` |
 | MC-3 | `GET /crossborder/cash-pickup/countries?cash_pickup_type=PANY` (GET, no encryption) | ✅ reaches MC (not 404/500) |
 | MC-4 | `GET /crossborder/endpoint-guide/specifications?...` (GET, no body/encryption) | ✅ reaches MC (not 404/500) |
-| MC-5 | `POST /crossborder/carded-rates` (Carded Rate Pull — sandbox unsupported) | ✅ gateway proves out (not 500) |
+| MC-5 | `GET /crossborder/rates` (Carded/FX Rate Pull, GET — sandbox unsupported) | ✅ gateway proves out (not 500) |
 
 ### 1b. Validation / lookup endpoints — gateway contract (request reaches MC)
 

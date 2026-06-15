@@ -18,10 +18,11 @@
 | [Tenant](#tenant) | Postgres `tenants` | Партнёр/мерчант на платформе |
 | [OAuthClient](#oauthclient) | Postgres `oauth_clients` | OAuth2-клиент партнёра (доступ к API) |
 | [AuditLog](#auditlog-auditentry) | Postgres `audit_log` | Запись журнала операций |
-| [KvEntry](#kventry-kv_store) | Postgres `kv_store` | Идемпотентность + дедуп вебхуков (с TTL) |
+| [KvEntry](#kventry-kv_store) | Postgres `kv_store` | Идемпотентность + дедуп НЕ-статусных вебхуков (с TTL) |
+| [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Персист статусных push-уведомлений (Status Change) |
 | [McCredentials](#mccredentials) | не хранится (резолв + кэш) | Резолвенные ключи Mastercard для тенанта |
 | [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore/Vault | Секреты партнёра (ключи, consumerKey) |
-| [McWebhookEvent](#mcwebhookevent) | не хранится (входящий) | Payload push-уведомления Mastercard |
+| [McWebhookEvent](#mcwebhookevent) | статусные → `tx_status`; прочие — не хранятся | Payload push-уведомления Mastercard |
 
 ---
 
@@ -39,7 +40,8 @@
 | `oauth_clients` | **Postgres** (TypeORM) | домен | ключ выпущен на A → аутентификация на B |
 | `audit_log` | **Postgres** (TypeORM) | домен | агрегируется со всех подов |
 | `idempotency` | **Postgres** (`KvStore`→PG, TTL) | домен | ретрай платежа на другом поде → иначе двойное списание |
-| webhook-дедуп | **Postgres** (`KvStore`→PG, TTL) | домен | ретрай вебхука MC на другом поде → иначе дубль |
+| webhook-дедуп (НЕ-статусные) | **Postgres** (`KvStore`→PG, TTL) | домен | ретрай вебхука MC на другом поде → иначе дубль |
+| `tx_status` (статусные push) | **Postgres** (TypeORM) | домен | статус приходит на поде A → мерчант читает на B; дедуп = UNIQUE(eventRef) |
 | rate-limit | самодостаточный per-pod `@nestjs/throttler` | эфемерный | корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative |
 | кэш креды | **in-memory per-pod** | кэш | источник истины — Vault/env; поды кэшируют независимо из одного источника, TTL ограничивает staleness |
 | секреты партнёров | SecretStore (Vault) | внешнее | управляется секрет-менеджером, не наш слой |
@@ -407,7 +409,9 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 **KvEntry** — универсальная запись key-value с **TTL**. Одна таблица обслуживает
 два механизма, которым нужна согласованность между подами:
 1. **идемпотентность платежей** (ключ `idem:<tenantId>:<Idempotency-Key>`);
-2. **дедуп вебхуков** Mastercard (ключ `wh:<eventRef>`).
+2. **дедуп НЕ-статусных вебхуков** Mastercard (ключ `wh:<eventRef>`). Статусные
+   push-события (STATUS_CHG/QUOTE_STATUS_CHG) дедупятся НЕ здесь, а в
+   [`tx_status`](#transactionstatus-tx_status) (UNIQUE(eventRef), дедуп+персист атомарны).
 
 Код: [`src/store/postgres-kv.store.ts`](../../src/store/postgres-kv.store.ts),
 сущность (co-located в модуле): [`src/store/kv.entity.ts`](../../src/store/kv.entity.ts).
@@ -434,6 +438,47 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
   `@nestjs/schedule`, под `pg_try_advisory_xact_lock` — в multi-pod реально чистит
   только ОДИН под за цикл; `DELETE` **батчится через `LIMIT`/`ctid`**, поэтому один
   прогон удаляет не более `CLEANUP_BATCH` строк и не держит длинный лок), плюс лениво при чтении.
+
+---
+
+# TransactionStatus (`tx_status`)
+
+**TransactionStatus** — персист статусных push-уведомлений MC (Status Change / Quote
+Status Change) для доставки мерчанту через polling. Дедуп И запись **атомарны**: один
+`INSERT … ON CONFLICT (eventRef) DO NOTHING` (нет окна «краш между пометкой дедупа и
+записью», которое было бы при kv-дедупе отдельно от записи).
+
+Код: [`src/webhooks/transaction-status.store.ts`](../../src/webhooks/transaction-status.store.ts),
+сущность: [`src/webhooks/transaction-status.entity.ts`](../../src/webhooks/transaction-status.entity.ts).
+Таблица `tx_status`.
+
+## Поля
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `id` | `serial` PK | Автоинкремент. |
+| `eventRef` | `varchar(200)` UNIQUE, null | Ключ дедупа (NULL'ы не конфликтуют → безref-события вставляются всегда). |
+| `tenantId` | `varchar(64)` null | OWN → резолв по `partnerId`; PLATFORM/неизвестный → `NULL` (общий пул). |
+| `transactionReference` | `varchar(256)` null | Reference транзакции/котировки. |
+| `eventType` | `varchar(32)` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
+| `transactionType` | `varchar(16)` null | `QUOTE` / `PAYMENT`. |
+| `status` | `varchar(32)` null | Статус (из `quote.confirmStatus.status` или верхнего уровня). |
+| `stage` | `varchar(32)` null | Стадия (`pendingStage`: Expired/Ambiguous и т.п.). |
+| `payload` | `jsonb` | Сырое (нормализованное) событие целиком. |
+| `receivedAt` | `timestamptz` (индекс) DEFAULT now() | Момент приёма. |
+
+Индексы: UNIQUE(`eventRef`); композитный (`transactionReference`, `tenantId`) — под
+чтение по ref; (`receivedAt`).
+
+## Поведение
+
+- **Запись (`record`)** — атомарный `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
+  `true` = вставлено (свежее), `false` = дубль. Строковые поля **усекаются** под ширины
+  колонок ПЕРЕД вставкой (status/stage/… приходят из неподписанного тела и не покрыты
+  DTO-валидацией → иначе «value too long» → 500 + бесконечный ретрай MC).
+- **Чтение (`findForTenant`)** — по `transaction_reference`, tenant-scoped: OWN видит
+  СТРОГО свои строки; PLATFORM — свои + общий пул (`tenantId IS NULL`). Потолок `LIMIT 200`,
+  сортировка по `id ASC`. Эндпоинт: `GET /crossborder/status-events?ref=`.
 
 ---
 
@@ -519,21 +564,25 @@ in-memory (per-pod). Остальной код работает только с 
 # McWebhookEvent
 
 **McWebhookEvent** — payload push-уведомления Mastercard (`POST /webhooks/mastercard`).
-**Не хранится** как сущность; для дедупа в [`kv_store`](#kventry-kv_store) кладётся
-только маркер по `eventRef`.
+Статусные события **персистятся** в [`tx_status`](#transactionstatus-tx_status); прочие
+(Carded Rate Push, RFI и т.п.) не хранятся, только дедупятся в
+[`kv_store`](#kventry-kv_store) маркером по `eventRef`.
 
 Код: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts).
 
 ## Поля (известные; payload расширяемый)
 
-| Поле | Тип | Описание |
+MC шлёт поля в ДВУХ нотациях — camelCase и snake_case; хендлер нормализует обе.
+
+| Поле (camel / snake) | Тип | Описание |
 |---|---|---|
-| `eventRef` | `string?` | Идентификатор события (ключ дедупа). |
-| `notificationId` | `string?` | Альтернативный id (фолбэк для дедупа). |
-| `eventType` | `string?` | Тип события (напр. `STATUS_CHG`) — для диспетчеризации. |
-| `transactionReference` | `string?` | Reference транзакции, к которой относится. |
-| `partnerId` | `string?` | partner-id, от которого пришло. |
-| `[key]` | `unknown` | Прочие поля payload-а. |
+| `eventRef` / `event_ref` | `string?` | Идентификатор события (ключ дедупа). |
+| `notificationId` / `notification_id` | `string?` | Альтернативный id (фолбэк для дедупа). |
+| `eventType` / `event_type` | `string?` | Тип (`STATUS_CHG`/`QUOTE_STATUS_CHG`/`CARDFX_PUB`/…) — диспетчеризация. |
+| `transactionReference` / `transaction_reference` | `string?` | Reference транзакции. |
+| `partnerId` / `partner_id` | `string?` | partner-id отправителя (атрибуция тенанту). |
+| `encrypted_payload.data` | `string?` | Признак зашифрованного push (декрипт — MTF/Prod). |
+| `[key]` | `unknown` | Прочие поля payload-а (сохраняются целиком в `tx_status.payload`). |
 
 ## Поведение
 
@@ -541,7 +590,11 @@ in-memory (per-pod). Остальной код работает только с 
   prod и dev. Авторитетная аутентичность push-уведомлений у MC — **mTLS**, а не подпись
   payload (JWS/HMAC у MC нет; бывший «C1» закрыт чтением доки). `WebhookSignatureVerifier`
   остаётся каркасом (Noop). Детали и цитата MC — `api.md` → Webhooks.
-- **Дедуп:** `setIfAbsent('wh:<eventRef>')` с TTL сутки — MC ретраит до 3 раз.
-  Повтор → `{status:'duplicate'}`, иначе `{status:'accepted'}`.
-- **Ответ всегда 200** (иначе MC ретраит). Диспетчеризация по `eventType`
-  (обработка статусов — TODO).
+- **Статусные события** (`STATUS_CHG`/`QUOTE_STATUS_CHG`) → персист в `tx_status` одним
+  `INSERT … ON CONFLICT (eventRef) DO NOTHING` (дедуп+запись атомарны). Атрибуция тенанту:
+  OWN → по `partnerId`, PLATFORM/неизвестный → общий пул (`tenantId=NULL`).
+- **Прочие события** → дедуп `setIfAbsent('wh:<eventRef>')` (TTL сутки) + лог.
+- **Зашифрованный push** (`encrypted_payload.data`): ack 200 без обработки (декрипт —
+  MTF/Prod, нужен Client-ключ).
+- **Ответ всегда 200** (иначе MC ретраит). Повтор → `{status:'duplicate'}`, иначе
+  `{status:'accepted'}`.

@@ -19,22 +19,22 @@
 | # | Mastercard API | Upstream MC эндпоинт(ы) | Наш эндпоинт шлюза | Sandbox | Статус |
 |---|---|---|---|---|---|
 | 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
-| 2 | **Quote Confirmation APIs** | `POST /send/partners/{pid}/crossborder/quotes/confirmations` | `POST /crossborder/quotes/confirmations` | ✅ | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `POST /send/v1/partners/{pid}/crossborder/rates` (без тела); Push = вебхук на стороне клиента | `POST /crossborder/carded-rates` | ❌ (нет sandbox у MC) | ✅ |
+| 2 | **Quote Confirmation APIs** (сьют ×3) | Confirm `POST …/crossborder/quotes/confirmations`; Cancel `POST …/crossborder/quotes/cancellations`; Retrieve `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` | `POST /crossborder/quotes/confirmations`, `POST /crossborder/quotes/cancellations`, `GET /crossborder/quotes/:transactionReference/proposals/:proposalId` | ✅ | ✅ |
+| 3 | **Carded Rate Pull + Push** | Pull `GET /send/v1/partners/{pid}/crossborder/rates` (операция `getFxRates`, без тела); Push = вебхук на стороне клиента | `GET /crossborder/rates` | ❌ (нет sandbox у MC) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
 | 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
 | 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (нужно шифрование; ASV нет в sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (доходит до MC; sandbox → HTML 500 для generic partner-id) | ✅ |
-| 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` | ✅ | ✅ (приём) |
+| 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` (персист в `tx_status`); чтение мерчантом `GET /crossborder/status-events?ref=` | ✅ | ✅ (приём + персист) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
 | 11 | **RFI APIs** (сьют ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` тот же; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` тот же, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox даёт canned-отказ для не-онбордженного pid; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
-| 15 | **Push Notifications Details** | inbound-вебхук + дедуп | `POST /webhooks/mastercard` | ✅ | ⚠️ (приём готов; аутентичность вебхука = **mTLS** при деплое — нужен cert от MC, см. ниже) |
+| 15 | **Push Notifications Details** | inbound-вебхук + дедуп + персист статусов | `POST /webhooks/mastercard` (+ `tx_status`, чтение `GET /crossborder/status-events?ref=`) | ✅ | ✅ (приём/дедуп/персист; декрипт зашифрованного push — MTF/Prod, см. ниже; аутентичность = **mTLS** при деплое) |
 
-**Реализовано — все 15 (14 + 1 частично):** 1, 2, **3**, 4, **5**, **6**, **7**, **8**, 9, 10, **11**, 12, 13, 14 (+15 частично: приём/дедуп готовы, авторитетная аутентичность вебхука = mTLS, настраивается при деплое — нужен публичный mTLS-cert от MC; см. раздел «Webhooks»).
+**Реализовано — все 15:** 1, **2**, **3**, 4, **5**, **6**, **7**, **8**, **9**, 10, **11**, 12, 13, 14, **15** (Status Change/Quote Status Change персистятся в `tx_status` с атомарным дедупом и атрибуцией тенанту; декрипт зашифрованного push и mTLS-аутентичность настраиваются при деплое в MTF/Prod — см. раздел «Webhooks»).
 
 > **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
 > нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
@@ -60,17 +60,18 @@
 > прочих маршрутов сохранён); e2e: ~500KB-файл проходит парсер (НЕ 413). Push-вебхук RFI
 > приходит на общий `/webhooks/mastercard`.
 >
-> **Carded Rate (3)** — Pull реализован как `POST /crossborder/carded-rates` (БЕЗ тела) к MC
-> `POST …/v1/partners/{pid}/crossborder/rates`. **MC не предоставляет sandbox для Carded Rate**
-> (явно в доке) → успех недостижим; e2e проверяет лишь, что шлюз не падает внутренне и
-> форвардит ответ MC (получили проброшенный 400). Push-вариант — вебхук на стороне клиента
+> **Carded Rate (3)** — Pull реализован как `GET /crossborder/rates` к MC
+> `GET …/v1/partners/{pid}/crossborder/rates` (операция MC `getFxRates`, «No Request body» →
+> метод **GET**; прежний ошибочный `POST /crossborder/carded-rates` удалён). **MC не
+> предоставляет sandbox для Carded Rate** (явно в доке) → успех недостижим; e2e проверяет лишь,
+> что шлюз не падает внутренне и форвардит ответ MC. Push-вариант — вебхук на стороне клиента
 > (общий `/webhooks/mastercard`). Проверится вживую в MTF/Prod на сконфигурированном коридоре.
 
-> Сверх списка со скрина у нас уже есть: `GET /crossborder/rates` (generic FX-курсы).
 > Префиксы путей MC неоднородны (по офиц. доке): `/send/v1/…` — quotes/payment/carded-rate/
-> retrieve/cancel; `/send/…` (без `v1`) — confirmations/account-validation/RFI; `/crossborder/…`
-> (без `/send`, без partner-сегмента) — cash-pickup/endpoint-guide; Address Validation —
-> отдельная база `/send/address-validation-service/…`.
+> retrieve/cancel; `/send/…` (без `v1`) — confirmations/cancellations/retrieve-confirmed-quote/
+> account-validation/RFI; `/crossborder/…` (без `/send`, без partner-сегмента) —
+> cash-pickup/endpoint-guide; Address Validation — отдельная база
+> `/send/address-validation-service/…`.
 
 ---
 
@@ -121,13 +122,16 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 | Метод | Путь | Что делает | Upstream Mastercard |
 |---|---|---|---|
 | `GET` | `/crossborder/balances` | Счета и балансы партнёра | `GET …/crossborder/accounts?include_balance=true` |
-| `GET` | `/crossborder/rates` | Доступные FX-курсы | `GET …/crossborder/rates` |
+| `GET` | `/crossborder/rates` | Carded / FX Rate Pull (курсы коридоров) | `GET …/crossborder/rates` |
 | `POST` | `/crossborder/quotes` | Запросить котировку (цена/курс перевода) | `POST …/crossborder/quotes` |
 | `POST` | `/crossborder/quotes/confirmations` | Подтвердить котировку | `POST …/crossborder/quotes/confirmations` |
+| `POST` | `/crossborder/quotes/cancellations` | Отменить подтверждённую котировку (возврат резерва) | `POST …/crossborder/quotes/cancellations` |
+| `GET` | `/crossborder/quotes/:transactionReference/proposals/:proposalId` | Просмотр подтверждённой котировки | `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` |
 | `POST` | `/crossborder/payments` | Инициировать платёж | `POST …/crossborder/payment` |
 | `GET` | `/crossborder/payments/:id` | Статус платежа по id | `GET …/crossborder/{id}` |
 | `GET` | `/crossborder/payments?ref=…` | Статус платежа по transaction reference | `GET …/crossborder?ref=…` |
 | `POST` | `/crossborder/payments/:id/cancel` | Отмена платежа | `POST …/crossborder/{id}/cancel` |
+| `GET` | `/crossborder/status-events?ref=…` | Сохранённые push-статусы по transaction_reference (локальное чтение из `tx_status`, не вызов MC) | — |
 
 `…` = `/send[/v1]/partners/{partner-id}/crossborder` — `partner-id` подставляется
 из credentials тенанта (не из запроса).
@@ -263,6 +267,19 @@ JWT живёт 15 мин, HS256, `tid` = tenantId. Rate-limit: **10/мин по 
 - **Всегда отвечает `200`** (иначе MC ретраит).
 - **Дедуп** по `eventRef` (MC ретраит до 3 раз): повтор → `{"status":"duplicate"}`,
   иначе `{"status":"accepted"}`.
+- **Персист статусов:** `STATUS_CHG` / `QUOTE_STATUS_CHG` сохраняются в таблицу `tx_status`
+  одним `INSERT … ON CONFLICT (eventRef) DO NOTHING` — дедуп И запись **атомарны** (нет окна
+  «краш между пометкой дедупа и записью»). Прочие типы (Carded Rate Push `CARDFX_PUB`, RFI и
+  т.п.) — дедуп через KV + лог (бизнес-обработка по мере надобности).
+- **Нотации:** MC шлёт поля и в camelCase (`eventRef`/`eventType`/…), и в snake_case
+  (`event_ref`/`event_type`/…) — хендлер нормализует обе (иначе snake-события терялись бы).
+- **Атрибуция тенанту:** OWN-тенант — по `partnerId` (→ его `tenantId`); PLATFORM/неизвестный
+  `partnerId` (общий) → общий пул (`tenantId = NULL`).
+- **Доставка мерчанту:** polling через `GET /crossborder/status-events?ref=<transaction_reference>`
+  (tenant-scoped: OWN видит строго свои события, PLATFORM — свои + общий пул по ref).
+- **Зашифрованный push** (`{ encrypted_payload: { data } }`): детектируется и подтверждается
+  `200` **без обработки** — декрипт требует Client-ключ + per-tenant seam (MTF/Prod; в sandbox
+  push «Not Applicable»).
 
 ---
 

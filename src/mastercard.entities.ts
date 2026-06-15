@@ -2,6 +2,7 @@ import { AuditLogEntity } from './audit/audit-log.entity';
 import { OAuthClientEntity } from './auth/oauth-client.entity';
 import { KvEntity } from './store/kv.entity';
 import { TenantEntity } from './tenants/tenant.entity';
+import { TransactionStatusEntity } from './webhooks/transaction-status.entity';
 
 /**
  * Единый список TypeORM-сущностей модуля — ОДИН источник истины (раньше дублировался
@@ -19,4 +20,5 @@ export const MASTERCARD_ENTITIES = [
   OAuthClientEntity,
   AuditLogEntity,
   KvEntity,
+  TransactionStatusEntity,
 ];

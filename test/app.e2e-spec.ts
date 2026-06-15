@@ -318,10 +318,11 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(500);
   });
 
-  it('POST /crossborder/carded-rates (Carded Rate Pull — sandbox недоступен) → проводка шлюза (не 500)', async () => {
+  it('GET /crossborder/rates (Carded/FX Rate Pull — sandbox недоступен) → проводка шлюза (не 500)', async () => {
     // Carded Rate не поддерживается sandbox'ом (по доке MC) — успех недостижим;
     // проверяем лишь, что шлюз не падает внутренне, а доходит до MC и форвардит.
-    const r = await http.post('/crossborder/carded-rates', undefined, {
+    // Pull у MC — GET (операция getFxRates, без тела); прежний POST убран.
+    const r = await http.get('/crossborder/rates', {
       headers: internal,
     });
     // eslint-disable-next-line no-console

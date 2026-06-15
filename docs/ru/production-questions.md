@@ -57,11 +57,17 @@ standalone dev-harness (`main.ts`). Вопрос закрыт.
       Прод-гейт проверяет это на старте.
 - [ ] **`TRUST_PROXY`** = число хопов ингресса (не `true`) — только для корректного `req.ip` за прокси (используется IP-fallback в rate-limit); к аутентификации не относится.
 - [ ] **mTLS для вебхуков Mastercard (авторитетная аутентичность push-уведомлений).** По доке MC аутентичность вебхука обеспечивается **mTLS**, а НЕ подписью payload (JWS/HMAC — такой подписи у MC нет; бывший «вопрос C1» закрыт чтением доки). Сделать при деплое: (1) запросить у представителя MC публичный mTLS-cert push-уведомлений; (2) добавить его в trust store принимающего приложения/ингресса; (3) передать наш серверный cert-chain через KMP-портал; (4) уточнить у MC доставку `X-Webhook-Token` (MC его не знает — инжект на TLS-слое или кастомный заголовок в Push-конфиге). До этого активный фактор — in-service fail-closed `X-Webhook-Token`. Цитата MC и детали — `api.md` → Webhooks. `WebhookSignatureVerifier` остаётся каркасом (Noop) на случай, если MC когда-нибудь добавит подпись payload.
+- [ ] **Декрипт зашифрованного push-уведомления (MTF/Prod).** Сейчас `WebhookHandler` детектирует
+      зашифрованное тело (`{ encrypted_payload: { data } }`) и подтверждает `200` БЕЗ обработки
+      (в sandbox push «Not Applicable»). Для MTF/Prod подключить расшифровку: нужен приватный
+      Client-ключ дешифрования + per-tenant encryption seam (тот же блокер per-tenant, что в
+      `EncryptionService`). До этого зашифрованные статус-события не персистятся в `tx_status`.
 - [ ] **Опциональный rate-limit на ингрессе** как доп. защита — authoritative-лимит это самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса); лимит на ингрессе, если есть — не authoritative.
 - [ ] **Personal partner-id и ключи** OWN-партнёров заведены в секрет-менеджере.
 - [x] **Миграции БД** — инфраструктура готова (`data-source.ts`, npm-скрипты
-      `migration:generate/run/revert`, начальная `InitialSchema`, `synchronize`
-      off в prod). Осталось: прогон `migration:run` на прод-БД при деплое.
+      `migration:generate/run/revert`, миграции `InitialSchema` + `AddTxStatus` (таблица
+      `tx_status` для персиста push-статусов), `synchronize` off в prod). Осталось: прогон
+      `migration:run` на прод-БД при деплое.
 
 ---
 

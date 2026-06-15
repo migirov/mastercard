@@ -58,11 +58,17 @@ standalone dev-harness (`main.ts`). Question closed.
       The prod gate checks this at startup.
 - [ ] **`TRUST_PROXY`** = number of ingress hops (not `true`) — only for deriving a correct `req.ip` behind a proxy (used by the rate-limit IP fallback); not related to authentication.
 - [ ] **mTLS for Mastercard webhooks (authoritative push-notification authenticity).** Per the MC docs, webhook authenticity is provided by **mTLS**, NOT a payload signature (MC has no JWS/HMAC payload signature; the former "question C1" is closed by reading the docs). Do at deployment: (1) request the public mTLS push-notification cert from the MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token` is delivered (MC doesn't know it — inject at the TLS layer or a custom header in the portal push config). Until then the active factor is the in-service fail-closed `X-Webhook-Token`. MC quote and details — `api.md` → Webhooks. `WebhookSignatureVerifier` stays a scaffold (Noop) in case MC ever adds a payload signature.
+- [ ] **Decrypt encrypted push notifications (MTF/Prod).** The `WebhookHandler` currently detects
+      an encrypted body (`{ encrypted_payload: { data } }`) and acks `200` WITHOUT processing (in
+      sandbox push is "Not Applicable"). For MTF/Prod wire up decryption: it needs the private
+      Client decryption key + the per-tenant encryption seam (the same per-tenant blocker as in
+      `EncryptionService`). Until then encrypted status events are not persisted to `tx_status`.
 - [ ] **Optional ingress rate-limit** as defense-in-depth — the authoritative limit is the in-service self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is not authoritative.
 - [ ] **Personal partner-id and keys** of OWN partners loaded into the secret manager.
 - [x] **DB migrations** — infrastructure is ready (`data-source.ts`, npm scripts
-      `migration:generate/run/revert`, initial `InitialSchema`, `synchronize`
-      off in prod). Remaining: run `migration:run` against the prod DB on deploy.
+      `migration:generate/run/revert`, migrations `InitialSchema` + `AddTxStatus` (the
+      `tx_status` table for push-status persistence), `synchronize` off in prod). Remaining:
+      run `migration:run` against the prod DB on deploy.
 
 ---
 

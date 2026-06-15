@@ -373,17 +373,22 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
 
 ### Покрытие Mastercard API (клиент прислал скрин API Reference — нужны ВСЕ 15)
 Карта — в `docs/{ru,en}/api.md` раздел «Покрытие Mastercard API Reference» (порядок
-как на скрине, столбец **Sandbox** + статус). **Реализованы ВСЕ 15 (14 + #15 частично):**
-1 Quotes, 2 Quote Confirmation, **3 Carded Rate Pull** (POST без тела, нет sandbox у MC),
-4 Payment, **5 Address Validation**, **6 Account Validation сьют ×3** (account-validations +
+как на скрине, столбец **Sandbox** + статус). **Реализованы ВСЕ 15:**
+1 Quotes, **2 Quote Confirmation сьют ×3** (confirm + cancel `/quotes/cancellations` +
+retrieve `/quotes/{ref}/proposals/{id}`), **3 Carded/FX Rate Pull** (= `GET /crossborder/rates`,
+операция MC `getFxRates` без тела; прежний ошибочный POST `/carded-rates` УДАЛЁН; нет sandbox
+у MC), 4 Payment, **5 Address Validation**, **6 Account Validation сьют ×3** (account-validations +
 bank-lookups + iban-generations), **7 Cash Pickup ×4 GET**, **8 Endpoint Guide** (GET; sandbox
-даёт HTML-500 для generic pid), 9 Status Change Push (вебхук), 10 Retrieve Payment, **11 RFI
+даёт HTML-500 для generic pid), **9 Status Change Push** (вебхук → персист в `tx_status`;
+чтение `GET /crossborder/status-events?ref=`), 10 Retrieve Payment, **11 RFI
 сьют ×4** (retrieve/update/upload/download; sandbox canned-отказ для не-онбордженного pid;
-upload — route-scoped лимит тела 2MB), 12 Cancel, 13 Balance, 14 Payload Encryption; 15 Push
-Notifications — частично (приём/дедуп готовы; аутентичность вебхука = **mTLS** при деплое, а не
-подпись payload — бывший «C1» закрыт чтением доки MC).
+upload — route-scoped лимит тела 2MB), 12 Cancel, 13 Balance, 14 Payload Encryption; **15 Push
+Notifications** — приём/дедуп/**персист статусов в `tx_status`** готовы (STATUS_CHG/QUOTE_STATUS_CHG:
+атомарный дедуп по UNIQUE(eventRef), атрибуция OWN→partnerId / PLATFORM→общий пул, нормализация
+camel/snake); аутентичность вебхука = **mTLS** при деплое.
 **Покрытие завершено.** Осталось только ВНЕШНЕ-заблокированное (per-tenant encryption/MTF,
-mTLS-cert вебхука от MC, прод-ключи Client Decryption).
+**декрипт зашифрованного push** (нужен Client-ключ, MTF/Prod), mTLS-cert вебхука от MC,
+прод-ключи Client Decryption).
 
 **ВАЖНО про реализацию новых API:**
 - Точные MC-пути НЕОДНОРОДНЫ — брать из `api-mastercard.md` (не угадывать): `/send/v1/`
