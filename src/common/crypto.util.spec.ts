@@ -1,4 +1,9 @@
-import { randomToken, safeEqual, sha256hex } from './crypto.util';
+import {
+  randomToken,
+  safeEqual,
+  safeTokenEqual,
+  sha256hex,
+} from './crypto.util';
 
 describe('crypto.util', () => {
   describe('randomToken', () => {
@@ -40,6 +45,29 @@ describe('crypto.util', () => {
 
     it('is false (no throw) for different lengths', () => {
       expect(safeEqual('a', 'abc')).toBe(false);
+    });
+  });
+
+  describe('safeTokenEqual', () => {
+    it('is true for equal tokens', () => {
+      expect(safeTokenEqual('abc', 'abc')).toBe(true);
+    });
+
+    it('is false for different tokens of equal length', () => {
+      expect(safeTokenEqual('abc', 'abd')).toBe(false);
+    });
+
+    it('is false (NO throw) for different-length inputs — proves it hashes both first', () => {
+      // Without the hash-first step, timingSafeEqual would throw / early-exit on
+      // unequal length and leak the secret length. Hashing equalizes to 64 hex.
+      expect(safeTokenEqual('short', 'a-much-longer-token')).toBe(false);
+    });
+
+    it('compares the SHA-256 of both inputs (not the raw strings)', () => {
+      // Equivalent to safeEqual(sha256hex(x), sha256hex(y)).
+      expect(safeTokenEqual('t', 't')).toBe(
+        safeEqual(sha256hex('t'), sha256hex('t')),
+      );
     });
   });
 });

@@ -3,21 +3,21 @@ export const SECRET_STORE = Symbol('SECRET_STORE');
 
 /** Материал ключа .p12 — либо путь (dev), либо base64 (Vault). */
 export interface KeyMaterial {
-  p12Base64?: string;
-  p12Path?: string;
-  password: string;
+  readonly p12Base64?: string;
+  readonly p12Path?: string;
+  readonly password: string;
 }
 
 /** Полный набор секретов мерчанта, выдаваемый хранилищем по secretRef. */
 export interface MerchantSecretBundle {
-  consumerKey: string;
-  partnerId: string;
-  signing: KeyMaterial;
+  readonly consumerKey: string;
+  readonly partnerId: string;
+  readonly signing: KeyMaterial;
   /** Для JWE-шифрования запросов (Фаза 4). */
-  encryptionCertPem?: string;
-  encryptionFingerprint?: string;
+  readonly encryptionCertPem?: string;
+  readonly encryptionFingerprint?: string;
   /** Для расшифровки ответов (Фаза 4). */
-  decryption?: KeyMaterial;
+  readonly decryption?: KeyMaterial;
 }
 
 /**

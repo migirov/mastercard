@@ -22,7 +22,13 @@ import { AddressValidationRequestDto } from './dto/address-validation-request.dt
 import { BankLookupRequestDto } from './dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from './dto/confirmation-request.dto';
 import { IbanGenerationRequestDto } from './dto/iban-generation-request.dto';
-import { mcPath } from './mc-paths';
+import {
+  mcPath,
+  CashPickupCitiesQuery,
+  CashPickupProvidersQuery,
+  CashPickupBranchesQuery,
+  EndpointGuideQuery,
+} from './mc-paths';
 import { PaymentRequestDto } from './dto/payment-request.dto';
 import { QuoteRequestDto } from './dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from './dto/rfi-document-upload-request.dto';
@@ -215,10 +221,7 @@ export class CrossBorderService {
   }
 
   /** Города с выдачей наличных (GET, Directed). */
-  async cashPickupCities(
-    tenantId: string,
-    q: { country?: string; currency?: string; offset?: string; limit?: string },
-  ) {
+  async cashPickupCities(tenantId: string, q: CashPickupCitiesQuery) {
     return this.run(tenantId, 'cashPickupCities', (c) => ({
       method: 'GET',
       path: mcPath.cashPickup('cities', this.qs(q)),
@@ -227,16 +230,7 @@ export class CrossBorderService {
   }
 
   /** Receiving Service Providers (GET). */
-  async cashPickupProviders(
-    tenantId: string,
-    q: {
-      country?: string;
-      currency?: string;
-      cash_pickup_type?: string;
-      offset?: string;
-      limit?: string;
-    },
-  ) {
+  async cashPickupProviders(tenantId: string, q: CashPickupProvidersQuery) {
     return this.run(tenantId, 'cashPickupProviders', (c) => ({
       method: 'GET',
       path: mcPath.cashPickup('providers', this.qs(q)),
@@ -245,16 +239,7 @@ export class CrossBorderService {
   }
 
   /** Точки выдачи конкретного провайдера (GET). */
-  async cashPickupBranches(
-    tenantId: string,
-    q: {
-      provider_id?: string;
-      state?: string;
-      city?: string;
-      offset?: string;
-      limit?: string;
-    },
-  ) {
+  async cashPickupBranches(tenantId: string, q: CashPickupBranchesQuery) {
     return this.run(tenantId, 'cashPickupBranches', (c) => ({
       method: 'GET',
       path: mcPath.cashPickup('branches', this.qs(q)),
@@ -269,15 +254,7 @@ export class CrossBorderService {
    * ref-заголовками (X-Mc-Correlation-Id + Partner-Ref-Id), как у validation-
    * сервисов. Тела запроса НЕТ → шифровать нечего → на sandbox работает вживую.
    */
-  async endpointGuide(
-    tenantId: string,
-    q: {
-      payment_type?: string;
-      destination_country?: string;
-      destination_currency?: string;
-      destination_payment_instrument?: string;
-    },
-  ) {
+  async endpointGuide(tenantId: string, q: EndpointGuideQuery) {
     return this.run(tenantId, 'endpointGuide', (c) => ({
       method: 'GET',
       path: mcPath.endpointGuide(this.qs(q)),
@@ -410,7 +387,11 @@ export class CrossBorderService {
    * (анти query-injection — значения уходят в URL запроса к MC, который потом
    * подписывается OAuth1). Возвращает `?k=v&...` или пустую строку.
    */
-  private qs(params: Record<string, string | undefined>): string {
+  // Принимает любой объект-набор фильтров (именованные *Query-типы или инлайн-
+  // литерал); типобезопасность имён полей — на границе controller→service. Берём
+  // только непустые СТРОКИ (значения от `?x[]=` и т.п. отбрасываем) и кодируем —
+  // анти query-инъекция. Ключи задаёт код (не клиент).
+  private qs(params: object): string {
     const pairs = Object.entries(params)
       .filter(([, v]) => typeof v === 'string' && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);

@@ -1,3 +1,4 @@
+import { UnprocessableEntityException } from '@nestjs/common';
 import { GatewayConfig } from '../config/gateway-config';
 import {
   MerchantSecretBundle,
@@ -82,5 +83,33 @@ describe('CredentialsService — boundary validation', () => {
       jest.fn(async () => ({ ...bundle, consumerKey: '' })) as never,
     );
     await expect(svc.resolve(ownTenant('a'))).rejects.toThrow(/consumerKey/);
+  });
+
+  it('бандл без signing → отказ валидации (missing signing key material)', async () => {
+    const { svc } = make(
+      jest.fn(async () => ({ ...bundle, signing: undefined })) as never,
+    );
+    await expect(svc.resolve(ownTenant('a'))).rejects.toThrow(/signing/);
+  });
+
+  it('OWN без secretRef → отказ', async () => {
+    const { svc } = make();
+    await expect(
+      svc.resolve(ownTenant('a', { secretRef: undefined } as Partial<Tenant>)),
+    ).rejects.toThrow(/not configured/);
+  });
+
+  // Контракт статуса: провал резолва — это 422 (тенант не сконфигурирован), а НЕ
+  // сырой Error → 500 (паника алертинга). Это и есть смысл недавней правки.
+  it('провалы резолва — это UnprocessableEntity (422), а не 500', async () => {
+    const { svc } = make();
+    await expect(
+      svc.resolve(ownTenant('a', { partnerId: 'bad id!' } as Partial<Tenant>)),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    await expect(
+      svc.resolve(
+        ownTenant('b', { secretRef: 'mc/../platform' } as Partial<Tenant>),
+      ),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
   });
 });
