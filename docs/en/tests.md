@@ -93,22 +93,25 @@ just "not 404/500".
 
 | # | Test (`it` title) | Result |
 |---|---|---|
-| MC-10 | `GET /crossborder/rfi/requests/:id` → business `400` forwarded | ✅ `400` + MC body contains `062000` |
-| MC-11 | `POST /crossborder/rfi/requests/:id` (update) | ✅ reaches MC (not 404/500) |
+| MC-10 | `GET /crossborder/rfi/requests/:id` — invalid UUID vs valid | ✅ invalid → **400 locally** (no `062000`, never reached MC); valid → reaches MC (not 404/500) |
+| MC-11 | `POST /crossborder/rfi/requests/:id` (update, valid UUID) | ✅ reaches MC (not 404/500) |
 | MC-12 | `POST /crossborder/rfi/documents` (upload) | ✅ reaches MC (not 404/500) |
-| MC-13 | `GET /crossborder/rfi/documents/:id` (download magic-id) | ✅ reaches MC (not 500) |
+| MC-13 | `GET /crossborder/rfi/documents/:id` (download, valid UUID) | ✅ reaches MC (not 500) |
 | MC-14 | `POST /crossborder/rfi/documents` with a ~500KB file | ✅ **not 413** — route-scoped 2MB parser, not the global 256kb |
 
-> **Root cause of the RFI errors (figured out 2026-06-16, empirically).** `request_id` MUST be
-> a **valid RFC-4122 UUID**. Our demo ids (`33000000-0000-0000-0000-000000000000`,
-> `10000000-…-082000`) are intentionally invalid — the version/variant nibbles are 0, so MC
-> returns `400` `062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source:
-> `request_id`); same with the doc's literal placeholder `33XXXXXX-…` (X = invalid hex chars).
-> With a **valid v4 form** (`33000000-0000-4000-8000-000000000000`) MC passes format validation
-> but in sandbox returns **`401`** → the gateway masks it as `502`: our `partner-id`
-> `SANDBOX_1234567` is **not onboarded for RFI** (an external sandbox limit, like Endpoint Guide;
-> not a gateway bug). Document upload is also `401`→`502` for the same reason. MC-10 verifies the
-> object-4xx passthrough contract.
+> **Root cause of the RFI errors (figured out 2026-06-16, empirically).** `request_id`/`document_id`
+> MUST be **valid RFC-4122 UUIDs**. Previously the invalid demo ids (`33000000-0000-0000-0000-
+> 000000000000`, `10000000-…-082000`; version/variant nibbles = 0) reached MC and got
+> `400 062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source: `request_id`).
+> **Now** `UuidParamPipe` (`src/common/uuid-param.pipe.ts`) validates the format at the boundary
+> and returns a clean local `400` with no outbound call (unit: `uuid-param.pipe.spec`, 13/13).
+> With a **valid v4 form** (`33000000-0000-4000-8000-000000000000`) the request passes the pipe
+> and MC's format check, but MC returns **`401 AUTHORIZATION_FAILED`** (code `050007`, "Unauthorized
+> Access", empty Source) → the gateway masks it as `502`. This is **API-level authorization**: the
+> project / consumer-key is **not authorized for the RFI API** (the same credentials succeed on
+> balances/quotes/validations, so it is not OAuth nor the partner-id/request-id — RFI is an opt-in
+> suite that must be enabled for the project on the MC portal / via the MC representative).
+> Document upload is the same `050007`→`502`. An external limit, not a gateway bug.
 
 **MC response unwrapping** (common to all calls): 2xx → data; business 4xx with an
 object body (`400/404/409/422/429`) → forward MC body; non-object 4xx body →

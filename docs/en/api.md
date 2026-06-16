@@ -55,15 +55,19 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 >
 > **RFI (11)** — all 4 operations implemented (Retrieve/Update/Upload/Download), partner-id in
 > path, body wrappers `updateRequest`/`uploadDocumentRequest`. e2e confirms all 4 routes reach
-> MC. **Two distinct sandbox rejection modes (figured out empirically 2026-06-16):** (1) if the
-> `request_id` is **not a valid RFC-4122 UUID** (our demo ids `33000000-…-000…0`, `10000000-…
-> -082000` have version/variant nibbles = 0; or the literal `33XXXXXX-…` with X) → MC `400`
-> `062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source: `request_id`), which
-> the gateway forwards as a business-400 object; (2) with a **valid v4 form**
-> (`33000000-0000-4000-8000-000000000000`) MC passes format validation but the sandbox returns
-> **`401`** (our `partner-id` `SANDBOX_1234567` is NOT onboarded for RFI — an opt-in suite) → the
-> gateway masks it as `502`. Document upload is also `401`→`502`. Update/Upload are encrypted like
-> validation. **Upload Document** carries a base64 file up to ~1MB, so
+> MC. **`request_id`/`document_id` are validated as RFC-4122 UUIDs at the BOUNDARY**
+> (`UuidParamPipe`, `src/common/uuid-param.pipe.ts`) — figured out empirically 2026-06-16: (1) an
+> **invalid UUID** (demo ids `33000000-…-000…0`, `10000000-…-082000` with version/variant nibbles
+> = 0; or the placeholder `33XXXXXX-…` with X) now yields a **clean local `400`** with no outbound
+> call (previously it reached MC and got `062000 INVALID_INPUT_FORMAT "Value contains invalid
+> character"`, Source `request_id`); (2) with a **valid v4 form**
+> (`33000000-0000-4000-8000-000000000000`) the request passes the pipe and MC's format check but
+> MC returns **`401 AUTHORIZATION_FAILED`** (code `050007`, "Unauthorized Access") → the gateway
+> masks it as `502`. This is **API-level authorization**: the project / consumer-key is NOT
+> authorized for the RFI API (the same credentials work on balances/quotes/validations — so it is
+> not OAuth/partner-id; RFI is an opt-in suite enabled for the project on the MC portal). Document
+> upload is the same `050007`→`502`. Update/Upload are encrypted like validation. **Upload
+> Document** carries a base64 file up to ~1MB, so
 > `POST /crossborder/rfi/documents` gets a **route-scoped 2MB body limit** (the global 256kb is
 > kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
 > webhook arrives on the shared `/webhooks/mastercard`.
