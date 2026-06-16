@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { clipForLog } from '../common/sanitize.util';
 import { KV_STORE, KvStore } from '../store/kv.types';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
@@ -81,12 +82,12 @@ export class WebhookHandler {
 
     if (!fresh) {
       this.logger.log(
-        `Дубликат статус-вебхука eventRef=${this.clip(n.ref)} — игнорируем`,
+        `Дубликат статус-вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
       );
       return { status: 'duplicate' };
     }
     this.logger.log(
-      `Статус сохранён: tx=${this.clip(n.transactionReference)} type=${this.clip(n.transactionType)} status=${this.clip(n.status)}${n.stage ? `/${this.clip(n.stage)}` : ''}`,
+      `Статус сохранён: tx=${clipForLog(n.transactionReference)} type=${clipForLog(n.transactionType)} status=${clipForLog(n.status)}${n.stage ? `/${clipForLog(n.stage)}` : ''}`,
     );
     return { status: 'accepted' };
   }
@@ -101,24 +102,13 @@ export class WebhookHandler {
       );
       if (!fresh) {
         this.logger.log(
-          `Дубликат вебхука eventRef=${this.clip(n.ref)} — игнорируем`,
+          `Дубликат вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
         );
         return { status: 'duplicate' };
       }
     }
-    this.logger.log(`Вебхук eventType=${this.clip(n.eventType)}`);
+    this.logger.log(`Вебхук eventType=${clipForLog(n.eventType)}`);
     return { status: 'accepted' };
-  }
-
-  /**
-   * Санитайз значения для лога: тело вебхука НЕ подписано (держатель токена
-   * контролирует поля), а часть из них (status/stage/transactionType) не покрыта
-   * DTO-валидацией. Срезаем CR/LF (анти лог-инъекция: подделка строк лога) и
-   * ограничиваем длину (анти раздувание лога).
-   */
-  private clip(v: string | null | undefined): string {
-    if (v == null) return 'none';
-    return v.replace(/[\r\n]/g, ' ').slice(0, 80);
   }
 
   /** Признак зашифрованного тела MC: `{ encrypted_payload: { data } }`. */
