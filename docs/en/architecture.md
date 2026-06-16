@@ -159,9 +159,11 @@ request interceptor:  1) encrypt body (JWE, x-encrypted:true; passthrough if off
 res interceptor:      decrypt the response body (passthrough if plain) → 502 on failure
 ```
 
-Toggle `MC_ENCRYPTION_ENABLED` (sandbox=plain, MTF/Prod=JWE). `EncryptionService` is
-isolated — it can be extracted into a separate microservice if needed (downsides —
-in documentation.md).
+Toggle `MC_ENCRYPTION_ENABLED` (off=plain passthrough, on=JWE). FLE works in all
+environments, sandbox included (proven 2026-06-16): the request is encrypted with the
+Client Encryption Key, the response is decrypted with our Mastercard Encryption private
+key. `EncryptionService` is isolated — it can be extracted into a separate microservice
+if needed (downsides — in documentation.md).
 
 ## 8. Request flow (quote example)
 

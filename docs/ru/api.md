@@ -22,27 +22,29 @@
 | 2 | **Quote Confirmation APIs** (сьют ×3) | Confirm `POST …/crossborder/quotes/confirmations`; Cancel `POST …/crossborder/quotes/cancellations`; Retrieve `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` | `POST /crossborder/quotes/confirmations`, `POST /crossborder/quotes/cancellations`, `GET /crossborder/quotes/:transactionReference/proposals/:proposalId` | ✅ | ✅ |
 | 3 | **Carded Rate Pull + Push** | Pull `GET /send/v1/partners/{pid}/crossborder/rates` (операция `getFxRates`, без тела); Push = вебхук на стороне клиента | `GET /crossborder/rates` | ❌ (нет sandbox у MC) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
-| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (нужно шифрование payload) | ✅ |
-| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (нужно шифрование; ASV нет в sandbox) | ✅ |
+| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ✅ (FLE → `200 VALID/VERIFIED`) | ✅ |
+| 6 | **Account Validation APIs** (сьют ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ✅ (FLE → реальные данные; ASV N/A в sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (доходит до MC; sandbox → HTML 500 для generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` (персист в `tx_status`); чтение мерчантом `GET /crossborder/status-events?ref=` | ✅ | ✅ (приём + персист) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
-| 11 | **RFI APIs** (сьют ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` тот же; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` тот же, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox даёт canned-отказ для не-онбордженного pid; push N/A) | ✅ |
+| 11 | **RFI APIs** (сьют ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` тот же; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` тот же, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox: невалидный UUID→`062000`, валидный UUID→`401` неонбординг pid; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
-| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ❌ (FLE только MTF/Prod) | ✅ |
+| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ✅ (FLE РАБОТАЕТ на sandbox, 2026-06-16) | ✅ |
 | 15 | **Push Notifications Details** | inbound-вебхук + дедуп + персист статусов | `POST /webhooks/mastercard` (+ `tx_status`, чтение `GET /crossborder/status-events?ref=`) | ✅ | ✅ (приём/дедуп/персист; декрипт зашифрованного push — MTF/Prod, см. ниже; аутентичность = **mTLS** при деплое) |
 
 **Реализовано — все 15:** 1, **2**, **3**, 4, **5**, **6**, **7**, **8**, **9**, 10, **11**, 12, 13, 14, **15** (Status Change/Quote Status Change персистятся в `tx_status` с атомарным дедупом и атрибуцией тенанту; декрипт зашифрованного push и mTLS-аутентичность настраиваются при деплое в MTF/Prod — см. раздел «Webhooks»).
 
-> **Address Validation (5)** и **Account Validation (6)** реализованы passthrough'ом, но **на
-> нашем sandbox вживую не проверить**: MC требует, чтобы payload был зашифрован (JWE), а
-> field-level encryption в sandbox выключена (plain → MC `062000 INVALID_INPUT_FORMAT` для
-> address, `150001` "Encrypted Payload" SYSTEM_ERROR для account). Проводка шлюза проверена
-> e2e (маршрут, OAuth1-подпись, обязательные заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`,
-> проброс ошибки); тело авто-шифруется request-интерцептором в MTF/Prod. У ряда других групп
-> тоже **нет sandbox** (Carded Rate) или только фикс. тест-кейсы.
+> **Address Validation (5)** и **Account Validation (6)** ТРЕБУЮТ JWE-шифрования payload — и оно
+> **РАБОТАЕТ на sandbox** (подтверждено вживую 2026-06-16): запрос шифруется **Client Encryption**
+> ключом (MC хранит приватный и расшифровывает), ответ MC шифрует **Mastercard Encryption** ключом,
+> а наш приватный его расшифровывает. e2e возвращает РЕАЛЬНЫЕ данные: Address → `200 VALID/VERIFIED`;
+> Account → `200 SUCCESS` с банком (Natixis); Bank Lookup/IBAN Gen → `200`. Документированные sandbox
+> тест-кейсы (фикс. адреса/IBAN/BIC/BAN) — в `api-mastercard.md`; настройка ключей FLE — в авто-памяти
+> `mastercard-fle-working` и `production-questions.md`. (ASV-тип Account Validation в sandbox — N/A.)
+> Раньше тут стояло «FLE в sandbox выключена» — это было ОШИБКОЙ выбора ключа (шифровали Mastercard
+> Encryption вместо Client Encryption → `082000 Crypto Key`). У части групп **нет sandbox** (Carded Rate).
 >
 > **Endpoint Guide (8)** реализован GET'ом (тела/шифрования нет). e2e подтвердил проводку
 > (OAuth1-подпись, заголовки `X-Mc-Correlation-Id`/`Partner-Ref-Id`, маршрут), НО sandbox для
@@ -53,9 +55,15 @@
 >
 > **RFI (11)** — все 4 операции реализованы (Retrieve/Update/Upload/Download), partner-id в
 > пути, обёртки тел `updateRequest`/`uploadDocumentRequest`. e2e подтвердил проводку всех 4
-> маршрутов, НО sandbox для не-онбордженного partner-id даёт шаблонный отказ `062000` (даже на
-> валидный request-id; RFI — opt-in сьют, нужен онбординг). Update/Upload требуют шифрования
-> тела (как validation). **Upload-документа** несёт base64-файл до ~1MB → для `POST
+> маршрутов. **Два разных режима отказа sandbox (разобрано эмпирически 2026-06-16):** (1) если
+> `request_id` — **невалидный UUID по RFC-4122** (наши демо-id `33000000-…-000…0`, `10000000-…
+> -082000` имеют ниблы версии/варианта = 0; либо буквальный `33XXXXXX-…` с X) → MC `400`
+> `062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source: `request_id`),
+> шлюз пробрасывает это бизнес-400 как объект; (2) с **валидной v4-формой**
+> (`33000000-0000-4000-8000-000000000000`) MC проходит валидацию формата, но sandbox отдаёт
+> **`401`** (наш `partner-id` `SANDBOX_1234567` НЕ онбординжен для RFI — opt-in сьют) → шлюз
+> маскирует в `502`. Upload-документа — тоже `401`→`502`. Update/Upload шифруются как validation.
+> **Upload-документа** несёт base64-файл до ~1MB → для `POST
 > /crossborder/rfi/documents` задан **route-scoped лимит тела 2MB** (глобальный 256kb для всех
 > прочих маршрутов сохранён); e2e: ~500KB-файл проходит парсер (НЕ 413). Push-вебхук RFI
 > приходит на общий `/webhooks/mastercard`.

@@ -202,8 +202,9 @@ warning — the client has the same combo).
   (10) fire-and-forget cleanup of expired KV.
 - **e2e on a live Postgres run** (Docker inside WSL): admin/tenants, both auth paths,
   gating 403/404, real balances/rates/quote, idempotency, rate-limit→429, webhook
-  dedup, **persistence after pod restart**. Report — `tests.md`. Not covered: JWE
-  (sandbox without FLE), successful payment+cache (needs the KYC flow).
+  dedup, **persistence after pod restart**. Report — `tests.md`. Not covered: ~~JWE
+  (sandbox without FLE)~~ — **JWE now covered (2026-06-16, FLE works on sandbox)**; still
+  uncovered: successful payment+cache (needs the KYC flow), per-tenant key path.
 - **Native Nest modules** (used off-the-shelf, all verified live): health probes
   `@nestjs/terminus` (`/health`, `/ready`); ENV validation `ConfigModule.validate`
   (class-validator, fail-fast); TypeORM migrations (`src/database/data-source.ts`,
@@ -322,6 +323,22 @@ service; mTLS/ingress is an optional additional layer, not authoritative; `TRUST
 is only for `req.ip`.
 
 ### Latest milestones (after the doc-grounded audit)
+- 🔓 **FLE (encryption) WORKS on sandbox (2026-06-16) — the long-standing "encryption blocker" is gone.**
+  Root cause: the MC key model was understood BACKWARDS. Correctly: the **Client Encryption Key**
+  (`f031d600`) is the PUBLIC key **WE use to ENCRYPT REQUESTS** (MC holds the private); the **Mastercard
+  Encryption Key** is the PUBLIC key **MC uses to ENCRYPT RESPONSES**, and OUR private key decrypts them.
+  We were encrypting requests with `cec428ec` (Mastercard Enc) → `082000 Crypto Key`. Fix: generated our
+  RSA pair (`certs/client-encryption-private.pem`), created a Mastercard Encryption Key `fintory-decrypt`
+  (`75ea7e15`) from a CSR on the portal and **activated** it; `.env`: `MC_ENCRYPTION_ENABLED=true`,
+  CERT_PATH=clientenc.pem, FINGERPRINT=`f031d600`, DECRYPTION_KEY_PATH=client-encryption-private.pem.
+  Result: **Address/Account/Bank/IBAN Validation + Quote → REAL decrypted data**, live e2e **23/23**,
+  hermetic **16/16**. (Details — auto-memory `mastercard-fle-working`.) ⚠️ `.env`/`certs` are gitignored,
+  NOT committed; keep the private key. **FIGURED OUT 2026-06-16:** RFI `062000` = the `request_id` is not a
+  valid RFC-4122 UUID (version/variant nibbles = 0); with a valid v4 form MC passes the format check but
+  the sandbox returns `401` — `partner-id` `SANDBOX_1234567` is not onboarded for RFI (external limit).
+  Endpoint Guide `502` = sandbox HTML-500 with no corridor data (external limit). The `EncryptionService`/
+  `.env.example` src comments and the doc statuses (RU+EN) are fixed, typecheck clean. **Real remaining
+  item: the per-tenant encryption seam.**
 - **10-round bug/security/optimization audit + 2 regression rounds** completed —
   **no open HIGH/MED.**
 - **4-perspective code-quality review** (architecture / maintainability / API-contract /
@@ -394,11 +411,12 @@ prod Client Decryption keys).
   address-validation-service/` (address). partner-id: in the PATH (`this.partner()`=
   encodeURIComponent) for account-validation/RFI; in a HEADER (raw, via `headerSafe()`) for
   cash-pickup.
-- **Validation POSTs (#5/#6) require an encrypted payload** → not exercisable on sandbox
-  (FLE off): MC returns `062000` / `150001 "Encrypted Payload"`. The gateway CONTRACT is
-  e2e-verified (reaches MC, forwards); the body is auto-encrypted by the request interceptor
-  in MTF/Prod. **GET catalogs (#7) need no encryption → work live** (e2e: cash-pickup
-  countries → 200 with a real country list).
+- **Validation POSTs (#5/#6) require an encrypted payload** → ~~not exercisable on sandbox
+  (FLE off)~~. **CORRECTED 2026-06-16:** FLE WORKS on sandbox — once the payload is encrypted
+  with the correct Client Encryption key, the validation APIs return real data (Address → 200
+  VALID/VERIFIED etc.; e2e asserts the business result). `062000` / `150001 "Encrypted
+  Payload"` were caused by the wrong key. **GET catalogs (#7) need no encryption → work live**
+  (e2e: cash-pickup countries → 200 with a real country list).
 - Pattern: GET catalog — `qs()` + `callCatalog()`; POST validation/lookup — `callRef()` +
   `mcRefHeaders()`. New routes live in `CrossBorderController` (inherit auth/throttle/audit/
   filter), gated by `resolveActive` (ACTIVE tenant). e2e: `node node_modules\jest\bin\jest.js

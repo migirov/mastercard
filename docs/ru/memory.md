@@ -124,9 +124,12 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
 → `Crypto Key/082000`. Шифрование тестируется только в **MTF/Production** (через
 команду CIS). Поэтому `MC_ENCRYPTION_ENABLED="false"` для sandbox.
 
-**Для прод-расшифровки ответов нужен приватный ключ Client Encryption Key** — у
-нас только публичный `.pem`. Из исходного ZIP при создании ключа либо
-перегенерацией на портале → в `MC_DECRYPTION_KEY_PATH`. В sandbox не нужен.
+> ⚠️ **ИСПРАВЛЕНО 2026-06-16 — оба абзаца выше УСТАРЕЛИ.** Sandbox **поддерживает** FLE;
+> `082000` был из-за зеркальной модели ключей (шифровали Mastercard Encryption вместо
+> Client Encryption). Правильно: запрос — Client Encryption Key (публичный cert), ответ —
+> наш Mastercard Encryption private key. Приватный ключ для расшифровки мы сгенерили сами
+> (`fintory-decrypt`, `75ea7e15…`, активирован на портале). `MC_ENCRYPTION_ENABLED="true"`
+> теперь и на sandbox. Подробности — веха FLE в начале этого файла и `mastercard-fle-working`.
 
 ---
 
@@ -324,6 +327,21 @@ throttler самодостаточный per-pod). Доки переформул
 mTLS/ingress — опциональный доп. слой, не authoritative; `TRUST_PROXY` — только для `req.ip`.
 
 ### Последние вехи (после doc-grounded аудита)
+- 🔓 **FLE (шифрование) ЗАРАБОТАЛО на sandbox (2026-06-16) — снят многолетний «блокер шифрования».**
+  Корень: модель ключей MC понимали ЗЕРКАЛЬНО. Правильно: **Client Encryption Key** (`f031d600`) —
+  публичный, им **МЫ шифруем ЗАПРОСЫ** (приватный у MC); **Mastercard Encryption Key** — публичный, им
+  **MC шифрует ОТВЕТЫ**, а НАШ приватный их расшифровывает. Раньше шифровали запрос ключом `cec428ec`
+  (Mastercard Enc) → `082000 Crypto Key`. Сделали: сгенерили RSA-пару (`certs/client-encryption-private.pem`),
+  на портале создали из CSR Mastercard Encryption Key `fintory-decrypt` (`75ea7e15`) и **активировали**;
+  `.env`: `MC_ENCRYPTION_ENABLED=true`, CERT_PATH=clientenc.pem, FINGERPRINT=`f031d600`,
+  DECRYPTION_KEY_PATH=client-encryption-private.pem. Результат: **Address/Account/Bank/IBAN Validation +
+  Quote → РЕАЛЬНЫЕ расшифрованные данные**, live e2e **23/23**, hermetic **16/16**. (Детали — авто-память
+  `mastercard-fle-working`.) ⚠️ `.env`/`certs` gitignored, НЕ коммичены; приватный ключ хранить.
+  **РАЗОБРАНО 2026-06-16:** RFI `062000` = `request_id` не валидный UUID по RFC-4122 (ниблы
+  версии/варианта = 0); с валидной v4-формой MC проходит формат, но sandbox даёт `401` —
+  `partner-id` `SANDBOX_1234567` не онбординжен для RFI (внешний лимит). Endpoint Guide `502` —
+  sandbox HTML-500 без corridor-данных (внешний лимит). src-комменты `EncryptionService`/`.env.example`
+  и статусы доков (RU+EN) исправлены, typecheck чист. **Реальный остаток: per-tenant encryption seam.**
 - **10-цикловый аудит баги/безопасность/оптимизация + 2 цикла регрессий** завершены —
   **открытых HIGH/MED нет.**
 - **4-перспективный code-quality review** (архитектура / поддерживаемость / API-контракт /
@@ -397,11 +415,12 @@ camel/snake); аутентичность вебхука = **mTLS** при деп
   `/send/address-validation-service/` (address). partner-id: в ПУТИ (`this.partner()`=
   encodeURIComponent) у account-validation/RFI; в ЗАГОЛОВКЕ (сырой, через `headerSafe()`)
   у cash-pickup.
-- **Validation-POST'ы (#5/#6) требуют ШИФРОВАНИЯ payload** → на sandbox успех недостижим
-  (FLE off): MC отдаёт `062000`/`150001 "Encrypted Payload"`. Проверяется КОНТРАКТ шлюза
-  (e2e: доходит до MC, проброс); в MTF/Prod тело шифруется request-интерцептором. **GET-
-  каталоги (#7) шифрования НЕ требуют → работают вживую** (e2e: cash-pickup countries → 200
-  с реальным списком стран).
+- **Validation-POST'ы (#5/#6) требуют ШИФРОВАНИЯ payload** → ~~на sandbox успех недостижим
+  (FLE off)~~. **ИСПРАВЛЕНО 2026-06-16:** FLE на sandbox РАБОТАЕТ — после шифрования
+  правильным Client Encryption ключом validation-API возвращают реальные данные (Address →
+  200 VALID/VERIFIED и т.д., e2e ассертят бизнес-результат). `062000`/`150001 "Encrypted
+  Payload"` были из-за неверного ключа. **GET-каталоги (#7) шифрования НЕ требуют → работают
+  вживую** (e2e: cash-pickup countries → 200 с реальным списком стран).
 - Паттерн: GET-каталог — `qs()`+`callCatalog()`; POST validation/lookup — `callRef()`+
   `mcRefHeaders()`. Все новые роуты в `CrossBorderController` (наследуют auth/throttle/
   audit/filter), gated `resolveActive` (ACTIVE-тенант). e2e после каждого: `node

@@ -15,12 +15,19 @@
 `encryptionFingerprint`, `decryptionKeyPem`) в `McCredentials` — но **их никто не
 использует**.
 
-**Почему это блокер для OWN + MTF/Prod.** У каждого OWN-партнёра свой MC-проект →
-свой Mastercard Encryption Key (свой fingerprint). Если шифровать его запрос
-платформенным ключом, Mastercard отвергнет payload (`Crypto Key`). В sandbox
-шифрование выключено (`MC_ENCRYPTION_ENABLED=false`, FLE off), поэтому сейчас не
-стреляет — это **внешний блокер**: реализовать и верифицировать нельзя без доступа
-к MTF и реальных per-tenant ключей (JWE-либа требует пути к файлам, а не PEM-строки).
+**Почему это блокер для OWN.** У каждого OWN-партнёра свой MC-проект → свой
+Client Encryption Key (свой fingerprint). Если шифровать его запрос платформенным
+ключом, Mastercard отвергнет payload (`082000 Crypto Key`).
+
+> **Важно (2026-06-16): сам механизм FLE больше НЕ блокер.** Платформенный
+> field-level encryption **доказан вживую на sandbox** — запрос шифруется
+> Client Encryption Key, ответ расшифровывается нашим Mastercard Encryption
+> private key, validation-API возвращают реальные данные (live e2e 23/23). Раньше
+> ошибочно считали «sandbox не поддерживает FLE» — на деле шифровали не тем ключом
+> (Mastercard Encryption вместо Client Encryption → `082000`). То есть проверить и
+> отладить per-tenant seam теперь можно **прямо на sandbox**, без ожидания MTF;
+> открытым остаётся только сама прокладка per-tenant ключей (нужен 2-й комплект
+> OWN-ключей, а JWE-либа требует пути к файлам, а не PEM-строки).
 
 **Вопрос к клиенту/архитектуре.**
 - У каждого OWN-партнёра действительно **свой** MC Encryption Key, или платформа
@@ -47,9 +54,11 @@ standalone dev-harness (`main.ts`). Вопрос закрыт.
 ## Прод-предусловия (чек-лист)
 
 - [ ] **Per-tenant encryption** (см. блокер выше) — если OWN-партнёры с разными ключами.
-- [ ] **Приватный Client Encryption key** для расшифровки ответов в MTF/Prod
-      (`MC_DECRYPTION_KEY_PATH`) — сейчас есть только публичный cert.
-- [ ] **`MC_ENCRYPTION_ENABLED=true`** в MTF/Prod (в sandbox остаётся `false`).
+- [x] **Приватный Mastercard Encryption key** для расшифровки ответов
+      (`MC_DECRYPTION_KEY_PATH`) — есть (наш `fintory-decrypt`, fingerprint `75ea7e15…`,
+      активирован на портале MC). Для OWN-партнёров понадобятся их собственные.
+- [x] **`MC_ENCRYPTION_ENABLED=true`** — FLE работает во всех средах, sandbox в том числе
+      (проверено 2026-06-16); включается, как только настроены ключи (не только MTF/Prod).
 - [ ] **`MC_SECRET_STORE=vault`** + реализованный `VaultSecretStore` (сейчас заглушка
       `NotImplemented`). Прод-гейт в `main.ts` уже требует `vault` и падает без него.
 - [ ] **Сильные секреты** вместо dev-дефолтов: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
@@ -59,9 +68,10 @@ standalone dev-harness (`main.ts`). Вопрос закрыт.
 - [ ] **mTLS для вебхуков Mastercard (авторитетная аутентичность push-уведомлений).** По доке MC аутентичность вебхука обеспечивается **mTLS**, а НЕ подписью payload (JWS/HMAC — такой подписи у MC нет; бывший «вопрос C1» закрыт чтением доки). Сделать при деплое: (1) запросить у представителя MC публичный mTLS-cert push-уведомлений; (2) добавить его в trust store принимающего приложения/ингресса; (3) передать наш серверный cert-chain через KMP-портал; (4) уточнить у MC доставку `X-Webhook-Token` (MC его не знает — инжект на TLS-слое или кастомный заголовок в Push-конфиге). До этого активный фактор — in-service fail-closed `X-Webhook-Token`. Цитата MC и детали — `api.md` → Webhooks. `WebhookSignatureVerifier` остаётся каркасом (Noop) на случай, если MC когда-нибудь добавит подпись payload.
 - [ ] **Декрипт зашифрованного push-уведомления (MTF/Prod).** Сейчас `WebhookHandler` детектирует
       зашифрованное тело (`{ encrypted_payload: { data } }`) и подтверждает `200` БЕЗ обработки
-      (в sandbox push «Not Applicable»). Для MTF/Prod подключить расшифровку: нужен приватный
-      Client-ключ дешифрования + per-tenant encryption seam (тот же блокер per-tenant, что в
-      `EncryptionService`). До этого зашифрованные статус-события не персистятся в `tx_status`.
+      (в sandbox push «Not Applicable», т.е. протестировать сам кейс на sandbox нельзя). Ключ
+      расшифровки (`MC_DECRYPTION_KEY_PATH`) уже есть и доказан на validation-ответах — осталось
+      протянуть `decryptResponse` в обработчик push + per-tenant seam (тот же per-tenant пункт,
+      что в `EncryptionService`). До этого зашифрованные статус-события не персистятся в `tx_status`.
 - [ ] **Опциональный rate-limit на ингрессе** как доп. защита — authoritative-лимит это самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса); лимит на ингрессе, если есть — не authoritative.
 - [ ] **Personal partner-id и ключи** OWN-партнёров заведены в секрет-менеджере.
 - [x] **Миграции БД** — инфраструктура готова (`data-source.ts`, npm-скрипты

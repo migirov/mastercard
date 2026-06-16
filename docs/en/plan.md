@@ -97,11 +97,19 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
   `certs/mastercard-encryption-cert.pem`; `kid` = public-key fingerprint `cec428ec…478cf1`.
 - ✅ **Key finding:** sandbox **does NOT support FLE** — plain quote → **200 with a
   real proposal**, encrypted → `Crypto Key/082000`. Encryption — MTF/Prod only.
+
+  > ⚠️ **CORRECTED 2026-06-16 — this finding was WRONG.** Sandbox supports FLE. `082000`
+  > came from encrypting with the wrong key: the key model above (lines 95-96) is
+  > **mirrored**. Correct: encrypt the request with the **Client Encryption Key** (MC public
+  > cert), decrypt the response with **our Mastercard Encryption private key**. After swapping
+  > the key, the validation APIs returned real data on sandbox (live e2e 23/23). See
+  > `mastercard-fle-working` in auto-memory and the FLE milestone in memory.md.
 - ✅ `EncryptionService` (`src/encryption/`) with a **toggle** `MC_ENCRYPTION_ENABLED`.
   *(Initially called from `CrossBorderService`; later moved into the axios interceptor — see below.)*
 - ✅ Verified end-to-end: `POST /crossborder/quotes` (sandbox/plain) → **HTTP 201**.
-- 🟡 For MTF/Prod: enable the toggle + the private Client key in `MC_DECRYPTION_KEY_PATH`
-  (not available yet — a question for the portal).
+- ✅ **Done (2026-06-16):** the toggle is enabled on sandbox too; the private decryption key
+  (`MC_DECRYPTION_KEY_PATH`) is OUR Mastercard Encryption private key (`fintory-decrypt`,
+  self-generated + activated on the portal), not a "Client key". FLE works live.
 - ✅ Phase 4 audit (3 fixes): decryption in try/catch (→502); header order; decryption
   of forwardable errors. Limitation: `EncryptionService` is platform-level (per-tenant
   is an open blocker, see below).
@@ -159,10 +167,11 @@ live-tested as the gateway contract:
   🟡 Remaining for MTF/Prod: decrypting an encrypted push (needs the Client key + a
   per-tenant seam) — for now an encrypted body is acked without processing.
 
-**Sandbox caveats:** validation POSTs need JWE encryption (FLE is off on sandbox → only
-the gateway contract is verifiable, the body auto-encrypts in MTF/Prod); endpoint-guide
-reaches MC but sandbox returns an HTML-500 for the generic partner-id; RFI sandbox
-canned-rejects a non-onboarded partner-id; Carded Rate has no sandbox.
+**Sandbox caveats:** ~~validation POSTs need JWE encryption (FLE is off on sandbox)~~ —
+**CORRECTED 2026-06-16: FLE works on sandbox**, validation POSTs return real decrypted data
+once encrypted with the Client Encryption key; endpoint-guide reaches MC but sandbox returns
+an HTML-500 for the generic partner-id; RFI sandbox canned-rejects a non-onboarded
+partner-id; Carded Rate has no sandbox.
 
 - ✅ Swagger annotations filled in (gaps closed during the code-quality review, see below).
 
