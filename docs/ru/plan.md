@@ -98,12 +98,20 @@ partnerId; санитизация `secretRef`; passthrough строкового 
   `cec428ec…478cf1`.
 - ✅ **Ключевой вывод:** sandbox **НЕ поддерживает FLE** — plain quote → **200 с
   реальным proposal**, encrypted → `Crypto Key/082000`. Шифрование — только MTF/Prod.
+
+  > ⚠️ **ИСПРАВЛЕНО 2026-06-16 — этот вывод был ОШИБОЧНЫМ.** Sandbox поддерживает FLE.
+  > `082000` возникал потому, что шифровали не тем ключом: модель ключей выше (стр. 95-96)
+  > **зеркальна**. Правильно: запрос шифруем **Client Encryption Key** (публичный cert MC),
+  > ответ расшифровываем **нашим Mastercard Encryption private key**. После замены ключа
+  > validation-API на sandbox вернули реальные данные (live e2e 23/23). См.
+  > `mastercard-fle-working` в авто-памяти и веху FLE в memory.md.
 - ✅ `EncryptionService` (`src/encryption/`) с **тумблером** `MC_ENCRYPTION_ENABLED`.
   *(Изначально вызывался из `CrossBorderService`; позже вынесен в axios-интерцептор
   — см. ниже.)*
 - ✅ Проверено end-to-end: `POST /crossborder/quotes` (sandbox/plain) → **HTTP 201**.
-- 🟡 Для MTF/Prod: включить тумблер + приватный Client-ключ в `MC_DECRYPTION_KEY_PATH`
-  (его пока нет — вопрос к порталу).
+- ✅ **Сделано (2026-06-16):** тумблер включён и на sandbox; приватный ключ расшифровки
+  (`MC_DECRYPTION_KEY_PATH`) — это НАШ Mastercard Encryption private key (`fintory-decrypt`,
+  сгенерён сами + активирован на портале), а не «Client-ключ». FLE работает вживую.
 - ✅ Аудит Фазы 4 (3 фикса): расшифровка в try/catch (→502); порядок заголовков;
   расшифровка forwardable-ошибок. Ограничение: `EncryptionService` платформенного
   уровня (per-tenant — открытый блокер, см. ниже).

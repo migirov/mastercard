@@ -15,13 +15,20 @@ resolves **per-tenant** encryption keys (`encryptionCertPem`,
 `encryptionFingerprint`, `decryptionKeyPem`) into `McCredentials` — but **nobody
 uses them**.
 
-**Why this is a blocker for OWN + MTF/Prod.** Each OWN partner has their own MC
-project → their own Mastercard Encryption Key (their own fingerprint). Encrypting
-their request with the platform key makes Mastercard reject the payload (`Crypto
-Key`). In sandbox, encryption is off (`MC_ENCRYPTION_ENABLED=false`, FLE off), so it
-does not fire yet — this is an **external blocker**: it cannot be implemented or
-verified without MTF access and real per-tenant keys (the JWE lib needs file paths,
-not PEM strings).
+**Why this is a blocker for OWN.** Each OWN partner has their own MC project →
+their own Client Encryption Key (their own fingerprint). Encrypting their request
+with the platform key makes Mastercard reject the payload (`082000 Crypto Key`).
+
+> **Important (2026-06-16): the FLE mechanism itself is NO LONGER a blocker.**
+> Platform field-level encryption is **proven live on sandbox** — the request is
+> encrypted with the Client Encryption Key, the response is decrypted with our
+> Mastercard Encryption private key, and the validation APIs return real data (live
+> e2e 23/23). The old belief "sandbox doesn't support FLE" was wrong — we were
+> encrypting with the wrong key (Mastercard Encryption instead of Client Encryption
+> → `082000`). So the per-tenant seam can now be built and debugged **right on
+> sandbox**, no waiting for MTF; the only open item is wiring the per-tenant keys
+> themselves (needs a 2nd OWN key set, and the JWE lib needs file paths, not PEM
+> strings).
 
 **Question for the client/architecture.**
 - Does each OWN partner really have **their own** MC Encryption Key, or does the
@@ -48,9 +55,11 @@ standalone dev-harness (`main.ts`). Question closed.
 ## Prod prerequisites (checklist)
 
 - [ ] **Per-tenant encryption** (see the blocker above) — if OWN partners have different keys.
-- [ ] **Private Client Encryption key** to decrypt responses in MTF/Prod
-      (`MC_DECRYPTION_KEY_PATH`) — currently only the public cert exists.
-- [ ] **`MC_ENCRYPTION_ENABLED=true`** in MTF/Prod (stays `false` in sandbox).
+- [x] **Private Mastercard Encryption key** to decrypt responses
+      (`MC_DECRYPTION_KEY_PATH`) — we have it (our `fintory-decrypt`, fingerprint `75ea7e15…`,
+      activated on the MC portal). OWN partners will need their own.
+- [x] **`MC_ENCRYPTION_ENABLED=true`** — FLE works in all environments, sandbox included
+      (verified 2026-06-16); enable as soon as keys are configured (not only MTF/Prod).
 - [ ] **`MC_SECRET_STORE=vault`** + an implemented `VaultSecretStore` (currently a
       `NotImplemented` stub). The prod gate in `main.ts` already requires `vault` and fails without it.
 - [ ] **Strong secrets** instead of dev defaults: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
@@ -60,9 +69,11 @@ standalone dev-harness (`main.ts`). Question closed.
 - [ ] **mTLS for Mastercard webhooks (authoritative push-notification authenticity).** Per the MC docs, webhook authenticity is provided by **mTLS**, NOT a payload signature (MC has no JWS/HMAC payload signature; the former "question C1" is closed by reading the docs). Do at deployment: (1) request the public mTLS push-notification cert from the MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token` is delivered (MC doesn't know it — inject at the TLS layer or a custom header in the portal push config). Until then the active factor is the in-service fail-closed `X-Webhook-Token`. MC quote and details — `api.md` → Webhooks. `WebhookSignatureVerifier` stays a scaffold (Noop) in case MC ever adds a payload signature.
 - [ ] **Decrypt encrypted push notifications (MTF/Prod).** The `WebhookHandler` currently detects
       an encrypted body (`{ encrypted_payload: { data } }`) and acks `200` WITHOUT processing (in
-      sandbox push is "Not Applicable"). For MTF/Prod wire up decryption: it needs the private
-      Client decryption key + the per-tenant encryption seam (the same per-tenant blocker as in
-      `EncryptionService`). Until then encrypted status events are not persisted to `tx_status`.
+      sandbox push is "Not Applicable", so the case itself can't be tested on sandbox). The
+      decryption key (`MC_DECRYPTION_KEY_PATH`) already exists and is proven on validation
+      responses — what's left is threading `decryptResponse` into the push handler + the per-tenant
+      seam (the same per-tenant item as in `EncryptionService`). Until then encrypted status events
+      are not persisted to `tx_status`.
 - [ ] **Optional ingress rate-limit** as defense-in-depth — the authoritative limit is the in-service self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is not authoritative.
 - [ ] **Personal partner-id and keys** of OWN partners loaded into the secret manager.
 - [x] **DB migrations** — infrastructure is ready (`data-source.ts`, npm scripts

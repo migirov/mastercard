@@ -161,7 +161,9 @@ request-интерцептор:  1) зашифровать тело (JWE, x-encr
 res-интерцептор:      расшифровать тело ответа (passthrough если plain) → 502 при сбое
 ```
 
-Тумблер `MC_ENCRYPTION_ENABLED` (sandbox=plain, MTF/Prod=JWE). `EncryptionService`
+Тумблер `MC_ENCRYPTION_ENABLED` (off=plain passthrough, on=JWE). FLE работает во всех
+средах, включая sandbox (доказано 2026-06-16): запрос шифруем Client Encryption Key,
+ответ расшифровываем нашим Mastercard Encryption private key. `EncryptionService`
 изолирован — при желании выносится в отдельный микросервис (минусы — в
 documentation.md).
 

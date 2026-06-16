@@ -64,7 +64,8 @@ integration — in [`src/mastercard/mastercard-client.service.ts`](../../src/mas
 ## Where it lives (separate service + interceptor)
 
 - **`EncryptionService`** — a separate service (JWE via `mastercard-client-
-  encryption`), toggle `MC_ENCRYPTION_ENABLED` (sandbox=plain, MTF/Prod=on).
+  encryption`), toggle `MC_ENCRYPTION_ENABLED` (off=plain, on=JWE; FLE works in all
+  environments, sandbox included — proven 2026-06-16).
 - Called **transparently from the axios interceptor** of `MastercardClient`, **not**
   from business logic. `CrossBorderService` returns a clean object and knows nothing
   about crypto.
@@ -514,8 +515,9 @@ resolver: [`src/credentials/credentials.service.ts`](../../src/credentials/crede
 
 > ⚠️ **Known limitation:** the encryption fields (`encryptionCertPem` etc.) are
 > resolved per-tenant, but the interceptor encrypts with the **platform** key
-> (`EncryptionService` is global-level). For OWN+MTF/Prod this is a blocker — see
-> [production-questions.md](./production-questions.md).
+> (`EncryptionService` is global-level). The platform FLE itself **works** (proven on
+> sandbox 2026-06-16); only the per-tenant seam for OWN partners with their own keys
+> is still open — see [production-questions.md](./production-questions.md).
 
 ---
 
@@ -592,7 +594,8 @@ MC sends fields in TWO notations — camelCase and snake_case; the handler norma
   `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup+write atomic). Tenant attribution:
   OWN → by `partnerId`, PLATFORM/unknown → the shared pool (`tenantId=NULL`).
 - **Other events** → dedup `setIfAbsent('wh:<eventRef>')` (one-day TTL) + log.
-- **Encrypted push** (`encrypted_payload.data`): acked 200 without processing (decrypt —
-  MTF/Prod, needs the Client key).
+- **Encrypted push** (`encrypted_payload.data`): acked 200 without processing (encrypted
+  push only happens in MTF/Prod — sandbox is "Not Applicable"; the decryption key already
+  exists, what's left is threading `decryptResponse` into the handler + the per-tenant seam).
 - **Always responds 200** (otherwise MC retries). Repeat → `{status:'duplicate'}`,
   otherwise `{status:'accepted'}`.

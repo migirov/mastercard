@@ -22,27 +22,29 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 | 2 | **Quote Confirmation APIs** (suite ×3) | Confirm `POST …/crossborder/quotes/confirmations`; Cancel `POST …/crossborder/quotes/cancellations`; Retrieve `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` | `POST /crossborder/quotes/confirmations`, `POST /crossborder/quotes/cancellations`, `GET /crossborder/quotes/:transactionReference/proposals/:proposalId` | ✅ | ✅ |
 | 3 | **Carded Rate Pull + Push** | Pull `GET /send/v1/partners/{pid}/crossborder/rates` (`getFxRates` op, no body); Push = customer-hosted webhook | `GET /crossborder/rates` | ❌ (no MC sandbox) | ✅ |
 | 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
-| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ⚠️ (needs payload encryption) | ✅ |
-| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ⚠️ (needs encryption; ASV not in sandbox) | ✅ |
+| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ✅ (FLE → `200 VALID/VERIFIED`) | ✅ |
+| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ✅ (FLE → real data; ASV N/A in sandbox) | ✅ |
 | 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (reaches MC; sandbox → HTML 500 for generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` (persisted to `tx_status`); merchant reads via `GET /crossborder/status-events?ref=` | ✅ | ✅ (receiver + persist) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
-| 11 | **RFI APIs** (suite ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` same; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` same, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox canned-rejects non-onboarded pid; push N/A) | ✅ |
+| 11 | **RFI APIs** (suite ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` same; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` same, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox: invalid UUID→`062000`, valid UUID→`401` non-onboarded pid; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
-| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ❌ (FLE only in MTF/Prod) | ✅ |
+| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ✅ (FLE WORKS on sandbox, 2026-06-16) | ✅ |
 | 15 | **Push Notifications Details** | inbound webhook + dedup + status persist | `POST /webhooks/mastercard` (+ `tx_status`, read via `GET /crossborder/status-events?ref=`) | ✅ | ✅ (receiver/dedup/persist; encrypted-push decrypt is MTF/Prod, see below; authenticity = **mTLS** at deployment) |
 
 **Implemented — all 15:** 1, **2**, **3**, 4, **5**, **6**, **7**, **8**, **9**, 10, **11**, 12, 13, 14, **15** (Status Change / Quote Status Change persist to `tx_status` with atomic dedup and tenant attribution; encrypted-push decrypt and mTLS authenticity are configured at deployment in MTF/Prod — see the "Webhooks" section).
 
-> **Address Validation (5)** and **Account Validation (6)** are implemented as passthroughs but
-> **cannot be verified live on our sandbox**: MC requires the payload to be JWE-encrypted, and
-> field-level encryption is disabled in sandbox (plain → MC `062000 INVALID_INPUT_FORMAT` for
-> address, `150001` "Encrypted Payload" SYSTEM_ERROR for account). The gateway wiring is e2e-
-> verified (route, OAuth1 signature, required `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers,
-> error forwarding); the body is auto-encrypted by the request interceptor in MTF/Prod.
-> Several other groups likewise have **no sandbox** (Carded Rate) or fixed test cases only.
+> **Address Validation (5)** and **Account Validation (6)** REQUIRE JWE payload encryption — and it
+> **WORKS on sandbox** (verified live 2026-06-16): the request is encrypted with the **Client Encryption**
+> key (MC holds the private and decrypts it), MC encrypts the response with the **Mastercard Encryption**
+> key, and our private key decrypts it. e2e returns REAL data: Address → `200 VALID/VERIFIED`; Account →
+> `200 SUCCESS` with a bank (Natixis); Bank Lookup/IBAN Gen → `200`. The documented sandbox test cases
+> (fixed addresses/IBAN/BIC/BAN) are in `api-mastercard.md`; FLE key setup is in the `mastercard-fle-working`
+> auto-memory and `production-questions.md`. (Account Validation ASV type is N/A in sandbox.) The earlier
+> "FLE disabled in sandbox" note was a key-selection MISTAKE (we encrypted with the Mastercard Encryption
+> key instead of the Client Encryption key → `082000 Crypto Key`). Some groups have **no sandbox** (Carded Rate).
 >
 > **Endpoint Guide (8)** is implemented as a GET (no body/encryption). e2e confirms the wiring
 > (OAuth1 signature, `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers, routing), but the sandbox
@@ -53,9 +55,15 @@ gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ 
 >
 > **RFI (11)** — all 4 operations implemented (Retrieve/Update/Upload/Download), partner-id in
 > path, body wrappers `updateRequest`/`uploadDocumentRequest`. e2e confirms all 4 routes reach
-> MC, but the sandbox canned-rejects with `062000` for a non-onboarded partner-id (even a
-> well-formed request-id; RFI is an opt-in suite requiring onboarding). Update/Upload require
-> body encryption (like validation). **Upload Document** carries a base64 file up to ~1MB, so
+> MC. **Two distinct sandbox rejection modes (figured out empirically 2026-06-16):** (1) if the
+> `request_id` is **not a valid RFC-4122 UUID** (our demo ids `33000000-…-000…0`, `10000000-…
+> -082000` have version/variant nibbles = 0; or the literal `33XXXXXX-…` with X) → MC `400`
+> `062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source: `request_id`), which
+> the gateway forwards as a business-400 object; (2) with a **valid v4 form**
+> (`33000000-0000-4000-8000-000000000000`) MC passes format validation but the sandbox returns
+> **`401`** (our `partner-id` `SANDBOX_1234567` is NOT onboarded for RFI — an opt-in suite) → the
+> gateway masks it as `502`. Document upload is also `401`→`502`. Update/Upload are encrypted like
+> validation. **Upload Document** carries a base64 file up to ~1MB, so
 > `POST /crossborder/rfi/documents` gets a **route-scoped 2MB body limit** (the global 256kb is
 > kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
 > webhook arrives on the shared `/webhooks/mastercard`.

@@ -39,8 +39,10 @@ node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
 - **OS:** Windows 10 + project on WSL (Ubuntu), UNC path `\\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard`.
 - **Node:** Windows node (no node inside WSL). Docker/git run inside WSL (`wsl -d Ubuntu ...`).
 - **PostgreSQL:** Docker inside WSL; reachable from Windows at `localhost:5432`.
-- **Mastercard:** sandbox (`https://sandbox.api.mastercard.com`), encryption disabled
-  (`MC_ENCRYPTION_ENABLED=false` — sandbox does not support FLE, runs plain).
+- **Mastercard:** sandbox (`https://sandbox.api.mastercard.com`), field-level encryption
+  ENABLED (`MC_ENCRYPTION_ENABLED=true`) — FLE works on sandbox (proven 2026-06-16: the
+  request is encrypted with the Client Encryption Key, the response is decrypted with our
+  Mastercard Encryption private key; the validation APIs return real decrypted data).
 - **Tenant for MC calls:** `own-sandbox` (OWN/ACTIVE, keys from LocalSecretStore,
   `partner-id` = `SANDBOX_1234567`).
 
@@ -59,9 +61,9 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && npx ts-node
 
 The E2E suite (`test/app.e2e-spec.ts`, **23/23 green**) drives the real app against
 `sandbox.api.mastercard.com`. Each MC-bound check exercises the full path: auth →
-resolve tenant → OWN credentials from SecretStore → **OAuth1 signature** → HTTPS to
-MC → unwrap response. (In MTF/Prod, JWE body encryption is added — plain in sandbox.)
-Tenant header: `x-internal-token` + `x-tenant-id: own-sandbox`.
+resolve tenant → OWN credentials from SecretStore → **JWE body encryption** → **OAuth1
+signature over the encrypted body** → HTTPS to MC → **decrypt response** → unwrap. (FLE
+works on sandbox too — proven 2026-06-16.) Tenant header: `x-internal-token` + `x-tenant-id: own-sandbox`.
 
 ### 1a. Reaches MC with a real business response
 
@@ -73,29 +75,40 @@ Tenant header: `x-internal-token` + `x-tenant-id: own-sandbox`.
 | MC-4 | `GET /crossborder/endpoint-guide/specifications?...` (GET, no body/encryption) | ✅ reaches MC (not 404/500) |
 | MC-5 | `GET /crossborder/rates` (Carded/FX Rate Pull, GET — sandbox unsupported) | ✅ gateway proves out (not 500) |
 
-### 1b. Validation / lookup endpoints — gateway contract (request reaches MC)
+### 1b. Validation / lookup endpoints — real data via FLE
 
-These POSTs require encryption in MTF/Prod, so the gateway contract is verified: the
-route is mounted, the OAuth1 signature is applied, the request reaches MC and the
-response is forwarded — asserted as **not 404** (route exists) and **not 500** (no
-local crash).
+These POSTs run the **full FLE round-trip live** (the request is encrypted with the
+Client Encryption key, the response is decrypted with our Mastercard Encryption private
+key) and return **real decrypted data** — a concrete business result is asserted, not
+just "not 404/500".
 
 | # | Test (`it` title) | Result |
 |---|---|---|
-| MC-6 | `POST /crossborder/address-validations` (sandbox test case) | ✅ reaches MC |
-| MC-7 | `POST /crossborder/account-validations` (IBAN test case) | ✅ reaches MC |
-| MC-8 | `POST /crossborder/bank-lookups` (sandbox test case) | ✅ reaches MC |
-| MC-9 | `POST /crossborder/iban-generations` (sandbox test case) | ✅ reaches MC |
+| MC-6 | `POST /crossborder/address-validations` (FLE) | ✅ 200 — `status: VALID`, `verification: VERIFIED` |
+| MC-7 | `POST /crossborder/account-validations` (FLE) | ✅ 200 — `status: SUCCESS` + `accountMatch` |
+| MC-8 | `POST /crossborder/bank-lookups` (FLE) | ✅ 200 — `bankInfo.banks` |
+| MC-9 | `POST /crossborder/iban-generations` (FLE) | ✅ 200 — `ibanDetails.accounts` |
 
 ### 1c. RFI (Request For Information) group
 
 | # | Test (`it` title) | Result |
 |---|---|---|
-| MC-10 | `GET /crossborder/rfi/requests/:id` (sandbox stub `33…` → OPEN, GET) | ✅ reaches MC (not 500) |
-| MC-11 | `POST /crossborder/rfi/requests/:id` (update — needs encryption) | ✅ reaches MC (not 404/500) |
-| MC-12 | `POST /crossborder/rfi/documents` (upload — needs encryption) | ✅ reaches MC (not 404/500) |
-| MC-13 | `GET /crossborder/rfi/documents/:id` (download magic-id, error code `082000`) | ✅ reaches MC (not 500) |
+| MC-10 | `GET /crossborder/rfi/requests/:id` → business `400` forwarded | ✅ `400` + MC body contains `062000` |
+| MC-11 | `POST /crossborder/rfi/requests/:id` (update) | ✅ reaches MC (not 404/500) |
+| MC-12 | `POST /crossborder/rfi/documents` (upload) | ✅ reaches MC (not 404/500) |
+| MC-13 | `GET /crossborder/rfi/documents/:id` (download magic-id) | ✅ reaches MC (not 500) |
 | MC-14 | `POST /crossborder/rfi/documents` with a ~500KB file | ✅ **not 413** — route-scoped 2MB parser, not the global 256kb |
+
+> **Root cause of the RFI errors (figured out 2026-06-16, empirically).** `request_id` MUST be
+> a **valid RFC-4122 UUID**. Our demo ids (`33000000-0000-0000-0000-000000000000`,
+> `10000000-…-082000`) are intentionally invalid — the version/variant nibbles are 0, so MC
+> returns `400` `062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source:
+> `request_id`); same with the doc's literal placeholder `33XXXXXX-…` (X = invalid hex chars).
+> With a **valid v4 form** (`33000000-0000-4000-8000-000000000000`) MC passes format validation
+> but in sandbox returns **`401`** → the gateway masks it as `502`: our `partner-id`
+> `SANDBOX_1234567` is **not onboarded for RFI** (an external sandbox limit, like Endpoint Guide;
+> not a gateway bug). Document upload is also `401`→`502` for the same reason. MC-10 verifies the
+> object-4xx passthrough contract.
 
 **MC response unwrapping** (common to all calls): 2xx → data; business 4xx with an
 object body (`400/404/409/422/429`) → forward MC body; non-object 4xx body →
@@ -123,9 +136,10 @@ Direction **MC → us** (status push notifications). Does not call the MC API ou
 
 ## Not covered (Mastercard)
 
-- **Live JWE encryption** — the sandbox runs with FLE off, so the JWE encrypt/decrypt
-  round-trip is not exercised end-to-end against MC (unit-pinned only). MTF/Prod requires
-  the private Client Encryption key.
+- ~~**Live JWE encryption**~~ — **now COVERED (2026-06-16):** the JWE encrypt/decrypt
+  round-trip is exercised end-to-end against MC sandbox (validation APIs return real
+  decrypted data, live e2e 23/23). What remains uncovered is the **per-tenant** key path
+  (OWN partners with their own keys — see production-questions.md).
 - **A fully-successful payment (2xx)** — requires the full KYC flow: quote →
   confirmation → payment with sender/recipient details.
 

@@ -150,8 +150,11 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(JSON.stringify(badKey.data)).toContain('Idempotency-Key');
   });
 
-  it('POST /crossborder/address-validations (sandbox test case) → доходит до MC', async () => {
-    // Sandbox Address Validation отдаёт статичные ответы на фикс. тест-кейсы.
+  it('POST /crossborder/address-validations (FLE) → 200 VALID/VERIFIED', async () => {
+    // Полный FLE round-trip ВЖИВУЮ: запрос шифруется Client Encryption ключом
+    // (kid f031d600, приватный у MC), ответ MC расшифровывается нашим Mastercard
+    // Encryption ключом (kid 75ea7e15, приватный у нас). Документированный sandbox
+    // тест-адрес → статичный VALID/VERIFIED (Address Validation Service).
     const r = await http.post(
       '/crossborder/address-validations',
       { country: 'USA', address: '4 CLARK STREET, EVERETT, MA, 02149' },
@@ -159,14 +162,12 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     );
     // eslint-disable-next-line no-console
     console.log('   addr-val MC resp:', r.status, JSON.stringify(r.data));
-    // Контракт шлюза: маршрут смонтирован, OAuth1-подпись поставлена, запрос ушёл
-    // в MC и ответ проброшен. НЕ 404 (маршрут есть) и НЕ 500 (нет локального краша).
-    // 200 со status — если sandbox-кейс поддержан; иначе проброс бизнес-ответа MC.
-    expect(r.status).not.toBe(404);
-    expect(r.status).not.toBe(500);
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ status: 'VALID', verification: 'VERIFIED' });
   });
 
-  it('POST /crossborder/account-validations (sandbox IBAN test case) → доходит до MC', async () => {
+  it('POST /crossborder/account-validations (FLE) → 200 SUCCESS + bank match', async () => {
+    // Документированный sandbox IBAN-кейс → SUCCESS "Valid IBAN Structure" с банком.
     const r = await http.post(
       '/crossborder/account-validations',
       { accountUri: { type: 'IBAN', value: 'FR070331234567890123456' } },
@@ -174,11 +175,12 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     );
     // eslint-disable-next-line no-console
     console.log('   acct-val MC resp:', r.status, JSON.stringify(r.data));
-    expect(r.status).not.toBe(404);
-    expect(r.status).not.toBe(500);
+    expect(r.status).toBe(200);
+    expect(r.data).toMatchObject({ status: 'SUCCESS' });
+    expect(r.data?.accountMatch).toBeDefined();
   });
 
-  it('POST /crossborder/bank-lookups (sandbox test case) → доходит до MC', async () => {
+  it('POST /crossborder/bank-lookups (FLE) → 200 + bank data', async () => {
     const r = await http.post(
       '/crossborder/bank-lookups',
       {
@@ -192,11 +194,11 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     );
     // eslint-disable-next-line no-console
     console.log('   bank-lookup MC resp:', r.status, JSON.stringify(r.data));
-    expect(r.status).not.toBe(404);
-    expect(r.status).not.toBe(500);
+    expect(r.status).toBe(200);
+    expect(r.data?.bankInfo?.banks).toBeDefined();
   });
 
-  it('POST /crossborder/iban-generations (sandbox test case) → доходит до MC', async () => {
+  it('POST /crossborder/iban-generations (FLE) → 200 + generated IBAN', async () => {
     const r = await http.post(
       '/crossborder/iban-generations',
       {
@@ -209,8 +211,8 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     );
     // eslint-disable-next-line no-console
     console.log('   iban-gen MC resp:', r.status, JSON.stringify(r.data));
-    expect(r.status).not.toBe(404);
-    expect(r.status).not.toBe(500);
+    expect(r.status).toBe(200);
+    expect(r.data?.ibanDetails?.accounts).toBeDefined();
   });
 
   it('GET /crossborder/cash-pickup/countries (sandbox, GET — без шифрования) → доходит до MC', async () => {
@@ -243,18 +245,21 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(500);
   });
 
-  it('GET /crossborder/rfi/requests/:id (sandbox стаб 33… → OPEN, GET — без шифрования) → доходит до MC', async () => {
+  it('GET /crossborder/rfi/requests/:id → 400 с проброшенным MC-телом (062000)', async () => {
+    // request_id ДОЛЖЕН быть валидным UUID по RFC-4122. Наш демо-id намеренно
+    // невалиден (ниблы версии/варианта = 0) → MC отвечает 062000 "Value contains
+    // invalid character" (Source: request_id), и шлюз ПРОБРАСЫВАЕТ это бизнес-400
+    // как объект (контракт: object-4xx passthrough — маршрут смонтирован, OAuth
+    // подписан, запрос дошёл до MC). Эмпирически (2026-06-16): с валидной v4-формой
+    // (`33000000-0000-4000-8000-000000000000`) MC проходит валидацию формата, но в
+    // sandbox отдаёт 401 — наш partner-id `SANDBOX_1234567` НЕ онбординжен для RFI
+    // → шлюз маскирует в 502. Это внешний лимит sandbox, не баг. Детали — tests.md.
     const r = await http.get(
       '/crossborder/rfi/requests/33000000-0000-0000-0000-000000000000',
       { headers: internal },
     );
-    // eslint-disable-next-line no-console
-    console.log(
-      '   rfi retrieve MC resp:',
-      r.status,
-      JSON.stringify(r.data).slice(0, 200),
-    );
-    expect(r.status).not.toBe(500);
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.data)).toContain('062000');
   });
 
   it('POST /crossborder/rfi/requests/:id (update — нужно шифрование) → доходит до MC', async () => {

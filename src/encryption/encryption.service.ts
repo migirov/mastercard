@@ -14,11 +14,14 @@ interface EncryptedEnvelope {
 
 /**
  * Field-level encryption (JWE) по доке Mastercard.
- * Тумблер MC_ENCRYPTION_ENABLED: в sandbox = false (plain, sandbox не
- * поддерживает FLE), в MTF/Production = true.
+ * Тумблер MC_ENCRYPTION_ENABLED включается всюду, где настроены ключи —
+ * sandbox тоже поддерживает FLE (подтверждено вживую 2026-06-16), как и MTF/Production.
  *
- * Шифрование запроса использует Mastercard Encryption Key (публичный cert),
- * расшифровка ответа — наш Client Encryption private key.
+ * Направление ключей (НЕ перепутать — обратный выбор давал ошибку `082000 Crypto Key`):
+ *  • ЗАПРОС шифруем Client Encryption Key — это публичный cert MC (`encryptionCertPath` +
+ *    `encryptionFingerprint`); приватную пару держит Mastercard и расшифровывает наш запрос.
+ *  • ОТВЕТ расшифровываем НАШИМ Mastercard Encryption private key (`decryptionKeyPath`);
+ *    его публичную пару MC использует, чтобы зашифровать ответ нам.
  *
  * ⚠️ ПЕРЕХОД НА PER-TENANT (открытый блокер): сейчас сервис строит ОДИН
  * `JweEncryption` из ПЛАТФОРМЕННЫХ путей в конструкторе. У OWN-партнёров —
@@ -45,9 +48,9 @@ export class EncryptionService implements OnModuleInit {
   onModuleInit(): void {
     if (this.enabled) {
       this.jwe = this.buildJwe();
-      this.logger.log('Field-level encryption ВКЛЮЧЕНА (MTF/Production)');
+      this.logger.log('Field-level encryption ВКЛЮЧЕНА (работает и на sandbox)');
     } else {
-      this.logger.log('Field-level encryption выключена — plain (sandbox)');
+      this.logger.log('Field-level encryption выключена — plain passthrough');
     }
   }
 
@@ -123,13 +126,13 @@ export class EncryptionService implements OnModuleInit {
       ],
       mode: 'JWE',
       encryptedValueFieldName: 'data',
-      // Mastercard Encryption Key (публичный cert) — им шифруем запрос.
+      // Client Encryption Key (публичный cert MC) — им шифруем ЗАПРОС.
       encryptionCertificate: path.resolve(
         cwd,
         this.config.require('encryptionCertPath'),
       ),
       publicKeyFingerprint: fingerprint.toLowerCase(),
-      // Наш Client Encryption private key (PEM) — им расшифровываем ответ.
+      // Наш Mastercard Encryption private key (PEM) — им расшифровываем ОТВЕТ.
       privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
     });
   }
