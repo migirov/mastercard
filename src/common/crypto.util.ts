@@ -29,3 +29,19 @@ export function safeEqual(a: string, b: string): boolean {
 export function safeTokenEqual(provided: string, expected: string): boolean {
   return safeEqual(sha256hex(provided), sha256hex(expected));
 }
+
+/**
+ * Fail-closed сопоставление предъявленного shared-token (значение заголовка) с
+ * ожидаемым секретом. Возвращает `true` ТОЛЬКО если секрет настроен (`expected`
+ * не пуст), заголовок присутствует и значения совпадают в постоянном времени.
+ * Пустой `expected` → `false` (не настроено = НЕ пускаем). Централизует копипастный
+ * `!expected || !token || !safeTokenEqual(String(token), expected)` из auth-гардов,
+ * чтобы security-инвариант (fail-closed при отсутствии секрета) нельзя было забыть
+ * в одном из мест. См. admin/tenant/webhook auth guards.
+ */
+export function matchSharedToken(
+  provided: string | string[] | undefined,
+  expected: string | undefined,
+): boolean {
+  return !!expected && !!provided && safeTokenEqual(String(provided), expected);
+}

@@ -1,4 +1,5 @@
 import {
+  matchSharedToken,
   randomToken,
   safeEqual,
   safeTokenEqual,
@@ -68,6 +69,32 @@ describe('crypto.util', () => {
       expect(safeTokenEqual('t', 't')).toBe(
         safeEqual(sha256hex('t'), sha256hex('t')),
       );
+    });
+  });
+
+  describe('matchSharedToken', () => {
+    it('is true only when secret is set, header present and equal', () => {
+      expect(matchSharedToken('s3cr3t', 's3cr3t')).toBe(true);
+    });
+
+    it('is FAIL-CLOSED when the expected secret is empty/undefined', () => {
+      // Security invariant: unconfigured secret must reject, never accept.
+      expect(matchSharedToken('anything', '')).toBe(false);
+      expect(matchSharedToken('anything', undefined)).toBe(false);
+    });
+
+    it('is false when the provided header is absent or empty', () => {
+      expect(matchSharedToken(undefined, 'expected')).toBe(false);
+      expect(matchSharedToken('', 'expected')).toBe(false);
+    });
+
+    it('is false on mismatch (no length leak for different lengths)', () => {
+      expect(matchSharedToken('wrong', 'expected-secret')).toBe(false);
+    });
+
+    it('coerces an array header value via String() before comparing', () => {
+      // express may hand a string[] for a repeated header; must not crash.
+      expect(matchSharedToken(['a', 'b'], String(['a', 'b']))).toBe(true);
     });
   });
 });
