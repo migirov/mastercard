@@ -13,6 +13,7 @@ import {
   ApiBearerAuth,
   ApiHeader,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiResponse,
   ApiSecurity,
@@ -245,6 +246,11 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'RFI: получить состояние запроса (MC Retrieve RFI).',
   })
+  @ApiParam({
+    name: 'requestId',
+    format: 'uuid',
+    description: 'RFI request_id — валидный UUID (RFC-4122).',
+  })
   retrieveRfi(
     @CurrentTenant() ctx: TenantContext,
     @Param('requestId', UuidParamPipe) requestId: string,
@@ -255,6 +261,11 @@ export class CrossBorderController {
   @Post('rfi/requests/:requestId')
   @HttpCode(200) // ответ на запрос — изменение состояния RFI, не создание
   @ApiOperation({ summary: 'RFI: отправить ответ Customer (MC Update RFI).' })
+  @ApiParam({
+    name: 'requestId',
+    format: 'uuid',
+    description: 'RFI request_id — валидный UUID (RFC-4122).',
+  })
   @UsePipes(mcPassthroughPipe())
   updateRfi(
     @CurrentTenant() ctx: TenantContext,
@@ -278,6 +289,11 @@ export class CrossBorderController {
 
   @Get('rfi/documents/:documentId')
   @ApiOperation({ summary: 'RFI: скачать документ (MC Download Document).' })
+  @ApiParam({
+    name: 'documentId',
+    format: 'uuid',
+    description: 'RFI document_id — валидный UUID (RFC-4122).',
+  })
   downloadRfiDocument(
     @CurrentTenant() ctx: TenantContext,
     @Param('documentId', UuidParamPipe) documentId: string,
