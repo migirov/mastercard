@@ -1,179 +1,156 @@
 # API — Mastercard Cross-Border Gateway
 
-Reference for all HTTP endpoints. Related documents:
-[documentation.md](./documentation.md) (entities), [tests.md](./tests.md)
-(call examples), [architecture.md](./architecture.md) (design).
+Reference for every HTTP endpoint of the gateway, one section per endpoint. Related
+docs: [documentation.md](./documentation.md) (entities / data design),
+[tests.md](./tests.md) (live call examples), [architecture.md](./architecture.md)
+(design), [api-mastercard.md](./api-mastercard.md) (original Mastercard docs).
 
 - **Base URL (dev):** `http://localhost:3000`
-- **Format:** JSON (OAuth token also accepts `application/x-www-form-urlencoded`).
-- **Interactive schema:** `GET /api-docs` (Swagger; disabled in prod unless `SWAGGER_ENABLED`).
+- **Format:** JSON (`POST /oauth/token` also accepts `application/x-www-form-urlencoded`).
+- **Interactive schema:** `GET /api-docs` (Swagger; disabled in prod without `SWAGGER_ENABLED`).
+  That is an **auto-schema from decorators**; the human-facing source of truth is this file.
+
+## How to read an endpoint section
+
+Each endpoint follows one template: **Purpose** · **Method/path** · **Upstream MC**
+(where the gateway calls Mastercard) · **Auth** · **Encryption (FLE)** · **Params/body**
+· **Response** (with a real sandbox example where available) · **Notes/sandbox**.
+
+Rules common to all endpoints live in [“Cross-cutting rules”](#cross-cutting-rules); they
+are not repeated per endpoint.
 
 ---
 
-## Mastercard API Reference — coverage
+## Mastercard API Reference coverage map
 
-The full Mastercard Cross-Border **API Reference** (sidebar order) mapped onto this
-gateway. Status: ✅ implemented · ⚠️ partial · ❌ not yet. Sandbox: ✅ available ·
-⚠️ restricted (fixed test cases / needs encryption / partial) · ❌ not available.
+The 15 Mastercard Cross-Border **API Reference** groups → our routes. ✅ implemented ·
+⚠️ external sandbox limit. Details in the sections below.
 
-| # | Mastercard API | Upstream MC endpoint(s) | Our gateway endpoint | Sandbox | Status |
-|---|---|---|---|---|---|
-| 1 | **Quotes API** | `POST /send/v1/partners/{pid}/crossborder/quotes` | `POST /crossborder/quotes` | ✅ | ✅ |
-| 2 | **Quote Confirmation APIs** (suite ×3) | Confirm `POST …/crossborder/quotes/confirmations`; Cancel `POST …/crossborder/quotes/cancellations`; Retrieve `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` | `POST /crossborder/quotes/confirmations`, `POST /crossborder/quotes/cancellations`, `GET /crossborder/quotes/:transactionReference/proposals/:proposalId` | ✅ | ✅ |
-| 3 | **Carded Rate Pull + Push** | Pull `GET /send/v1/partners/{pid}/crossborder/rates` (`getFxRates` op, no body); Push = customer-hosted webhook | `GET /crossborder/rates` | ❌ (no MC sandbox) | ✅ |
-| 4 | **Payment API** | `POST /send/v1/partners/{pid}/crossborder/payment` | `POST /crossborder/payments` | ✅ | ✅ |
-| 5 | **Address Validation API** | `POST /send/address-validation-service/addresses/validations` | `POST /crossborder/address-validations` | ✅ (FLE → `200 VALID/VERIFIED`) | ✅ |
-| 6 | **Account Validation APIs** (suite ×3) | `POST …/crossborder/accounts/validations`; `POST …/crossborder/banks/details` (Bank Lookup); `POST …/crossborder/accounts/generate-ibans` (IBAN Gen) | `POST /crossborder/account-validations`, `/bank-lookups`, `/iban-generations` | ✅ (FLE → real data; ASV N/A in sandbox) | ✅ |
-| 7 | **Cash Pickup Locations API** | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ | ✅ |
-| 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (reaches MC; sandbox → HTML 500 for generic partner-id) | ✅ |
-| 9 | **Status Change Push** | MC → our webhook (push) | `POST /webhooks/mastercard` (persisted to `tx_status`); merchant reads via `GET /crossborder/status-events?ref=` | ✅ | ✅ (receiver + persist) |
-| 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
-| 11 | **RFI APIs** (suite ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` same; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` same, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (invalid UUID→local `400` (UuidParamPipe); in sandbox valid→`401`/`050007` — RFI API not authorized for the project; push N/A) | ✅ |
-| 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
-| 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
-| 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios interceptor) | ✅ (FLE WORKS on sandbox, 2026-06-16) | ✅ |
-| 15 | **Push Notifications Details** | inbound webhook + dedup + status persist | `POST /webhooks/mastercard` (+ `tx_status`, read via `GET /crossborder/status-events?ref=`) | ✅ | ✅ (receiver/dedup/persist; encrypted-push decrypt is MTF/Prod, see below; authenticity = **mTLS** at deployment) |
+| # | Mastercard API | Our route | Sandbox |
+|---|---|---|---|
+| 1 | Quotes | `POST /crossborder/quotes` | ✅ real proposal |
+| 2 | Quote Confirmation (×3) | `POST /quotes/confirmations`, `/quotes/cancellations`, `GET /quotes/:ref/proposals/:id` | ✅ |
+| 3 | Carded Rate Pull + Push | `GET /crossborder/rates` (+ push webhook) | ⚠️ no MC sandbox data |
+| 4 | Payment | `POST /crossborder/payments` | ✅ (full success needs the KYC flow) |
+| 5 | Address Validation | `POST /crossborder/address-validations` | ✅ FLE → `VALID/VERIFIED` |
+| 6 | Account Validation (×3) | `POST /account-validations`, `/bank-lookups`, `/iban-generations` | ✅ FLE → real data |
+| 7 | Cash Pickup Locations | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ |
+| 8 | Endpoint Guide | `GET /crossborder/endpoint-guide/specifications` | ⚠️ HTML-500 (corridor after onboarding) |
+| 9 | Status Change Push | `POST /webhooks/mastercard` → `GET /crossborder/status-events` | ✅ |
+| 10 | Retrieve Payment | `GET /crossborder/payments/:id` · `?ref=` | ✅ |
+| 11 | RFI (×4) | `GET/POST /rfi/requests/:id`, `POST /rfi/documents`, `GET /rfi/documents/:id` | ⚠️ `050007` (RFI not enabled for the project) |
+| 12 | Cancel Payment | `POST /crossborder/payments/:id/cancel` | ✅ |
+| 13 | Balance | `GET /crossborder/balances` | ✅ real balances |
+| 14 | Payload Encryption | `EncryptionService` (axios interceptor) | ✅ FLE works on sandbox |
+| 15 | Push Notifications | `POST /webhooks/mastercard` (+ `tx_status`) | ✅ |
 
-**Implemented — all 15:** 1, **2**, **3**, 4, **5**, **6**, **7**, **8**, **9**, 10, **11**, 12, 13, 14, **15** (Status Change / Quote Status Change persist to `tx_status` with atomic dedup and tenant attribution; encrypted-push decrypt and mTLS authenticity are configured at deployment in MTF/Prod — see the "Webhooks" section).
-
-> **Address Validation (5)** and **Account Validation (6)** REQUIRE JWE payload encryption — and it
-> **WORKS on sandbox** (verified live 2026-06-16): the request is encrypted with the **Client Encryption**
-> key (MC holds the private and decrypts it), MC encrypts the response with the **Mastercard Encryption**
-> key, and our private key decrypts it. e2e returns REAL data: Address → `200 VALID/VERIFIED`; Account →
-> `200 SUCCESS` with a bank (Natixis); Bank Lookup/IBAN Gen → `200`. The documented sandbox test cases
-> (fixed addresses/IBAN/BIC/BAN) are in `api-mastercard.md`; FLE key setup is in the `mastercard-fle-working`
-> auto-memory and `production-questions.md`. (Account Validation ASV type is N/A in sandbox.) The earlier
-> "FLE disabled in sandbox" note was a key-selection MISTAKE (we encrypted with the Mastercard Encryption
-> key instead of the Client Encryption key → `082000 Crypto Key`). Some groups have **no sandbox** (Carded Rate).
->
-> **Endpoint Guide (8)** is implemented as a GET (no body/encryption). e2e confirms the wiring
-> (OAuth1 signature, `X-Mc-Correlation-Id`/`Partner-Ref-Id` headers, routing), but the sandbox
-> returns an **HTML 500 page** (Tomcat "Internal Server Error", not structured JSON) for the
-> generic partner-id — per MC docs, corridor specifications are only available after partner
-> onboarding (sandbox = generic endpoint setup). The gateway correctly hides the HTML 5xx and
-> returns 502 (no body leak). Verifiable live in MTF/Prod with an onboarded partner-id.
->
-> **RFI (11)** — all 4 operations implemented (Retrieve/Update/Upload/Download), partner-id in
-> path, body wrappers `updateRequest`/`uploadDocumentRequest`. e2e confirms all 4 routes reach
-> MC. **`request_id`/`document_id` are validated as RFC-4122 UUIDs at the BOUNDARY**
-> (`UuidParamPipe`, `src/common/uuid-param.pipe.ts`) — figured out empirically 2026-06-16: (1) an
-> **invalid UUID** (demo ids `33000000-…-000…0`, `10000000-…-082000` with version/variant nibbles
-> = 0; or the placeholder `33XXXXXX-…` with X) now yields a **clean local `400`** with no outbound
-> call (previously it reached MC and got `062000 INVALID_INPUT_FORMAT "Value contains invalid
-> character"`, Source `request_id`); (2) with a **valid v4 form**
-> (`33000000-0000-4000-8000-000000000000`) the request passes the pipe and MC's format check but
-> MC returns **`401 AUTHORIZATION_FAILED`** (code `050007`, "Unauthorized Access") → the gateway
-> masks it as `502`. This is **API-level authorization**: the project / consumer-key is NOT
-> authorized for the RFI API (the same credentials work on balances/quotes/validations — so it is
-> not OAuth/partner-id; RFI is an opt-in suite enabled for the project on the MC portal). Document
-> upload is the same `050007`→`502`. Update/Upload are encrypted like validation. **Upload
-> Document** carries a base64 file up to ~1MB, so
-> `POST /crossborder/rfi/documents` gets a **route-scoped 2MB body limit** (the global 256kb is
-> kept for every other route); e2e: a ~500KB file passes the parser (not 413). The RFI push
-> webhook arrives on the shared `/webhooks/mastercard`.
->
-> **Carded Rate (3)** — Pull implemented as `GET /crossborder/rates` → MC
-> `GET …/v1/partners/{pid}/crossborder/rates` (MC op `getFxRates`, "No Request body" → method is
-> **GET**; the previous erroneous `POST /crossborder/carded-rates` was removed). **MC provides no
-> sandbox for Carded Rate** (stated in the docs) → success is unreachable; e2e only asserts the
-> gateway doesn't 500 and forwards MC's response. The Push variant is a customer-hosted webhook
-> (shared `/webhooks/mastercard`). Verifiable live in MTF/Prod on a configured corridor.
-
-> MC path prefixes are inconsistent (per the official doc): `/send/v1/…` for quotes/payment/
-> carded-rate/retrieve/cancel; `/send/…` (no `v1`) for confirmations/cancellations/
-> retrieve-confirmed-quote/account-validation/RFI; `/crossborder/…` (no `/send`, no partner path)
-> for cash-pickup/endpoint-guide; Address Validation uses a dedicated
-> `/send/address-validation-service/…` base.
+> “Reference Application” in MC’s sidebar is a sample app, not an API; nothing to implement.
 
 ---
 
-## Authentication
+## Cross-cutting rules
 
-Four independent methods — each endpoint group has its own:
+### Authentication — 4 independent methods
 
 | Header / method | Who | Where |
 |---|---|---|
-| `Authorization: Bearer <JWT>` | **external merchant** (partner) | `/crossborder/*` |
-| `X-Internal-Token` + `X-Tenant-Id` | **internal** platform service/UI | `/crossborder/*` |
-| `X-Admin-Token` | **platform operator** | `/admin/*` |
-| in-service `X-Webhook-Token` (fail-closed; MC's authoritative authenticity = **mTLS**, the token is our extra factor) | **Mastercard** | `/webhooks/*` |
-| — (public) | anyone with client_id/secret | `/oauth/token` |
+| `Authorization: Bearer <JWT>` | external merchant (partner) | `/crossborder/*` |
+| `X-Internal-Token` + `X-Tenant-Id` | internal platform service/UI | `/crossborder/*` |
+| `X-Admin-Token` | platform operator | `/admin/*` |
+| `X-Webhook-Token` (fail-closed; authority at MC = **mTLS**, the token is our extra factor) | Mastercard | `/webhooks/*` |
+| — (public) | anyone with `client_id`/`secret` | `/oauth/token` |
 
-**Important:** `tenantId` is NEVER taken from the body/query — only from
-authentication (external merchant JWT or the internal call's `X-Tenant-Id`).
+**`tenantId` is NEVER taken from the body/query** — only from authentication (the external
+merchant’s JWT or the internal call’s `X-Tenant-Id`). All `/crossborder/*` are available
+**only to an active tenant** (dual approval, otherwise `403`).
 
-### Obtaining a merchant token
+### Response semantics (how the gateway unwraps Mastercard)
 
-```
-POST /oauth/token            (public — it is itself the authentication point)
-```
-Body (`form-urlencoded` or JSON), grant `client_credentials`:
-
-| Field | Description |
+| What Mastercard returned | What the merchant gets |
 |---|---|
-| `grant_type` | always `client_credentials` |
-| `client_id` | issued by the admin API (`mc_…`) |
-| `client_secret` | issued by the admin API (shown once) |
+| `2xx` | data (decrypted if it was encrypted) |
+| business `4xx` (`400/404/409/422/429`) with a JSON object | **forward** MC’s status and body as-is (under the `upstream` key) |
+| `401/403` (our creds) / `5xx` / non-object body | `502` with no detail leaked (detail → log) |
+| network error / decrypt failure | `502` |
 
-`client_id`/`secret` may also be passed via `Authorization: Basic`. Response:
+Example of a forwarded business error from MC (`400`):
 ```json
-{ "access_token": "<JWT>", "token_type": "Bearer", "expires_in": 900 }
+{ "error": "Upstream Error", "message": "Mastercard returned an error",
+  "upstream": { "Errors": { "Error": [ {
+    "Source": "transaction_reference", "ReasonCode": "DECLINE",
+    "Description": "Duplicate Transaction Reference Number" } ] } } }
 ```
-The JWT lives 15 min, HS256, `tid` = tenantId. Rate-limit: **10/min by `client_id`**.
-Errors: `400 unsupported_grant_type`, `401 invalid_client`.
+Local validation errors (gateway, before MC) — `400` with an English message, e.g.
+`{"statusCode":400,"message":"Invalid UUID identifier"}`.
+
+### Encryption (FLE — field-level encryption)
+
+JWE (RSA-OAEP-256 + A256GCM), implemented as an **axios interceptor inside `MastercardClient`**
+(not a NestJS interceptor), on every outbound MC call. Driven by the global toggle
+`MC_ENCRYPTION_ENABLED`:
+- **request:** when the toggle is on, the **whole non-empty body** is wrapped into
+  `{ encrypted_payload: { data: <JWE> } }` and then OAuth1-signed **over the encrypted body**.
+  Encrypted with the **Client Encryption Key** (MC public cert; MC holds the private key).
+- **response:** decrypted with our **Mastercard Encryption private key** if MC sent
+  `encrypted_payload.data`.
+- **FLE works on sandbox** (proven live 2026-06-16). The old belief “sandbox doesn’t support
+  FLE” was a key-selection mistake (`082000 Crypto Key`). Key details — `production-questions.md`
+  and the auto-memory `mastercard-fle-working`.
+- In practice: **POST with a body** (quotes/validations/bank-lookup/iban/payment/confirm/RFI
+  update/upload) → body encrypted; **GET catalogs** (balances/rates/cash-pickup/endpoint-guide/
+  RFI retrieve/download) send no body → nothing to encrypt. Per-tenant keys (OWN with their own)
+  are not yet wired — the only open encryption item.
+
+### Boundary validation (pipes)
+
+| Pipe | What it enforces | Where |
+|---|---|---|
+| `SafeIdPipe` | non-empty string with no `/`,`\`,whitespace,`..` (anti path-traversal) | id/ref in MC path |
+| `UuidParamPipe` | strict RFC-4122 UUID (v1–5 + variant) | RFI `request_id`/`document_id` |
+| `IdempotencyKeyPipe` | optional; string ≤128 of `[A-Za-z0-9._:-]` | `Idempotency-Key` header |
+| `StringQueryPipe` | optional; rejects non-string (duplicate query keys) | catalog query params |
+| `mcPassthroughPipe()` | soft: validates declared fields, does NOT strip unknown, does NOT coerce types (MC amounts are strings) | MC-bound bodies |
+| `strictDtoPipe()` | strict: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth bodies |
+
+There is NO global `ValidationPipe` — each controller declares its own (so strict validation
+of our boundaries doesn’t strip MC passthrough fields). `helmet`; JSON limit **256 kb**
+(exception — RFI upload, see below).
 
 ---
 
-## Cross-Border API (merchant business operations)
+# Cross-Border API (merchant business operations)
 
-Group `/crossborder/*`. Auth — Bearer JWT (external) **or** `X-Internal-Token` +
-`X-Tenant-Id` (internal). Available **only to an active tenant** (dual approval,
-otherwise `403`). Rate-limit: **120/min per tenant**. Each request is OAuth1-signed
-with the tenant's keys and (in MTF/Prod) JWE-encrypted — transparently.
-
-| Method | Path | What it does | Upstream Mastercard |
-|---|---|---|---|
-| `GET` | `/crossborder/balances` | Partner accounts and balances | `GET …/crossborder/accounts?include_balance=true` |
-| `GET` | `/crossborder/rates` | Carded / FX Rate Pull (corridor rates) | `GET …/crossborder/rates` |
-| `POST` | `/crossborder/quotes` | Request a quote (transfer price/rate) | `POST …/crossborder/quotes` |
-| `POST` | `/crossborder/quotes/confirmations` | Confirm a quote | `POST …/crossborder/quotes/confirmations` |
-| `POST` | `/crossborder/quotes/cancellations` | Cancel a confirmed quote (releases the reserve) | `POST …/crossborder/quotes/cancellations` |
-| `GET` | `/crossborder/quotes/:transactionReference/proposals/:proposalId` | Retrieve a confirmed quote | `GET …/crossborder/quotes/{ref}/proposals/{proposalId}` |
-| `POST` | `/crossborder/payments` | Initiate a payment | `POST …/crossborder/payment` |
-| `GET` | `/crossborder/payments/:id` | Payment status by id | `GET …/crossborder/{id}` |
-| `GET` | `/crossborder/payments?ref=…` | Payment status by transaction reference | `GET …/crossborder?ref=…` |
-| `POST` | `/crossborder/payments/:id/cancel` | Cancel a payment | `POST …/crossborder/{id}/cancel` |
-| `GET` | `/crossborder/status-events?ref=…` | Stored push statuses by transaction_reference (local read from `tx_status`, not an MC call) | — |
-
-`…` = `/send[/v1]/partners/{partner-id}/crossborder` — `partner-id` comes from the
-tenant's credentials (not from the request).
+Group `/crossborder/*`. Auth — `TenantAuthGuard` (Bearer JWT **or** `X-Internal-Token` +
+`X-Tenant-Id`). Active tenant only. Rate-limit **120/min per tenant**. Every request is
+OAuth1-signed with the tenant’s keys; the body (if any) is JWE-encrypted — transparently.
+`partner-id` is taken from the tenant’s credentials (not from the request).
 
 ### Typical transfer flow
-
 ```
-1. POST /crossborder/quotes              → proposal with price/rate
+1. POST /crossborder/quotes               → proposal with price/rate
 2. POST /crossborder/quotes/confirmations → confirm the chosen proposal
-3. POST /crossborder/payments            → initiate the payment (+ Idempotency-Key)
-4. GET  /crossborder/payments/:id        → poll status (or wait for a webhook)
+3. POST /crossborder/payments             → initiate the payment (+ Idempotency-Key)
+4. GET  /crossborder/payments/:id         → poll status (or wait for the webhook)
 ```
+
+## Quotes & Payments
 
 ### POST /crossborder/quotes
+**Purpose.** Request a quote (transfer price/rate). · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/quotes` · **Auth:** tenant · **FLE:** yes · **Code:** `200` (`@HttpCode(200)` — a computation, not resource creation).
 
-Body — a JSON object (passed through to Mastercard; the gateway does not trim it). Example:
+Body — `QuoteRequestDto` (passthrough; unknown MC fields kept). Critical fields validated as
+strings (MC amounts are strings, not numbers):
 ```json
-{
-  "quoterequest": {
-    "transaction_reference": "08POC342598033X",
-    "sender_account_uri": "tel:+25406005",
-    "recipient_account_uri": "tel:+254069832",
-    "payment_amount": { "amount": "105.15", "currency": "USD" },
-    "payment_origination_country": "USA",
-    "payment_type": "P2P",
-    "quote_type": { "forward": { "receiver_currency": "GBP" } }
-  }
-}
+{ "quoterequest": {
+  "transaction_reference": "08POC342598033X",
+  "sender_account_uri": "tel:+25406005",
+  "recipient_account_uri": "tel:+254069832",
+  "payment_amount": { "amount": "105.15", "currency": "USD" },
+  "payment_origination_country": "USA",
+  "payment_type": "P2P",
+  "quote_type": { "forward": { "receiver_currency": "GBP" } } } }
 ```
-Response **201** — a real MC proposal:
+Response `200` — a real MC proposal:
 ```json
 { "quote": { "transaction_reference": "08POC342598033X", "payment_type": "P2P",
   "proposals": { "proposal": [ {
@@ -184,133 +161,286 @@ Response **201** — a real MC proposal:
     "quote_fx_rate": "777" } ] } } }
 ```
 
+### POST /crossborder/quotes/confirmations
+**Purpose.** Confirm the chosen quote proposal. · **Upstream:** `POST /send/partners/{pid}/crossborder/quotes/confirmations` · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `ConfirmationRequestDto` (passthrough): `transactionReference?`, `proposalId?` (both strings).
+
+### POST /crossborder/quotes/cancellations
+**Purpose.** Cancel a confirmed quote (release the reservation). · **Upstream:** `POST /send/partners/{pid}/crossborder/quotes/cancellations` · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `ConfirmationRequestDto` (same as confirmations).
+
+### GET /crossborder/quotes/:transactionReference/proposals/:proposalId
+**Purpose.** Retrieve a confirmed quote. · **Upstream:** `GET /send/partners/{pid}/crossborder/quotes/{ref}/proposals/{proposalId}` · **Auth:** tenant · **FLE:** no body.
+
+Path params `transactionReference`, `proposalId` — both `SafeIdPipe`.
+
 ### POST /crossborder/payments
+**Purpose.** Initiate a payment. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/payment` · **Auth:** tenant · **FLE:** yes · **Code:** `201` (resource creation).
 
-Body — a JSON object. Optional header **`Idempotency-Key`** (recommended): the same
-key → the same result, without calling MC again (protection against double charges
-on retry). Key: up to 128 chars from `[A-Za-z0-9._-:]`. The MC-side backstop is
-`transaction_reference`.
+Body — `PaymentRequestDto` (passthrough, `paymentrequest` wrapper, amounts are strings).
+Header **`Idempotency-Key`** (optional, recommended): same key + same body → same result without
+re-calling MC (guards against double charges on retry). Key ≤128 chars of `[A-Za-z0-9._:-]`.
+The MC-side backstop is `transaction_reference`.
 
-### Response semantics (how the gateway unwraps MC)
+### GET /crossborder/payments/:id
+**Purpose.** Payment status by id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** no body. Param `id` — `SafeIdPipe`.
 
-| What Mastercard returned | What the merchant gets |
-|---|---|
-| 2xx | data (decrypted if it was encrypted) |
-| business 4xx (`400/404/409/422/429`) | **forward** the MC status and body as-is |
-| `401/403` (our credentials) / `5xx` / non-JSON | `502`, no details leaked (details → log) |
-| network error / decryption failure | `502` |
+### GET /crossborder/payments?ref=…
+**Purpose.** Payment status by `transaction_reference`. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder?ref={ref}` · **Auth:** tenant. Query `ref` (required) — `SafeIdPipe`. A lookup, not a list.
 
-Example forwarded MC error (HTTP 400):
+### POST /crossborder/payments/:id/cancel
+**Purpose.** Cancel a payment. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` · **Auth:** tenant · **FLE:** no body sent · **Code:** `200`. Param `id` — `SafeIdPipe`.
+
+### GET /crossborder/status-events?ref=…
+**Purpose.** Stored push statuses by `transaction_reference`. · **Upstream:** **no MC call** — local read from the `tx_status` table. · **Auth:** tenant. Query `ref` (required) — `SafeIdPipe`.
+
+Tenant-scoped: OWN sees strictly its own events; PLATFORM — its own + the shared pool by ref.
+Response — an array of `StatusEventViewDto`: `transactionReference`, `eventType`,
+`transactionType`, `status`, `stage`, `receivedAt`, `payload` (internal `id`/`tenantId` not exposed).
+
+## Rates
+
+### GET /crossborder/rates
+**Purpose.** Carded / FX Rate Pull (corridor rates, MC operation `getFxRates`). · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/rates` (no body) · **Auth:** tenant · **FLE:** no body.
+
+⚠️ **MC provides no sandbox data for Carded Rate** → no real response in sandbox; e2e only checks
+that the gateway doesn’t crash and forwards. Sandbox returns `{"rates":{}}`. The push variant is
+a webhook (`CARDFX_PUB`) on the shared `/webhooks/mastercard`. Verifiable live in MTF/Prod on a
+configured corridor.
+
+## Validation / Lookup (FLE)
+
+All 4 are `POST` with an encrypted body, returning **real data** on sandbox (FLE works).
+Documented sandbox test cases (fixed addresses/IBAN/BIC/BAN) — in `api-mastercard.md`.
+
+### POST /crossborder/address-validations
+**Purpose.** Validate and normalize an address. · **Upstream:** `POST /send/address-validation-service/addresses/validations` (own base, no partner-id in path) · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `AddressValidationRequestDto` (`country`, `address` — required):
 ```json
-{ "Errors": { "Error": { "Source": "transaction_reference",
-  "ReasonCode": "DECLINE", "Description": "Duplicate Transaction Reference Number" } } }
+{ "country": "USA", "address": "4 CLARK STREET, EVERETT, MA, 02149" }
 ```
-Local validation errors (gateway, before MC): `400` with an English message, e.g.
-`{"message":"Quote body must be a JSON object","statusCode":400}`.
+Response `200` (real sandbox):
+```json
+{ "status": "VALID", "verification": "VERIFIED",
+  "addressMatch": { "address": "4 Clark St,Everett MA 02149-2015",
+    "line1": "4 Clark St", "country": "USA", "countrySubdivision": "MA",
+    "city": "Everett", "streetName": "Clark St", "buildingNumber": "4",
+    "postalCode": "02149-2015" } }
+```
+
+### POST /crossborder/account-validations
+**Purpose.** Validate the recipient account (IBAN/BAN) + bank data. · **Upstream:** `POST /send/partners/{pid}/crossborder/accounts/validations` · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `AccountValidationRequestDto`: `accountUri` (required, `{type,value}`), `requestType?`
+(`CES`|`ASV`; the ASV type is N/A in sandbox):
+```json
+{ "accountUri": { "type": "IBAN", "value": "FR070331234567890123456" } }
+```
+Response `200` (real sandbox):
+```json
+{ "status": "SUCCESS", "message": "Valid IBAN Structure",
+  "accountMatch": { "accounts": { "account": [
+      { "type": "IBAN", "value": "FR070331234567890123456" },
+      { "type": "BAN",  "value": "30007999990424173200040" } ] },
+    "bank": { "bic": { "type": "SWIFT BIC", "value": "NATXFRPP" },
+      "name": "Natixis", "branchCode": "3000799999",
+      "address": { "city": "Paris", "postalCode": "75013", "country": "FRA" } } } }
+```
+
+### POST /crossborder/bank-lookups
+**Purpose.** Look up a bank by name/country/BIC. · **Upstream:** `POST /send/partners/{pid}/crossborder/banks/details` · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `BankLookupRequestDto` (`bank` wrapper, required):
+```json
+{ "bank": { "name": "*of Africa United Kingdom*SUC20004", "country": "GBR",
+            "bic": { "type": null, "value": null } } }
+```
+Response `200` (real sandbox): `{ "bankInfo": { "total": "4", "banks": { "bankData": [ … ] } } }`
+with an array of banks (BIC, name, branch, address, sanctionDetails).
+
+### POST /crossborder/iban-generations
+**Purpose.** Generate an IBAN from a BAN/details. · **Upstream:** `POST /send/partners/{pid}/crossborder/accounts/generate-ibans` · **Auth:** tenant · **FLE:** yes · **Code:** `200`.
+
+Body — `IbanGenerationRequestDto` (optional fields: `accountUri?`, `country?`, `branchCode?`, `accountNo?`):
+```json
+{ "accountUri": { "type": "ban", "value": "20041010050500013M02606" },
+  "country": "FRA", "branchCode": "2004101005", "accountNo": "0500013026" }
+```
+Response `200` (real sandbox):
+```json
+{ "ibanDetails": { "accounts": { "account": [
+      { "type": "IBAN", "value": "FR1420041010050500013M02606" },
+      { "type": "BAN",  "value": "20041010050500013M02606" } ] },
+    "bank": { "bic": { "value": "PSSTFRPPLIL" }, "name": "La Banque Postale",
+      "branchCode": "2004101005", "address": { "city": "Lille", "country": "FRA" } } } }
+```
+
+## Cash Pickup Locations
+
+Cash pickup catalogs. · **Upstream:** `GET /crossborder/cash-pickup/{type}{?query}` (no `/send`,
+**partner-id in the `partner-id` HEADER**) · **Auth:** tenant · **FLE:** no body. All query params — `StringQueryPipe` (optional).
+
+| Route | Query |
+|---|---|
+| `GET /crossborder/cash-pickup/countries` | `cash_pickup_type?` |
+| `GET /crossborder/cash-pickup/cities` | `country?`, `currency?`, `offset?`, `limit?` |
+| `GET /crossborder/cash-pickup/providers` | `country?`, `currency?`, `cash_pickup_type?`, `offset?`, `limit?` |
+| `GET /crossborder/cash-pickup/branches` | `provider_id?`, `state?`, `city?`, `offset?`, `limit?` |
+
+Response for `countries` (real sandbox): `[{"items":[{"countryAlpha3":"NGA","currency":"NGN","cashPickupType":"PANY"}, … ]}]`.
+
+## Endpoint Guide
+
+### GET /crossborder/endpoint-guide/specifications
+**Purpose.** Corridor rules/requirements (fields, limits). · **Upstream:** `GET /crossborder/endpoint-guide/specifications{?query}` (partner-id in header) · **Auth:** tenant · **FLE:** no body. Query (`StringQueryPipe`): `payment_type?`, `destination_country?`, `destination_currency?`, `destination_payment_instrument?`.
+
+⚠️ **Sandbox** returns an **HTML 500 page** (Tomcat) for the generic partner-id — corridor specs
+are only available after partner onboarding. The gateway correctly hides the HTML-5xx and returns
+`502`. Verifiable live in MTF/Prod with an onboarded partner-id.
+
+## RFI (Request For Information)
+
+All 4 operations are implemented. **`request_id`/`document_id` must be valid RFC-4122 UUIDs**
+(`UuidParamPipe`) — an invalid one (e.g. the demo `33000000-0000-0000-0000-000000000000` with
+zero version/variant nibbles) is rejected with a **local `400`** before the MC call.
+
+> ⚠️ **Sandbox limit (figured out 2026-06-16).** With a valid UUID the request reaches MC, but MC
+> returns **`401 AUTHORIZATION_FAILED`** (code `050007`, “Unauthorized Access”) → the gateway
+> masks it as `502`. This is **API-level authorization**: the project / consumer-key is not
+> authorized for the RFI API (the same credentials work on balances/quotes/validations). RFI is
+> an opt-in API that must be **enabled for the project on the Mastercard Developers portal** (or
+> via the MC representative). The gateway code is ready and will work as soon as it’s enabled.
+
+### GET /crossborder/rfi/requests/:requestId
+**Purpose.** Retrieve RFI request state. · **Upstream:** `GET /send/partners/{pid}/crossborder/rfi/requests/{requestId}` · **Auth:** tenant · **FLE:** no body. Param `requestId` — `UuidParamPipe` (+ `@ApiParam format:uuid`).
+
+### POST /crossborder/rfi/requests/:requestId
+**Purpose.** Send the Customer’s RFI response. · **Upstream:** same path, POST · **Auth:** tenant · **FLE:** yes · **Code:** `200`. Param `requestId` — `UuidParamPipe`. Body — `RfiUpdateRequestDto` (`updateRequest` wrapper, passthrough).
+
+### POST /crossborder/rfi/documents
+**Purpose.** Upload a document for an RFI (base64 in JSON, not multipart). · **Upstream:** `POST /send/partners/{pid}/crossborder/rfi/documents` · **Auth:** tenant · **FLE:** yes. Body — `RfiDocumentUploadRequestDto` (`uploadDocumentRequest` wrapper = `{fileName, file}`).
+
+**Special:** this route (POST only) gets a **route-scoped 2 MB body limit** (the global 256 kb is
+kept for everything else) — a base64 file up to ~1 MB passes the parser (not 413).
+
+### GET /crossborder/rfi/documents/:documentId
+**Purpose.** Download an RFI document. · **Upstream:** `GET /send/partners/{pid}/crossborder/rfi/documents/{documentId}` · **Auth:** tenant · **FLE:** no body. Param `documentId` — `UuidParamPipe`.
 
 ---
 
-## Admin API (platform operator)
+# Webhooks (inbound from Mastercard)
 
-Group `/admin/*`. Auth — `X-Admin-Token`. Manages partners and their access.
+### POST /webhooks/mastercard
+**Purpose.** Receive MC push notifications (transaction/quote statuses, Carded Rate Push, RFI, etc.). · **Upstream:** none (receiver) · **Auth:** `WebhookAuthGuard` · **Code:** **always `200`** (else MC retries). Rate-limit 1200/min (per-pod). Body — `McWebhookEventDto` (passthrough, fields with `@MaxLength` caps).
 
-| Method | Path | What it does |
-|---|---|---|
-| `GET` | `/admin/tenants` | List of partners (no `secretRef`, with `status`) |
-| `GET` | `/admin/tenants/:id` | A single partner |
-| `POST` | `/admin/tenants` | Create a partner (starts in `PENDING`) |
-| `POST` | `/admin/tenants/:id/approve/platform` | Approval from the platform |
-| `POST` | `/admin/tenants/:id/approve/mastercard` | Approval from Mastercard |
-| `POST` | `/admin/tenants/:id/suspend` | Suspend (overrides approvals) |
-| `POST` | `/admin/tenants/:id/unsuspend` | Lift the suspension |
-| `POST` | `/admin/tenants/:id/clients` | Issue an OAuth client to the partner |
-| `DELETE` | `/admin/clients/:clientId` | Revoke an OAuth client |
-| `GET` | `/admin/audit` | Operation log (last 200) |
+- **Authentication:** in-service fail-closed token `X-Webhook-Token` (mandatory in prod and dev).
+  **The authoritative push authenticity at Mastercard is mTLS, NOT a payload signature** (found in
+  the MC docs). MC has no separate payload signature: `WebhookSignatureVerifier` is a scaffold
+  (Noop) in case MC ever adds one. mTLS is configured at the TLS layer; `X-Webhook-Token` is an
+  extra factor.
+  > **Verbatim (`api-mastercard.md`):** *“Contact your mastercard representative for mTLS push
+  > notification mastercard public certificate. This certificate needs to be trusted by the
+  > receiving application. Also, please share the server certificate chain for validation (via
+  > KMP portal)…”*
+  > **At deployment:** get the public mTLS push cert from the MC representative → into the
+  > receiver’s trust store; submit our cert chain via the **KMP portal**. ⚠️ MC **doesn’t know**
+  > our `X-Webhook-Token` — it is injected by the TLS layer after mTLS, or a custom header in the
+  > portal’s push config (confirm with MC).
+- **Dedup** by `eventRef` (MC retries up to 3×): repeat → `{"status":"duplicate"}`, else `{"status":"accepted"}`.
+- **Status persistence:** `STATUS_CHG`/`QUOTE_STATUS_CHG` → the `tx_status` table via one
+  `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup AND write are **atomic**). Other types
+  (`CARDFX_PUB`, RFI…) — KV dedup + log.
+- **Notations:** MC sends fields in both camelCase and snake_case — the handler normalizes both.
+- **Tenant attribution:** OWN — by `partnerId` (→ its `tenantId`); PLATFORM/unknown → the shared pool (`tenantId=NULL`).
+- **Merchant delivery:** polling via `GET /crossborder/status-events?ref=…`.
+- **Encrypted push** (`{encrypted_payload:{data}}`): detected, acked `200` without processing (the
+  decryption key exists; what remains is threading it into the handler + the per-tenant seam —
+  relevant in MTF/Prod, sandbox push is “Not Applicable”).
 
-A partner becomes `ACTIVE` (transactions allowed) only with **both** approvals and
-no suspension.
+---
 
-### POST /admin/tenants — body (`CreateTenantDto`)
+# Admin API (platform operator)
 
+Group `/admin/*`. Auth — `X-Admin-Token` (`AdminAuthGuard`). Bodies — **strict** validation
+(`strictDtoPipe`). `secretRef` is never returned (`ClassSerializerInterceptor`). Rate-limit
+120/min by IP. No calls to Mastercard.
+
+| Method | Path | What it does | Code |
+|---|---|---|---|
+| `GET` | `/admin/audit` | Operations log (last 200) | 200 |
+| `GET` | `/admin/tenants` | Partner list (`TenantViewDto[]`, no `secretRef`) | 200 |
+| `GET` | `/admin/tenants/:id` | One partner (`SafeIdPipe`) | 200 |
+| `POST` | `/admin/tenants` | Create a partner (starts in `PENDING`) | 201 |
+| `POST` | `/admin/tenants/:id/approve/platform` | Platform approval | 200 |
+| `POST` | `/admin/tenants/:id/approve/mastercard` | Mastercard approval | 200 |
+| `POST` | `/admin/tenants/:id/suspend` | Suspend (overrides approvals) | 200 |
+| `POST` | `/admin/tenants/:id/unsuspend` | Lift suspension | 200 |
+| `POST` | `/admin/tenants/:id/clients` | Issue an OAuth client | 201 |
+| `DELETE` | `/admin/clients/:clientId` | Revoke a client (404 if absent) | 200 |
+
+A partner becomes `ACTIVE` (transactions allowed) only with **both** approvals and no suspension.
+
+### POST /admin/tenants — body (`CreateTenantDto`, strict validation)
 | Field | Rule |
 |---|---|
-| `name` | string, ≤120, required |
+| `name` | string ≤120, required |
 | `credentialMode` | `PLATFORM` \| `OWN`, required |
-| `id` | string, ≤64, optional (otherwise generated `t_…`) |
-| `partnerId` | string, ≤128, optional |
-| `secretRef` | string, ≤256; required for `OWN` |
+| `id` | string ≤64, `[A-Za-z0-9._-]`, optional (else generated `t_…`) |
+| `partnerId` | string ≤64, `[A-Za-z0-9._-]`, optional |
+| `secretRef` | string ≤256, no `..`; **required for `OWN`** (`@ValidateIf`) |
 
 ### POST /admin/tenants/:id/clients — response
-
 ```json
 { "clientId": "mc_RPVCa4sGrL2O", "clientSecret": "<32 chars>",
   "note": "client_secret shown once — save it now" }
 ```
-**`clientSecret` is shown ONCE** (only a hash is stored in the DB).
+**`clientSecret` is shown ONCE** (only a hash is stored).
 
 ---
 
-## Webhooks (inbound from Mastercard)
+# OAuth — issue a merchant token
+
+### POST /oauth/token
+**Purpose.** Issue a merchant JWT (this *is* the authentication point). · **Upstream:** none (local JWT) · **Auth:** public, protected by `OAuthThrottlerGuard` (**10/min per `client_id`**, IP fallback) · **Code:** `200` (RFC 6749), headers `Cache-Control: no-store`.
+
+Body (`form-urlencoded` or JSON), `TokenRequestDto` (strict validation), grant `client_credentials`:
+
+| Field | Description |
+|---|---|
+| `grant_type` | always `client_credentials` (`@IsIn`) |
+| `client_id` | issued by the admin API (`mc_…`) |
+| `client_secret` | issued by the admin API (shown once) |
+
+`client_id`/`secret` may also come via `Authorization: Basic` (RFC 6749 §2.3.1). Response:
+```json
+{ "access_token": "<JWT>", "token_type": "Bearer", "expires_in": 900 }
+```
+JWT lives 15 min (HS256, `tid` = tenantId). Errors: `400 unsupported_grant_type` / `400` (DTO),
+`401 invalid_client`.
+
+---
+
+# Service
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/webhooks/mastercard` | Receive push notifications (transaction statuses, etc.) |
-
-- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod and dev.
-  **Mastercard's authoritative authenticity for push notifications is mTLS, NOT a payload
-  signature (JWS/HMAC)** — established from the official MC docs (`api-mastercard.md`, the *FX
-  Rate Push* and *Status Change Push* sections). So there is no payload signature for us to
-  verify in code: `WebhookSignatureVerifier` stays a scaffold (Noop) in case MC ever adds one.
-  mTLS is configured at the TLS-termination layer (ingress/app); our `X-Webhook-Token` is an
-  additional shared-secret factor on top of it.
-
-  > **Mastercard requirement (verbatim, `api-mastercard.md`):**
-  > *“Contact your mastercard representative for mTLS push notification mastercard public
-  > certificate. This certificate needs to be trusted by the receiving application. Also, please
-  > share the server certificate chain for validation (via KMP portal), if those are accepted on
-  > mastercard infrastructure.”*
-
-  **What to do at deployment (once we get the cert):** request the public mTLS push-notification
-  certificate from the Mastercard representative → add it to the receiving app's/ingress trust
-  store; submit our server cert chain via the **KMP portal**. Until then, ingestion relies on the
-  fail-closed `X-Webhook-Token`. ⚠️ Note: MC does **not** know our `X-Webhook-Token` and won't
-  send it — the token must be injected by the TLS-terminating layer after mTLS validation, or
-  configured as a custom header in MC's portal push config (confirm with MC).
-- **Always responds `200`** (otherwise MC retries).
-- **Dedup** by `eventRef` (MC retries up to 3 times): repeat → `{"status":"duplicate"}`,
-  otherwise `{"status":"accepted"}`.
-- **Status persistence:** `STATUS_CHG` / `QUOTE_STATUS_CHG` are stored in the `tx_status` table
-  via a single `INSERT … ON CONFLICT (eventRef) DO NOTHING` — dedup AND write are **atomic** (no
-  "crash between marking dedup and writing the status" window). Other types (Carded Rate Push
-  `CARDFX_PUB`, RFI, etc.) — KV dedup + log (business processing as needed).
-- **Notations:** MC sends fields both in camelCase (`eventRef`/`eventType`/…) and snake_case
-  (`event_ref`/`event_type`/…) — the handler normalizes both (otherwise snake-case events were lost).
-- **Tenant attribution:** an OWN tenant — by `partnerId` (→ its `tenantId`); a PLATFORM/unknown
-  `partnerId` (shared) → the shared pool (`tenantId = NULL`).
-- **Merchant delivery:** polling via `GET /crossborder/status-events?ref=<transaction_reference>`
-  (tenant-scoped: OWN sees strictly its own events, PLATFORM sees its own + the shared pool by ref).
-- **Encrypted push** (`{ encrypted_payload: { data } }`): detected and acked `200` **without
-  processing** — decryption needs the Client key + a per-tenant seam (MTF/Prod; in sandbox push
-  is "Not Applicable").
+| `GET` | `/health` | **Liveness** (k8s): process alive → `200 {"status":"ok"}`. No auth, no DB. |
+| `GET` | `/ready` | **Readiness** (k8s): pings Postgres → `200`/`503`. No auth. |
+| `GET` | `/api-docs` | Swagger UI (disabled in production without `SWAGGER_ENABLED`). |
 
 ---
 
-## Service
-
-| Method | Path | What it does |
-|---|---|---|
-| `GET` | `/health` | **Liveness** (k8s): process is alive → `200 {"status":"ok"}`. No auth. |
-| `GET` | `/ready` | **Readiness** (k8s): ready to serve (Postgres ping) → `200`/`503`. No auth. |
-| `GET` | `/api-docs` | Swagger UI (disabled in production without `SWAGGER_ENABLED`) |
-
----
-
-## Rate-limit summary
+# Rate-limit summary
 
 | Group | Limit | Key |
 |---|---|---|
 | `/crossborder/*` | 120 / min | `tenantId` (fail-closed) |
 | `/oauth/token` | 10 / min | `client_id` (not bypassable by IP rotation) |
 | `/admin/*` | 120 / min | IP |
+| `/webhooks/*` | 1200 / min | per-pod |
 
-Rate-limiting is a self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is optional defense-in-depth, not authoritative. Exceeding it → `429`.
+Rate-limiting is a self-contained per-pod `@nestjs/throttler` (correctness doesn’t depend on the
+ingress); an ingress limit, if any, is optional extra defense. Exceeding → `429`.
