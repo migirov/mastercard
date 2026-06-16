@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { GatewayConfig } from '../config/gateway-config';
-import { safeTokenEqual } from '../common/crypto.util';
+import { matchSharedToken } from '../common/crypto.util';
 import { WebhookSignatureVerifier } from './webhook-signature.verifier';
 
 /**
@@ -42,8 +42,7 @@ export class WebhookAuthGuard implements CanActivate {
       );
     }
 
-    const token = req.headers['x-webhook-token'];
-    if (!token || !safeTokenEqual(String(token), expected)) {
+    if (!matchSharedToken(req.headers['x-webhook-token'], expected)) {
       throw new UnauthorizedException('invalid webhook token');
     }
 
