@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { sha256hex } from '../common/crypto.util';
+import { stripCrlf } from '../common/sanitize.util';
 import { UpstreamHttpException } from '../common/upstream.exception';
 import { CredentialsService } from '../credentials/credentials.service';
 import { McCredentials } from '../credentials/credentials.types';
@@ -396,28 +397,17 @@ export class CrossBorderService {
   }
 
   /**
-   * Значение HTTP-заголовка без CR/LF — defense-in-depth против header-injection,
-   * НЕ зависящая от валидатора источника. partnerId уже safePartnerId-валиден (нет
-   * CRLF), но safePartnerId — регэксп для URL-ПУТИ; привязываем безопасность
-   * заголовка к самому месту использования: если его когда-то ослабят, заголовки
-   * не пострадают.
-   */
-  private headerSafe(v: string): string {
-    return v.replace(/[\r\n]/g, '');
-  }
-
-  /**
    * Доп. заголовки, которые MC требует у validation/lookup-сервисов (Address /
    * Account / Bank): X-Mc-Correlation-Id — уникальный per-request trace;
    * Partner-Ref-Id — «reference ID of the business partner». Берём СЫРОЙ partnerId
    * (НЕ partner()=encodeURIComponent — это кодировщик URL-ПУТИ; в заголовке нужно
-   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы), но через headerSafe.
+   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы), но через stripCrlf.
    * (Семантику Partner-Ref-Id — id партнёра vs per-request ref — уточнить у MC.)
    */
   private mcRefHeaders(creds: McCredentials): Record<string, string> {
     return {
       'X-Mc-Correlation-Id': randomUUID(),
-      'Partner-Ref-Id': this.headerSafe(creds.partnerId),
+      'Partner-Ref-Id': stripCrlf(creds.partnerId),
     };
   }
 
@@ -440,7 +430,7 @@ export class CrossBorderService {
 
   /** Заголовки Cash Pickup-каталога: partner-id в ЗАГОЛОВКЕ (сырой, анти-CRLF). */
   private catalogHeaders(creds: McCredentials): Record<string, string> {
-    return { 'partner-id': this.headerSafe(creds.partnerId) };
+    return { 'partner-id': stripCrlf(creds.partnerId) };
   }
 
   /**
