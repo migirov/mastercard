@@ -3,7 +3,7 @@ import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { IdempotencyService } from '../idempotency/idempotency.service';
-import { MastercardClientModule } from '../mastercard/mastercard.module';
+import { MastercardClientModule } from '../mastercard/mastercard-client.module';
 import { TenantModule } from '../tenants/tenant.module';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { TransactionStatusModule } from '../webhooks/transaction-status.module';

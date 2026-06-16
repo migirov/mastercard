@@ -13,7 +13,7 @@ import { AuditModule } from './audit/audit.module';
 import { TenantModule } from './tenants/tenant.module';
 import { SecretsModule } from './secrets/secrets.module';
 import { CredentialsModule } from './credentials/credentials.module';
-import { MastercardClientModule } from './mastercard/mastercard.module';
+import { MastercardClientModule } from './mastercard/mastercard-client.module';
 import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
