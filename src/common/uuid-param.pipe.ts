@@ -12,6 +12,15 @@ import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
  * «нулевые» ниблы версии/варианта (наши прежние демо-id `33000000-…-000…0`,
  * `10000000-…-082000`) и не-hex. Строже, чем `SafeIdPipe` (валидный UUID заведомо не
  * содержит `/`, `\`, пробелов, `..`), поэтому для UUID-параметров заменяет его.
+ *
+ * Почему НЕ встроенный `ParseUUIDPipe` (проверено эмпирически на @nestjs/common):
+ *  • `new ParseUUIDPipe()` (режим `'all'`) использует СВОЙ слабый regex без проверки
+ *    ниблов версии/варианта → ПРОПУСКАЕТ `33000000-0000-0000-0000-000000000000`, и MC
+ *    снова вернул бы `062000` — т.е. задачу не решает (это НЕ обёртка над `isUUID`);
+ *  • `new ParseUUIDPipe({ version: '4' })` — наоборот, режет любой валидный НЕ-v4 UUID
+ *    (v1/v3/v5), а гарантии, что MC выдаёт только v4, у нас нет.
+ * Поэтому здесь штатный кастомный `PipeTransform` (санкционированная точка расширения
+ * NestJS) с точным RFC-4122 (v1–5). Юнит: `uuid-param.pipe.spec`.
  */
 @Injectable()
 export class UuidParamPipe implements PipeTransform<unknown, string> {

@@ -11,6 +11,8 @@ describe('UuidParamPipe', () => {
     expect(pipe.transform('33ABCDEF-1234-4567-89AB-0123456789AB')).toBe(
       '33ABCDEF-1234-4567-89AB-0123456789AB',
     );
+    // v1 UUID — ДОЛЖЕН приниматься. Это страховка от «упрощения» до встроенного
+    // ParseUUIDPipe({version:'4'}), который валидный v1 ошибочно отверг бы.
     expect(pipe.transform('a0eebc99-9c0b-11ec-82a8-0242ac130003')).toBe(
       'a0eebc99-9c0b-11ec-82a8-0242ac130003',
     );
