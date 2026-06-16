@@ -2,9 +2,14 @@ import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { MASTERCARD_ENTITIES } from '../mastercard.entities';
 
-/** Подключение к PostgreSQL (TypeORM). Схема — synchronize в dev, миграции в проде. */
+/**
+ * Подключение к PostgreSQL (TypeORM) — ТОЛЬКО для dev-харнесса (standalone-запуск,
+ * e2e, `npm run ping`); в монолит хоста этот модуль не идёт. Схему ведут
+ * ИСКЛЮЧИТЕЛЬНО миграции (`synchronize` не используем — рекомендация NestJS/TypeORM,
+ * см. techniques/sql «synchronize shouldn't be used…»). Сущности подхватываются
+ * автоматически из `forFeature` суб-модулей (`autoLoadEntities`), без явного списка.
+ */
 @Module({
   imports: [
     TypeOrmModule.forRootAsync({
@@ -25,17 +30,19 @@ import { MASTERCARD_ENTITIES } from '../mastercard.entities';
         return {
           type: 'postgres',
           url,
-          entities: [...MASTERCARD_ENTITIES],
+          // Сущности — автоматически из forFeature каждого суб-модуля (NestJS
+          // «Auto-load entities»): явный список в корневом модуле течёт границами
+          // домена (techniques/sql). Хост при встраивании делает то же.
+          autoLoadEntities: true,
           extra: { max: poolMax },
-          // В production авто-синхронизацию схемы НЕ включаем НИКОГДА (риск
-          // потери данных при auto-alter) — только миграции. В dev: по умолчанию
-          // вкл, можно выключить DB_SYNC=false.
-          synchronize: !isProd && config.get<string>('DB_SYNC') !== 'false',
-          // Миграции (.ts через ts-node / .js в dist). Прогон — явно через
-          // `npm run migration:run` (или DB_MIGRATIONS_RUN=true для авто на старте;
-          // в multi-pod лучше отдельным Job/init-container, а не на каждом поде).
+          // Схема — ТОЛЬКО миграции. `synchronize` не задаём (TypeORM default=false):
+          // авто-синхронизация рискует потерей данных и не используется ни в dev, ни в prod.
           migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
-          migrationsRun: config.get<string>('DB_MIGRATIONS_RUN') === 'true',
+          // dev-харнесс прогоняет миграции на старте (замена прежнего synchronize),
+          // чтобы e2e/ping работали из коробки. В prod — гонит хост/отдельный Job
+          // (DB_MIGRATIONS_RUN=true), а не каждый под.
+          migrationsRun:
+            !isProd || config.get<string>('DB_MIGRATIONS_RUN') === 'true',
         };
       },
     }),

@@ -41,9 +41,9 @@ export class TenantEntity implements Tenant {
   @Column({ type: 'boolean', default: false })
   suspended!: boolean;
 
-  // list() сортирует по createdAt ASC — индекс под этот порядок. В dev создаётся
-  // через synchronize; в проде хост подхватывает его из метаданных entity при
-  // migration:generate (схему в проде ведёт хост, не synchronize).
+  // list() сортирует по createdAt ASC — индекс под этот порядок. Схему ведут
+  // ТОЛЬКО миграции (synchronize не используется): индекс попадает в миграцию через
+  // migration:generate из метаданных entity. В проде миграции прогоняет хост.
   @Index()
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
