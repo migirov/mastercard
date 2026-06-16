@@ -28,7 +28,7 @@
 | 8 | **Endpoint Guide API** | `GET /crossborder/endpoint-guide/specifications` | `GET /crossborder/endpoint-guide/specifications` | ⚠️ (доходит до MC; sandbox → HTML 500 для generic partner-id) | ✅ |
 | 9 | **Status Change Push** | MC → наш вебхук (push) | `POST /webhooks/mastercard` (персист в `tx_status`); чтение мерчантом `GET /crossborder/status-events?ref=` | ✅ | ✅ (приём + персист) |
 | 10 | **Retrieve Payment API** | `GET /send/v1/partners/{pid}/crossborder/{id}` · `…?ref=` | `GET /crossborder/payments/:id` · `?ref=` | ✅ | ✅ |
-| 11 | **RFI APIs** (сьют ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` тот же; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` тот же, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (sandbox: невалидный UUID→`062000`, валидный UUID→`401` неонбординг pid; push N/A) | ✅ |
+| 11 | **RFI APIs** (сьют ×4) | Retrieve `GET …/rfi/requests/{id}`; Update `POST` тот же; Upload `POST …/rfi/documents`; Download `GET …/rfi/documents/{id}` | `GET /crossborder/rfi/requests/:id`, `POST` тот же, `POST /crossborder/rfi/documents`, `GET /crossborder/rfi/documents/:id` | ⚠️ (невалидный UUID→локальный `400` (UuidParamPipe); в sandbox валидный→`401`/`050007` — RFI API не разрешён проекту; push N/A) | ✅ |
 | 12 | **Cancel Payment API** | `POST /send/v1/partners/{pid}/crossborder/{id}/cancel` | `POST /crossborder/payments/:id/cancel` | ✅ | ✅ |
 | 13 | **Balance API** | `GET /send/partners/{pid}/crossborder/accounts?include_balance=true` | `GET /crossborder/balances` | ✅ | ✅ |
 | 14 | **Payload Encryption** | JWE (RSA-OAEP-256 + A256GCM) | `EncryptionService` (axios-интерцептор) | ✅ (FLE РАБОТАЕТ на sandbox, 2026-06-16) | ✅ |
