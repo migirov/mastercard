@@ -33,14 +33,7 @@ export class IdempotencyService {
 
     const ck = `idem:${scope}:${key}`;
     const cached = await this.kv.get(ck);
-    if (cached) {
-      const p = this.parse(cached);
-      this.assertSameBody(p, fingerprint);
-      if (p?.done) return p.result as T;
-      throw new ConflictException(
-        'A request with this Idempotency-Key is already being processed',
-      );
-    }
+    if (cached) return this.resolveExisting<T>(cached, fingerprint);
 
     // Захватываем «замок» атомарно с КОРОТКИМ TTL: если не вышло — кто-то уже
     // в процессе/готов. Короткий TTL не даёт ключу залипнуть при краше процесса.
@@ -50,13 +43,7 @@ export class IdempotencyService {
       LOCK_TTL_SECONDS,
     );
     if (!locked) {
-      const again = await this.kv.get(ck);
-      const p = again ? this.parse(again) : null;
-      this.assertSameBody(p, fingerprint);
-      if (p?.done) return p.result as T;
-      throw new ConflictException(
-        'A request with this Idempotency-Key is already being processed',
-      );
+      return this.resolveExisting<T>(await this.kv.get(ck), fingerprint);
     }
 
     let result: T;
@@ -90,6 +77,20 @@ export class IdempotencyService {
       );
     }
     return result;
+  }
+
+  /**
+   * Разбор СУЩЕСТВУЮЩЕЙ записи (кэш-хит ИЛИ проигранная гонка замка): сверяет тело
+   * и возвращает готовый результат, иначе бросает 409 «уже в обработке». `raw` может
+   * быть null (ключ исчез между проверками) → `p=null`, тело не сверяется, 409.
+   */
+  private resolveExisting<T>(raw: string | null, fingerprint?: string): T {
+    const p = raw ? this.parse(raw) : null;
+    this.assertSameBody(p, fingerprint);
+    if (p?.done) return p.result as T;
+    throw new ConflictException(
+      'A request with this Idempotency-Key is already being processed',
+    );
   }
 
   /**
