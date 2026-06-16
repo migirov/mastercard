@@ -26,6 +26,7 @@ import { UseGatewayContract } from '../common/gateway-contract.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
+import { UuidParamPipe } from '../common/uuid-param.pipe';
 import { StringQueryPipe } from '../common/string-query.pipe';
 import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
 import { AccountValidationRequestDto } from './dto/account-validation-request.dto';
@@ -246,7 +247,7 @@ export class CrossBorderController {
   })
   retrieveRfi(
     @CurrentTenant() ctx: TenantContext,
-    @Param('requestId', SafeIdPipe) requestId: string,
+    @Param('requestId', UuidParamPipe) requestId: string,
   ) {
     return this.svc.retrieveRfi(ctx.tenantId, requestId);
   }
@@ -257,7 +258,7 @@ export class CrossBorderController {
   @UsePipes(mcPassthroughPipe())
   updateRfi(
     @CurrentTenant() ctx: TenantContext,
-    @Param('requestId', SafeIdPipe) requestId: string,
+    @Param('requestId', UuidParamPipe) requestId: string,
     @Body() body: RfiUpdateRequestDto,
   ) {
     return this.svc.updateRfi(ctx.tenantId, requestId, body);
@@ -279,7 +280,7 @@ export class CrossBorderController {
   @ApiOperation({ summary: 'RFI: скачать документ (MC Download Document).' })
   downloadRfiDocument(
     @CurrentTenant() ctx: TenantContext,
-    @Param('documentId', SafeIdPipe) documentId: string,
+    @Param('documentId', UuidParamPipe) documentId: string,
   ) {
     return this.svc.downloadRfiDocument(ctx.tenantId, documentId);
   }

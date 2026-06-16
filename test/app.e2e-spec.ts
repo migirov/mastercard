@@ -245,26 +245,33 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(500);
   });
 
-  it('GET /crossborder/rfi/requests/:id → 400 с проброшенным MC-телом (062000)', async () => {
-    // request_id ДОЛЖЕН быть валидным UUID по RFC-4122. Наш демо-id намеренно
-    // невалиден (ниблы версии/варианта = 0) → MC отвечает 062000 "Value contains
-    // invalid character" (Source: request_id), и шлюз ПРОБРАСЫВАЕТ это бизнес-400
-    // как объект (контракт: object-4xx passthrough — маршрут смонтирован, OAuth
-    // подписан, запрос дошёл до MC). Эмпирически (2026-06-16): с валидной v4-формой
-    // (`33000000-0000-4000-8000-000000000000`) MC проходит валидацию формата, но в
-    // sandbox отдаёт 401 — наш partner-id `SANDBOX_1234567` НЕ онбординжен для RFI
-    // → шлюз маскирует в 502. Это внешний лимит sandbox, не баг. Детали — tests.md.
-    const r = await http.get(
+  it('GET /crossborder/rfi/requests/:id — невалидный UUID → 400 локально, валидный → доходит до MC', async () => {
+    // `request_id` ДОЛЖЕН быть валидным UUID по RFC-4122 (MC иначе → 062000). Теперь
+    // это проверяет UuidParamPipe на ГРАНИЦЕ.
+    // (1) Невалидный RFC-4122 (ниблы версии/варианта = 0) отсекается ДО MC → чистый
+    //     локальный 400, без рейс-трипа (в теле НЕТ 062000 — запрос не уходил).
+    const bad = await http.get(
       '/crossborder/rfi/requests/33000000-0000-0000-0000-000000000000',
       { headers: internal },
     );
-    expect(r.status).toBe(400);
-    expect(JSON.stringify(r.data)).toContain('062000');
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(bad.data)).not.toContain('062000');
+    // (2) Валидная v4-форма проходит pipe и формат MC. В sandbox partner-id
+    //     `SANDBOX_1234567` НЕ онбординжен для RFI → MC 401 → шлюз маскирует в 502
+    //     (внешний лимит sandbox, не баг). Главное — маршрут жив: НЕ 404/500.
+    const ok = await http.get(
+      '/crossborder/rfi/requests/33000000-0000-4000-8000-000000000000',
+      { headers: internal },
+    );
+    // eslint-disable-next-line no-console
+    console.log('   rfi retrieve(valid uuid) MC resp:', ok.status);
+    expect(ok.status).not.toBe(404);
+    expect(ok.status).not.toBe(500);
   });
 
-  it('POST /crossborder/rfi/requests/:id (update — нужно шифрование) → доходит до MC', async () => {
+  it('POST /crossborder/rfi/requests/:id (update, валидный UUID) → доходит до MC', async () => {
     const r = await http.post(
-      '/crossborder/rfi/requests/33000000-0000-0000-0000-000000000000',
+      '/crossborder/rfi/requests/33000000-0000-4000-8000-000000000000',
       { updateRequest: { sender: { firstName: 'John', lastName: 'Doe' } } },
       { headers: internal },
     );
@@ -294,9 +301,9 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(r.status).not.toBe(500);
   });
 
-  it('GET /crossborder/rfi/documents/:id (download magic-id с кодом ошибки 082000) → доходит до MC', async () => {
+  it('GET /crossborder/rfi/documents/:id (download, валидный UUID) → доходит до MC', async () => {
     const r = await http.get(
-      '/crossborder/rfi/documents/10000000-0000-0000-0000-000000082000',
+      '/crossborder/rfi/documents/10000000-0000-4000-8000-000000082000',
       { headers: internal },
     );
     // eslint-disable-next-line no-console
