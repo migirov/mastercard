@@ -34,17 +34,23 @@ export class TransactionStatusEntity {
   @Column({ type: 'varchar', length: 256, nullable: true })
   transactionReference?: string | null;
 
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  // Projection columns (eventType/transactionType/status/stage): convenience fields
+  // pulled from arbitrary spots of the MC payload and NOT length-validated by the DTO.
+  // They are `text` (no width) on purpose — so there is nothing to overflow (no
+  // "value too long" → 500 → broken "always 200" webhook contract) and nothing to
+  // truncate in the store. The full event is preserved in `payload` (jsonb) regardless,
+  // and these columns are not indexed, so an over-long value costs nothing extra.
+  @Column({ type: 'text', nullable: true })
   eventType?: string | null;
 
-  /** QUOTE | PAYMENT (из transactionType события). */
-  @Column({ type: 'varchar', length: 16, nullable: true })
+  /** QUOTE | PAYMENT (from the event's transactionType). */
+  @Column({ type: 'text', nullable: true })
   transactionType?: string | null;
 
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  @Column({ type: 'text', nullable: true })
   status?: string | null;
 
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  @Column({ type: 'text', nullable: true })
   stage?: string | null;
 
   /** Сырое (нормализованное) событие целиком — чтобы не потерять доп. поля MC. */

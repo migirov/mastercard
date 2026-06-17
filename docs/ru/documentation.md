@@ -461,10 +461,10 @@ Status Change) для доставки мерчанту через polling. Де
 | `eventRef` | `varchar(200)` UNIQUE, null | Ключ дедупа (NULL'ы не конфликтуют → безref-события вставляются всегда). |
 | `tenantId` | `varchar(64)` null | OWN → резолв по `partnerId`; PLATFORM/неизвестный → `NULL` (общий пул). |
 | `transactionReference` | `varchar(256)` null | Reference транзакции/котировки. |
-| `eventType` | `varchar(32)` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
-| `transactionType` | `varchar(16)` null | `QUOTE` / `PAYMENT`. |
-| `status` | `varchar(32)` null | Статус (из `quote.confirmStatus.status` или верхнего уровня). |
-| `stage` | `varchar(32)` null | Стадия (`pendingStage`: Expired/Ambiguous и т.п.). |
+| `eventType` | `text` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
+| `transactionType` | `text` null | `QUOTE` / `PAYMENT`. |
+| `status` | `text` null | Статус (из `quote.confirmStatus.status` или верхнего уровня). |
+| `stage` | `text` null | Стадия (`pendingStage`: Expired/Ambiguous и т.п.). |
 | `payload` | `jsonb` | Сырое (нормализованное) событие целиком. |
 | `receivedAt` | `timestamptz` (индекс) DEFAULT now() | Момент приёма. |
 
@@ -474,9 +474,12 @@ Status Change) для доставки мерчанту через polling. Де
 ## Поведение
 
 - **Запись (`record`)** — атомарный `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
-  `true` = вставлено (свежее), `false` = дубль. Строковые поля **усекаются** под ширины
-  колонок ПЕРЕД вставкой (status/stage/… приходят из неподписанного тела и не покрыты
-  DTO-валидацией → иначе «value too long» → 500 + бесконечный ретрай MC).
+  `true` = вставлено (свежее), `false` = дубль. **Без усечения** (issue #8): проекционные
+  колонки (eventType/transactionType/status/stage) — тип `text`, ширины нет, поэтому слишком
+  длинное значение из непокрытого DTO тела MC не вызовет «value too long» → 500 (что сломало бы
+  контракт «всегда 200» + ушло бы в бесконечный ретрай MC). Индексируемые `varchar`-колонки
+  (`eventRef`/`transactionReference`) ограничены выше по стеку `@MaxLength` в DTO вебхука,
+  `tenantId` — внутренний резолвнутый id.
 - **Чтение (`findForTenant`)** — по `transaction_reference`, tenant-scoped: OWN видит
   СТРОГО свои строки; PLATFORM — свои + общий пул (`tenantId IS NULL`). Потолок `LIMIT 200`,
   сортировка по `id ASC`. Эндпоинт: `GET /crossborder/status-events?ref=`.
