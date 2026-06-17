@@ -225,3 +225,61 @@ KV-бэкенд, а не саму идемпотентность.
   `index.ts` чист, Issue #1 TypeORM-конфиг ок. Тесты после правок: unit 171 / hermetic 17 / live 23.
 
 **Статус:** сделано и полностью проверено.
+
+---
+
+## Issue 5 — Clean up TenantRegistry bootstrap and demo tenants
+
+**Требование (дословно).**
+> Clean up TenantRegistry bootstrap and demo tenants
+> Implement seed script
+
+**Проблема.** `TenantRegistry.onModuleInit` засевал на КАЖДОМ старте: `platform` (везде,
+вкл. prod) + демо-тенантов `acme`/`own-sandbox`/`own-demo` (по env-условию `!isProduction`).
+Минусы: bootstrap встраиваемого модуля молча пишет тестовые данные в БД хоста; демо-данные и
+env-ветка зашиты в data-layer-сервис.
+
+### Решение
+`onModuleInit` выполняется и ВНУТРИ встраиваемого `MastercardModule` (хост `b24club-api`) — значит
+любой авто-засев писал бы в БД хоста на каждом старте, ровно то, что issue просит убрать. Поэтому:
+- **`TenantRegistry` не сеет вообще** — чистый data-layer, встраивание абсолютно чистое (модуль не
+  трогает БД хоста на старте).
+- **Базовый `platform` сеет только dev-харнесс** (`DevSeedService` в `AppModule`, не во встраиваемом
+  модуле) — zero-config для локального запуска / `ping` / e2e.
+- **Демо-тенанты** (acme/own-sandbox/own-demo) — `npm run seed`.
+- **Хост в проде** провижит тенантов явно (admin-API или `SEED_DEMO=false npm run seed`).
+
+Так bootstrap полностью чист, нет security-smell (pre-approved тенант создаётся осознанно, а не молча
+на каждом boot), и локалка/e2e остаются zero-config.
+
+### Сделано ✅
+- **`TenantRegistry` — чистый data-layer:** убран `onModuleInit` (и `implements OnModuleInit`),
+  засев демо-тенантов, env-ветка `isProduction`, приватный `seedIfAbsent`, неиспользуемые
+  зависимости `GatewayConfig`/`Logger`. Никакого засева/сайд-эффектов на старте.
+- **Новый `src/tenants/tenant.seed.ts`** — единый источник сид-данных: `PLATFORM_TENANT`,
+  `DEMO_TENANTS` (acme/own-sandbox/own-demo) + идемпотентный `seedTenants(repo, list)`
+  (`INSERT … ON CONFLICT DO NOTHING RETURNING id`, без гонок при multi-pod; existing НЕ
+  перезаписываются → admin-правки approval/suspend сохраняются; возвращает реально вставленные).
+- **`src/dev-seed.service.ts` (`DevSeedService`)** — провайдер ТОЛЬКО dev-харнесса (в `AppModule`,
+  НЕ во встраиваемом `MastercardModule`): на `onApplicationBootstrap` сеет базовый `platform`
+  (zero-config для `ts-node src/main.ts`/`ping`/e2e). Хост его не получает → в БД хоста модуль на
+  старте не пишет.
+- **Seed-скрипт `scripts/seed.ts`** (`npm run seed`) — поднимает `AppModule`-контекст (как
+  `ping`; `DevSeedService` при этом сеет `platform`), сеет демо-тенантов; `SEED_DEMO=false` →
+  только базовый `platform`. Идемпотентно; конфиг БД — из того же `.env`.
+- **e2e:** демо больше не появляются «сами» → оба сьюта (`app.contract`/`app.e2e`) сеют
+  `DEMO_TENANTS` в `beforeAll` (`platform` приходит от `DevSeedService` на bootstrap).
+
+### Следствие для хоста (зафиксировать при встраивании)
+Встраиваемый `MastercardModule` больше НЕ создаёт `platform` сам → хост обязан провижить тенантов
+(`platform` и свои) через admin-API или `SEED_DEMO=false npm run seed`. Зафиксировано в
+`production-questions.md` (host integration checklist).
+
+### Проверка ✅
+- `tsc` чисто; на СВЕЖЕЙ БД: **unit 171 / hermetic 17 / live 23**.
+- После live-e2e на свежей БД в таблице ровно 4 тенанта: `platform` (от `DevSeedService`) +
+  `acme`/`own-sandbox`/`own-demo` (от e2e `beforeAll`); `own-demo` — pending `f`/`f`.
+- `npm run seed` на пустой БД: схема (миграции) + `platform` (DevSeedService) + демо; повторно →
+  «уже присутствуют» (идемпотентность).
+
+**Статус:** сделано и полностью проверено.

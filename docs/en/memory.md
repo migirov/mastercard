@@ -50,7 +50,7 @@ idempotency, webhook dedup, persistence after restart (see [tests.md](./tests.md
 ```
 database/                  — infra ONLY: DatabaseModule (dev forRoot), data-source, migrations
                              (entities moved into their own modules — co-location, see below)
-tenants/                   — TenantRegistry over a Postgres repository (async) + seeds
+tenants/                   — TenantRegistry over Postgres (async, PURE data-layer — seeds NOTHING); platform baseline seeded by the dev harness (DevSeedService in AppModule), demo via `npm run seed` (tenant.seed.ts); the embeddable module writes nothing to the host DB on boot
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem CACHE
 secrets/                   — SecretStore: LocalSecretStore | VaultSecretStore (stub)
 auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres), guards, @CurrentTenant
@@ -142,10 +142,14 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && <command> &
 ```bash
 cd ~/valeri/mastercard
 docker compose up -d        # Postgres 16 (docker-compose.yml)
-npx ts-node src/main.ts     # auto-schema (synchronize) + test tenant seeds
+npx ts-node src/main.ts     # schema from migrations (migrationsRun) + platform (DevSeedService)
+npm run seed                # demo tenants (acme/own-sandbox/own-demo) — for dev/e2e
 ```
-Seeds (non-prod only): `platform`, `acme` (ACTIVE), `own-sandbox` (OWN/ACTIVE, keys
-from LocalSecretStore), `own-demo` (PENDING — demo gating).
+The registry seeds nothing (pure data-layer). The baseline `platform` is seeded by the
+dev harness `DevSeedService` (`AppModule`, not the embeddable module). Demo tenants come
+from `npm run seed` (issue #5): `acme` (ACTIVE), `own-sandbox` (OWN/ACTIVE, keys from
+LocalSecretStore), `own-demo` (PENDING — demo gating). The host provisions tenants itself
+in prod (admin/seed).
 
 Dev scripts: `npm run ping`, `npm run encrypt-poc` (+`plain`), `src/scripts/p12-diag.ts`.
 (`idem-test.ts` was removed — idempotency is now in Postgres.)
@@ -339,7 +343,13 @@ is only for `req.ip`.
   table", 409/422/cache preserved, completed records permanent). Webhooks → `handleOther` dedups via
   `tx_status` (same atomic `INSERT ON CONFLICT` on eventRef), status read filtered to status types.
   Regenerated `InitialSchema` (kv_store→payment_idempotency). Checks: unit 171, hermetic 17, live 23.
-  Details/quirks — auto-memory `mastercard-teamlead-issues`.
+  **#5 Clean up TenantRegistry bootstrap + seed script — ✅:** `TenantRegistry` is now a PURE
+  data-layer (dropped `onModuleInit` entirely — it ran inside the embeddable module too → wrote
+  `platform` into the host DB on boot). The `platform` baseline is seeded ONLY by the dev harness
+  `DevSeedService` (`src/dev-seed.service.ts` in `AppModule`); demo lives in
+  `src/tenants/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e seed demo in `beforeAll`.
+  The host provisions tenants explicitly (admin/seed). Fresh-DB checks: unit 171, hermetic 17, live
+  23. Details/quirks — auto-memory `mastercard-teamlead-issues`.
 - 🔓 **FLE (encryption) WORKS on sandbox (2026-06-16) — the long-standing "encryption blocker" is gone.**
   Root cause: the MC key model was understood BACKWARDS. Correctly: the **Client Encryption Key**
   (`f031d600`) is the PUBLIC key **WE use to ENCRYPT REQUESTS** (MC holds the private); the **Mastercard

@@ -50,7 +50,7 @@ sandbox** — balances/rates/quote (201 с реальным proposal), оба п
 ```
 database/                  — ТОЛЬКО инфра: DatabaseModule (dev forRoot), data-source, migrations
                              (entity вынесены в свои модули — co-location, см. ниже)
-tenants/                   — TenantRegistry поверх Postgres-репозитория (async) + сиды
+tenants/                   — TenantRegistry поверх Postgres (async, ЧИСТЫЙ data-layer — НЕ сеет); platform-baseline сеет dev-харнесс (DevSeedService в AppModule), демо — `npm run seed` (tenant.seed.ts); встраиваемый модуль в БД хоста на старте не пишет
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem КЭШ
 secrets/                   — SecretStore: LocalSecretStore | VaultSecretStore (заглушка)
 auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres), гарды, @CurrentTenant
@@ -145,10 +145,13 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && <коман
 ```bash
 cd ~/valeri/mastercard
 docker compose up -d        # Postgres 16 (docker-compose.yml)
-npx ts-node src/main.ts     # авто-схема (synchronize) + сиды тестовых тенантов
+npx ts-node src/main.ts     # схема из миграций (migrationsRun) + platform (DevSeedService)
+npm run seed                # демо-тенанты (acme/own-sandbox/own-demo) — для dev/e2e
 ```
-Сиды (только non-prod): `platform`, `acme` (ACTIVE), `own-sandbox` (OWN/ACTIVE,
-ключи из LocalSecretStore), `own-demo` (PENDING — демо gating).
+Registry сам НЕ сеет (чистый data-layer). Базовый `platform` сеет `DevSeedService`
+dev-харнесса (`AppModule`, не встраиваемый модуль). Демо-тенанты ставит `npm run seed`
+(issue #5): `acme` (ACTIVE), `own-sandbox` (OWN/ACTIVE, ключи из LocalSecretStore),
+`own-demo` (PENDING — демо gating). Хост в проде провижит тенантов сам (admin/seed).
 
 Dev-скрипты: `npm run ping`, `npm run encrypt-poc` (+`plain`), `src/scripts/p12-diag.ts`.
 (`idem-test.ts` удалён — идемпотентность теперь в Postgres.)
@@ -341,7 +344,13 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   истины = выбор юзера «Postgres-таблица», сохранены 409/422/кэш, готовые записи постоянны). Вебхуки →
   `handleOther` дедупит через `tx_status` (тот же атомарный `INSERT ON CONFLICT` по eventRef), статус-выдача
   отфильтрована по статусным типам. Перегенерил `InitialSchema` (kv_store→payment_idempotency).
-  Проверки: unit 171, hermetic 17, live 23. Детали/квирки — авто-память `mastercard-teamlead-issues`.
+  **#5 Clean up TenantRegistry bootstrap + seed script — ✅ («лучшее из двух» после ревью):**
+  registry стал ЧИСТЫМ data-layer (убран `onModuleInit` целиком — он выполнялся и внутри
+  встраиваемого модуля → писал `platform` в БД хоста на старте). `platform`-baseline сеет
+  `DevSeedService` ТОЛЬКО dev-харнесса (`src/dev-seed.service.ts` в `AppModule`); демо — в
+  `src/tenants/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e сеют демо в `beforeAll`.
+  Хост провижит тенантов явно (admin/seed). Проверки на свежей БД: unit 171, hermetic 17, live 23.
+  Детали/квирки — авто-память `mastercard-teamlead-issues`.
 - 🔓 **FLE (шифрование) ЗАРАБОТАЛО на sandbox (2026-06-16) — снят многолетний «блокер шифрования».**
   Корень: модель ключей MC понимали ЗЕРКАЛЬНО. Правильно: **Client Encryption Key** (`f031d600`) —
   публичный, им **МЫ шифруем ЗАПРОСЫ** (приватный у MC); **Mastercard Encryption Key** — публичный, им

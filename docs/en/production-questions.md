@@ -112,6 +112,11 @@ for interceptor control.
   `receivedAt` / periodic prune of old rows), particularly for data minimization (PII/PCI). Payment
   idempotency is practically only needed within the retry window (minutes–a day), so pruning old
   `done` rows is safe. Question for the client: required retention window and mechanism.
+- **Tenant provisioning on embedding (issue #5).** The embeddable `MastercardModule` no longer
+  creates tenants on boot (`TenantRegistry` is a pure data layer; `platform` is seeded only by the
+  dev harness). The host MUST provision tenants itself: the baseline `platform` and its own — via
+  the admin API (double-approval onboarding) or `SEED_DEMO=false npm run seed` at provisioning time.
+  Otherwise PLATFORM mode won't work (no PLATFORM tenant exists).
 - ~~Expand Swagger annotations~~ — **done** during the code-quality review.
 
 ---
