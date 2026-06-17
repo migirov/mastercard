@@ -327,6 +327,17 @@ throttler самодостаточный per-pod). Доки переформул
 mTLS/ingress — опциональный доп. слой, не authoritative; `TRUST_PROXY` — только для `req.ip`.
 
 ### Последние вехи (после doc-grounded аудита)
+- 🧩 **Серия code-review issues тимлида (2026-06-17) — лог в [issues.md](./issues.md) (RU+EN).**
+  **#1 Align TypeORM config — ✅:** `database.module.ts` → `autoLoadEntities:true` + `synchronize` УБРАН
+  (schema migrations-only) + `migrationsRun` для dev-харнесса; `data-source.ts` (CLI) → entities через
+  glob; перегенерил единый чистый `InitialSchema` (миграции==entity, `migration:generate`=«No changes»,
+  добавлен пропавший индекс `tenants.createdAt`). НЕ делал кастомные DATA_SOURCE-провайдеры из рецепта
+  (дока сама против + ломает embeddable). **#2 Encryption→interceptor — 🟡 анализ, ждём тимлида:** крипта
+  УЖЕ в axios-интерцепторе `MastercardClient` (не в бизнес-логике), `EncryptionService` лишь делегат;
+  спросили (A) косметика vs (B) растворить сервис (не рекомендуем). **#3 transaction_reference idempotency —
+  ✅:** `createPayment` ключ = `txref:sha256(transaction_reference)`, заголовок `Idempotency-Key` УБРАН
+  совсем (+ удалены decorator/pipe). Проверки: unit 173, hermetic 16, live 23. Детали/квирки — авто-память
+  `mastercard-teamlead-issues`.
 - 🔓 **FLE (шифрование) ЗАРАБОТАЛО на sandbox (2026-06-16) — снят многолетний «блокер шифрования».**
   Корень: модель ключей MC понимали ЗЕРКАЛЬНО. Правильно: **Client Encryption Key** (`f031d600`) —
   публичный, им **МЫ шифруем ЗАПРОСЫ** (приватный у MC); **Mastercard Encryption Key** — публичный, им
