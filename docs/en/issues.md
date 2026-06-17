@@ -154,3 +154,66 @@ chose **(a) remove it entirely** — pure `transaction_reference`.
 **Verification:** tsc clean; unit + hermetic + live e2e green.
 
 **Status:** done + verified.
+
+---
+
+## Issue 4 — Remove KvStore-based idempotency
+
+**Requirement (verbatim).**
+> Remove KvStore-based idempotency.
+> We should avoid a separate KV layer and use Postgres as the source of truth for
+> webhook processing.
+>
+> Remove Idempotency-Key from payment API.
+> Payment flow still accepts Idempotency-Key and uses IdempotencyService.
+> We should use transaction_reference as the source of truth for payment idempotency instead.
+
+**Context.** Overlaps with Issue 3 but goes FURTHER: Issue 3 only changed the *key source*
+(transaction_reference); the mechanism stayed `IdempotencyService` on top of the shared
+`kv_store` KV layer. Here we remove the KV layer itself and make Postgres the source of
+truth — for both payments and webhooks. (The note "*Payment flow still accepts
+Idempotency-Key*" is already stale — the header was removed in Issue 3; only
+`IdempotencyService` remained.)
+
+### Decision (confirmed with the user)
+Payments fork: "transaction_reference as the source of truth" read two ways — (A) delegate
+dedup to MC itself (drop our layer entirely) or (B) keep idempotency in Postgres keyed on
+transaction_reference, preserving the guarantees. **Chose (B)** — a `payment_idempotency`
+table; the source of truth lives in our DB and double-charge protection stays local (not
+"trust MC's dedup"). "Remove KvStore-based idempotency" = drop the KV backend, not
+idempotency itself.
+
+### Done ✅
+- **Payments → Postgres (`payment_idempotency`).** New `PaymentIdempotencyEntity`
+  (`UNIQUE(tenantId, idemKey)` where `idemKey = txref:sha256(transaction_reference)`) and
+  `PaymentIdempotencyStore` replacing `IdempotencyService`. Behaviour preserved 1:1:
+  - atomic slot claim `INSERT ... ON CONFLICT DO UPDATE` (the UPDATE only re-claims a stale
+    in-progress lock via `lockedAt`, so a crashed process can't pin the key forever);
+  - MC response cache (`done=true` + `result` jsonb) → a retry returns the result WITHOUT
+    re-calling MC;
+  - `409` if a request is already in progress; `422` if the same ref arrives with a
+    DIFFERENT body (fingerprint);
+  - fail-safe: on 5xx/network error the slot is NOT released (MC outcome unknown), on a
+    client 4xx it is (retry safe).
+  - **Improvement over KV:** completed records are permanent (one transaction_reference =
+    one payment forever) instead of a 24h TTL.
+- **Webhooks → Postgres (`tx_status`).** `WebhookHandler.handleOther` (non-status events:
+  Carded Rate Push, RFI) no longer dedups via `kv.setIfAbsent('wh:<ref>')`; it goes through
+  the same atomic `INSERT ON CONFLICT` on `UNIQUE(eventRef)` in `tx_status` — one Postgres
+  source of truth for ALL webhooks. The merchant status read (`findForTenant`) is filtered
+  to status event types so non-status rows don't surface.
+- **KV layer removed entirely:** `src/store/*` (`kv.entity`, `kv.types`, `store.module`,
+  `postgres-kv.store`, `kv-cleanup.service`), `src/idempotency/*`. Dropped `KvEntity` from
+  `MASTERCARD_ENTITIES` and `StoreModule` from the umbrella module. `KvCleanupService` was
+  the only `@Cron`, so the `ScheduleModule` host-check and `ScheduleModule.forRoot()` in the
+  dev harness were removed too.
+- **Migration:** project not deployed → regenerated a single clean `InitialSchema`
+  (`kv_store` dropped, `payment_idempotency` added); a re-run `migration:generate` → "No
+  changes".
+
+### Verification ✅
+- `tsc --noEmit` clean; **unit 171**, **hermetic e2e 17** (added a payment-idempotency test:
+  same ref → cached and MC called once, different body → 422), **live e2e 23** (sandbox).
+- Fresh DB: schema built from migrations; `migration:generate` → "No changes".
+
+**Status:** done + fully verified.

@@ -1,7 +1,9 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**
- * Персист статусных push-уведомлений MC (Status Change / Quote Status Change).
+ * Персист push-уведомлений MC — единый источник истины обработки вебхуков (KV-слоя
+ * нет). Статусные (Status Change / Quote Status Change) несут status/stage и
+ * читаются мерчантом; прочие (Carded Rate / RFI) лежат для дедупа+аудита.
  *
  * `eventRef` UNIQUE → дедуп И запись атомарны (один `INSERT ... ON CONFLICT
  * DO NOTHING`), что снимает риск «жёсткий краш между пометкой дедупа и записью

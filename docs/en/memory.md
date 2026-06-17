@@ -50,18 +50,16 @@ idempotency, webhook dedup, persistence after restart (see [tests.md](./tests.md
 ```
 database/                  — infra ONLY: DatabaseModule (dev forRoot), data-source, migrations
                              (entities moved into their own modules — co-location, see below)
-store/                     — KvStore → PostgresKvStore (idempotency + webhook dedup, TTL)
 tenants/                   — TenantRegistry over a Postgres repository (async) + seeds
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem CACHE
 secrets/                   — SecretStore: LocalSecretStore | VaultSecretStore (stub)
 auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres), guards, @CurrentTenant
 admin/                     — onboarding partners, approvals, issuing keys, GET /admin/audit
 encryption/                — EncryptionService (JWE, toggle MC_ENCRYPTION_ENABLED)
-idempotency/               — IdempotencyService (by Idempotency-Key, via KvStore→Postgres)
 audit/                     — AuditInterceptor (per-controller) + AuditService→Postgres
-webhooks/                  — POST /webhooks/mastercard (dedup by eventRef via KvStore)
+webhooks/                  — POST /webhooks/mastercard (dedup+persist all events by eventRef in tx_status)
 mastercard/                — MastercardClient: axios interceptors (encrypt+sign / decrypt)
-crossborder/               — business operations + controller (CLEAN, no crypto)
+crossborder/               — business operations + controller (CLEAN); PaymentIdempotencyStore (Postgres payment_idempotency)
 common/                    — p12.util, crypto.util, tenant-throttler.guard
 ```
 
@@ -80,7 +78,8 @@ ephemeral. Full table — in `documentation.md`. In short:
 | Data | Where |
 |---|---|
 | tenants, oauth_clients, audit_log | **Postgres** (TypeORM) |
-| idempotency, webhook dedup | **Postgres** (KvStore→PG, TTL, atomic `INSERT … ON CONFLICT … WHERE expired`) |
+| payment idempotency | **Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, atomic `INSERT … ON CONFLICT`) |
+| webhook dedup | **Postgres** (`tx_status`, `UNIQUE(eventRef)`, atomic `INSERT … ON CONFLICT`) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` v5 (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
 | credentials cache | **in-memory per-pod** (cache from Vault, not the source of truth) |
 | partner secrets | SecretStore (Vault) |
@@ -95,7 +94,7 @@ an exact global rate-limit is ever needed, it can be reused.
 - **OAuth2:** `POST /oauth/token` (client_credentials → JWT 15 min; form-urlencoded and JSON).
 - **Cross-Border** (auth: external Bearer JWT / internal `X-Internal-Token`+`X-Tenant-Id`):
   `GET balances`, `GET rates`, `POST quotes`, `POST quotes/confirmations`,
-  `POST payments` (+ `Idempotency-Key`), `GET payments/:id`, `GET payments?ref=`,
+  `POST payments` (idempotency by `transaction_reference`), `GET payments/:id`, `GET payments?ref=`,
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (issue), `GET /admin/audit`.
@@ -222,8 +221,9 @@ warning — the client has the same combo).
    **a single module** in their `b24club-api` monolith (see "NEXT STEPS" #2). So: drop
    our `forRoot`, entities via `forFeature` in THEIR DataSource, their migrations (not
    `synchronize`). ← this is what we do.
-2. ~~Removing `Idempotency-Key`~~ — **DECIDED TO KEEP** (client confirmed 2026-06-10).
-   `IdempotencyService` stays on `POST /crossborder/payments`.
+2. ~~Idempotency-Key / IdempotencyService~~ — **SUPERSEDED by team-lead issues #3/#4:** the
+   header was removed (issue #3) and the KV-based `IdempotencyService` replaced by Postgres
+   `payment_idempotency` keyed on `transaction_reference` (issue #4).
 3. 🔴 **per-tenant encryption BLOCKER:** the interceptor encrypts with the **platform**
    key, while OWN partners have different MC encryption keys → in MTF/Prod the request
    would be encrypted with the wrong key and MC would reject it. `CredentialsService`
@@ -333,7 +333,13 @@ is only for `req.ip`.
   of `MastercardClient` (not business logic), `EncryptionService` is just the delegate; asked (A) cosmetic vs
   (B) dissolve the service (not recommended). **#3 transaction_reference idempotency — ✅:** `createPayment`
   key = `txref:sha256(transaction_reference)`, the `Idempotency-Key` header REMOVED entirely (+ decorator/pipe
-  deleted). Checks: unit 173, hermetic 16, live 23. Details/quirks — auto-memory `mastercard-teamlead-issues`.
+  deleted). **#4 Remove KvStore-based idempotency — ✅:** the KV layer removed ENTIRELY (`src/store/*`,
+  `src/idempotency/*`, `KvCleanupService` + ScheduleModule). Payments → new `PaymentIdempotencyStore` over
+  Postgres `payment_idempotency` (`UNIQUE(tenantId,idemKey)`; source of truth = user's choice "Postgres
+  table", 409/422/cache preserved, completed records permanent). Webhooks → `handleOther` dedups via
+  `tx_status` (same atomic `INSERT ON CONFLICT` on eventRef), status read filtered to status types.
+  Regenerated `InitialSchema` (kv_store→payment_idempotency). Checks: unit 171, hermetic 17, live 23.
+  Details/quirks — auto-memory `mastercard-teamlead-issues`.
 - 🔓 **FLE (encryption) WORKS on sandbox (2026-06-16) — the long-standing "encryption blocker" is gone.**
   Root cause: the MC key model was understood BACKWARDS. Correctly: the **Client Encryption Key**
   (`f031d600`) is the PUBLIC key **WE use to ENCRYPT REQUESTS** (MC holds the private); the **Mastercard

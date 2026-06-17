@@ -1,11 +1,11 @@
 import { BadGatewayException, ForbiddenException } from '@nestjs/common';
 import { CredentialsService } from '../credentials/credentials.service';
 import { McCredentials } from '../credentials/credentials.types';
-import { IdempotencyService } from '../idempotency/idempotency.service';
 import {
   McRequest,
   MastercardClient,
 } from '../mastercard/mastercard-client.service';
+import { PaymentIdempotencyStore } from './payment-idempotency.store';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { Tenant } from '../tenants/tenant.types';
 import { UpstreamHttpException } from '../common/upstream.exception';
@@ -55,7 +55,7 @@ function make(opts?: {
     registry as unknown as TenantRegistry,
     credentials as unknown as CredentialsService,
     client as unknown as MastercardClient,
-    idempotency as unknown as IdempotencyService,
+    idempotency as unknown as PaymentIdempotencyStore,
     statusEvents as unknown as TransactionStatusStore,
   );
   return { svc, client, registry, credentials, statusEvents, idempotency };

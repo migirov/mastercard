@@ -179,10 +179,12 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 **Назначение.** Инициировать платёж. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/payment` · **Auth:** tenant · **FLE:** да · **Код:** `201` (создание ресурса).
 
 Тело — `PaymentRequestDto` (passthrough, обёртка `paymentrequest`, суммы — строки).
-**Идемпотентность — по `transaction_reference`** (обязательное поле тела, по нему дедупит и сам
-MC): ретрай с тем же `transaction_reference` → тот же результат без повторного вызова MC (защита
-от двойного списания). Ключ хешируется (`sha256`) для KV-безопасности; тот же ref с ДРУГИМ телом
-→ `422`. Отдельного заголовка `Idempotency-Key` больше нет (убран — issue #3).
+**Идемпотентность — по `transaction_reference`** (обязательное поле тела), источник истины —
+**Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; отдельного KV-слоя нет — issue
+#4): ретрай с тем же `transaction_reference` → тот же результат без повторного вызова MC (защита
+от двойного списания); запрос «в обработке» → `409`; тот же ref с ДРУГИМ телом (fingerprint) →
+`422`. Ключ хешируется (`idemKey = txref:sha256(ref)`). Заголовка `Idempotency-Key` нет (убран —
+issue #3). Готовые записи постоянны (один `transaction_reference` = один платёж навсегда).
 
 ### GET /crossborder/payments/:id
 **Назначение.** Статус платежа по id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** нет тела. Параметр `id` — `SafeIdPipe`.
@@ -348,10 +350,11 @@ MTF/Prod на сконфигурированном коридоре.
   > приёмника; передать наш cert-chain через **KMP-портал**. ⚠️ MC **не знает** наш
   > `X-Webhook-Token` — его инжектит TLS-слой после mTLS либо кастомный заголовок в Push-конфиге
   > портала (подтвердить у MC).
-- **Дедуп** по `eventRef` (MC ретраит до 3 раз): повтор → `{"status":"duplicate"}`, иначе `{"status":"accepted"}`.
-- **Персист статусов:** `STATUS_CHG`/`QUOTE_STATUS_CHG` → таблица `tx_status` одним
-  `INSERT … ON CONFLICT (eventRef) DO NOTHING` (дедуп И запись **атомарны**). Прочие типы
-  (`CARDFX_PUB`, RFI…) — дедуп через KV + лог.
+- **Дедуп** по `eventRef` в **Postgres** (отдельного KV-слоя нет — issue #4; MC ретраит до 3 раз):
+  повтор → `{"status":"duplicate"}`, иначе `{"status":"accepted"}`.
+- **Персист в `tx_status`** одним `INSERT … ON CONFLICT (eventRef) DO NOTHING` (дедуп И запись
+  **атомарны**) — для ВСЕХ событий: `STATUS_CHG`/`QUOTE_STATUS_CHG` несут status/stage и читаются
+  мерчантом; прочие (`CARDFX_PUB`, RFI…) лежат для дедупа+аудита (из статус-выдачи отфильтрованы).
 - **Нотации:** MC шлёт поля в camelCase и snake_case — хендлер нормализует обе.
 - **Атрибуция тенанту:** OWN — по `partnerId` (→ его `tenantId`); PLATFORM/неизвестный → общий пул (`tenantId=NULL`).
 - **Доставка мерчанту:** polling через `GET /crossborder/status-events?ref=…`.

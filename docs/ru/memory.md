@@ -50,18 +50,16 @@ sandbox** — balances/rates/quote (201 с реальным proposal), оба п
 ```
 database/                  — ТОЛЬКО инфра: DatabaseModule (dev forRoot), data-source, migrations
                              (entity вынесены в свои модули — co-location, см. ниже)
-store/                     — KvStore → PostgresKvStore (idempotency + webhook dedup, TTL)
 tenants/                   — TenantRegistry поверх Postgres-репозитория (async) + сиды
 credentials/               — CredentialsService.resolve(tenant): PLATFORM|OWN, in-mem КЭШ
 secrets/                   — SecretStore: LocalSecretStore | VaultSecretStore (заглушка)
 auth/                      — OAuth2 (token endpoint, ClientRegistry→Postgres), гарды, @CurrentTenant
 admin/                     — ввод партнёров, одобрения, выпуск ключей, GET /admin/audit
 encryption/                — EncryptionService (JWE, тумблер MC_ENCRYPTION_ENABLED)
-idempotency/               — IdempotencyService (по Idempotency-Key, через KvStore→Postgres)
 audit/                     — AuditInterceptor (per-controller) + AuditService→Postgres
-webhooks/                  — POST /webhooks/mastercard (dedup по eventRef через KvStore)
+webhooks/                  — POST /webhooks/mastercard (dedup+персист всех событий по eventRef в tx_status)
 mastercard/                — MastercardClient: axios-интерцепторы (encrypt+sign / decrypt)
-crossborder/               — бизнес-операции + контроллер (ЧИСТЫЕ, без крипты)
+crossborder/               — бизнес-операции + контроллер (ЧИСТЫЕ); PaymentIdempotencyStore (Postgres payment_idempotency)
 common/                    — p12.util, crypto.util, tenant-throttler.guard
 ```
 
@@ -80,7 +78,8 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
 | Данные | Где |
 |---|---|
 | tenants, oauth_clients, audit_log | **Postgres** (TypeORM) |
-| idempotency, webhook-дедуп | **Postgres** (KvStore→PG, TTL, атомарный `INSERT … ON CONFLICT … WHERE expired`) |
+| идемпотентность платежей | **Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, атомарный `INSERT … ON CONFLICT`) |
+| webhook-дедуп | **Postgres** (`tx_status`, `UNIQUE(eventRef)`, атомарный `INSERT … ON CONFLICT`) |
 | rate-limit | самодостаточный per-pod `@nestjs/throttler` v5 (корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative) |
 | кэш креды | **in-memory per-pod** (кэш из Vault, не источник истины) |
 | секреты партнёров | SecretStore (Vault) |
@@ -336,8 +335,13 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   УЖЕ в axios-интерцепторе `MastercardClient` (не в бизнес-логике), `EncryptionService` лишь делегат;
   спросили (A) косметика vs (B) растворить сервис (не рекомендуем). **#3 transaction_reference idempotency —
   ✅:** `createPayment` ключ = `txref:sha256(transaction_reference)`, заголовок `Idempotency-Key` УБРАН
-  совсем (+ удалены decorator/pipe). Проверки: unit 173, hermetic 16, live 23. Детали/квирки — авто-память
-  `mastercard-teamlead-issues`.
+  совсем (+ удалены decorator/pipe). **#4 Remove KvStore-based idempotency — ✅:** KV-слой убран ЦЕЛИКОМ
+  (`src/store/*`, `src/idempotency/*`, `KvCleanupService`+ScheduleModule). Платежи → новый
+  `PaymentIdempotencyStore` поверх Postgres `payment_idempotency` (`UNIQUE(tenantId,idemKey)`, источник
+  истины = выбор юзера «Postgres-таблица», сохранены 409/422/кэш, готовые записи постоянны). Вебхуки →
+  `handleOther` дедупит через `tx_status` (тот же атомарный `INSERT ON CONFLICT` по eventRef), статус-выдача
+  отфильтрована по статусным типам. Перегенерил `InitialSchema` (kv_store→payment_idempotency).
+  Проверки: unit 171, hermetic 17, live 23. Детали/квирки — авто-память `mastercard-teamlead-issues`.
 - 🔓 **FLE (шифрование) ЗАРАБОТАЛО на sandbox (2026-06-16) — снят многолетний «блокер шифрования».**
   Корень: модель ключей MC понимали ЗЕРКАЛЬНО. Правильно: **Client Encryption Key** (`f031d600`) —
   публичный, им **МЫ шифруем ЗАПРОСЫ** (приватный у MC); **Mastercard Encryption Key** — публичный, им

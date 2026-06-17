@@ -4,7 +4,6 @@ import {
   OnApplicationBootstrap,
   Optional,
 } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { GatewayConfig } from './config/gateway-config';
 import { MASTERCARD_ENTITIES } from './mastercard.entities';
@@ -13,18 +12,15 @@ import { MASTERCARD_ENTITIES } from './mastercard.entities';
  * Самопроверка контракта встраивания при старте. Зонтичный модуль рассчитывает,
  * что ХОСТ предоставит инфраструктуру, которую сам модуль НЕ поднимает:
  *   1. TypeORM DataSource со всеми `MASTERCARD_ENTITIES`;
- *   2. `ScheduleModule.forRoot()` — иначе `@Cron`-очистка `kv_store`
- *      (KvCleanupService) молча не запускается (TTL-удаление остаётся ленивым);
- *   3. `webhookToken` задан — иначе приём вебхуков fail-closed отключён (401).
- *   4. `app.enableShutdownHooks()` — иначе аудит не флашится на SIGTERM (нельзя
+ *   2. `webhookToken` задан — иначе приём вебхуков fail-closed отключён (401).
+ *   3. `app.enableShutdownHooks()` — иначе аудит не флашится на SIGTERM (нельзя
  *      интроспектировать → только README);
- *   5. route-scoped body-parser для `POST /crossborder/rfi/documents` (2MB) —
+ *   4. route-scoped body-parser для `POST /crossborder/rfi/documents` (2MB) —
  *      `main.ts` его НЕ ставит при встраивании; без него RFI-upload упрётся в
  *      глобальный лимит хоста (413). Интроспекции Express-парсеров нет → README.
  *
- * Провалы (1)/(2)/(3) детектируемы → явный WARN на старте с указанием как
- * починить. Пункты (4)/(5) — только документация (README «Host integration
- * checklist»).
+ * Провалы (1)/(2) детектируемы → явный WARN на старте с указанием как починить.
+ * Пункты (3)/(4) — только документация (README «Host integration checklist»).
  */
 @Injectable()
 export class HostIntegrityService implements OnApplicationBootstrap {
@@ -33,12 +29,10 @@ export class HostIntegrityService implements OnApplicationBootstrap {
   constructor(
     private readonly config: GatewayConfig,
     @Optional() private readonly dataSource?: DataSource,
-    @Optional() private readonly scheduler?: SchedulerRegistry,
   ) {}
 
   onApplicationBootstrap(): void {
     this.checkEntities();
-    this.checkScheduler();
     this.checkWebhookToken();
   }
 
@@ -63,18 +57,7 @@ export class HostIntegrityService implements OnApplicationBootstrap {
     }
   }
 
-  /** (2) Без ScheduleModule.forRoot() декоратор @Cron молча не выполняется. */
-  private checkScheduler(): void {
-    if (!this.scheduler) {
-      this.logger.warn(
-        'ScheduleModule не подключён — периодическая @Cron-очистка kv_store не ' +
-          'запустится (останется только ленивое TTL-удаление при чтении). Добавьте ' +
-          'ScheduleModule.forRoot() в хост, если нужна фоновая очистка.',
-      );
-    }
-  }
-
-  /** (3) Пустой webhookToken = приём вебхуков fail-closed отключён (молча 401). */
+  /** (2) Пустой webhookToken = приём вебхуков fail-closed отключён (молча 401). */
   private checkWebhookToken(): void {
     if (!this.config.webhookToken) {
       this.logger.warn(

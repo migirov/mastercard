@@ -1,11 +1,8 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { clipForLog } from '../common/sanitize.util';
-import { KV_STORE, KvStore } from '../store/kv.types';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
 import { TransactionStatusStore } from './transaction-status.store';
-
-const DEDUP_TTL_SECONDS = 24 * 60 * 60; // сутки
 
 /** Типы событий, которые несут статус транзакции/котировки → персистим. */
 const STATUS_EVENT_TYPES = new Set(['STATUS_CHG', 'QUOTE_STATUS_CHG']);
@@ -25,11 +22,12 @@ interface NormalizedEvent {
 type Ack = { status: 'accepted' | 'duplicate' };
 
 /**
- * Обработка push-уведомлений Mastercard.
- * - Статусные события (STATUS_CHG/QUOTE_STATUS_CHG) → персист в `tx_status`;
- *   дедуп И запись атомарны через UNIQUE(eventRef) (INSERT ON CONFLICT DO NOTHING).
- * - Прочие события (Carded Rate Push, RFI и т.п.) → дедуп через KV + лог
- *   (бизнес-обработка по мере необходимости).
+ * Обработка push-уведомлений Mastercard. Источник истины — PostgreSQL (`tx_status`),
+ * отдельного KV-слоя нет: дедуп всех событий — через UNIQUE(eventRef).
+ * - Статусные события (STATUS_CHG/QUOTE_STATUS_CHG) → персист в `tx_status` с
+ *   status/stage; дедуп И запись атомарны (INSERT ON CONFLICT DO NOTHING).
+ * - Прочие события (Carded Rate Push, RFI и т.п.) → тот же атомарный дедуп+аудит
+ *   в `tx_status` (без status/stage); бизнес-обработка — по мере необходимости.
  * - MC шлёт поля и в camelCase, и в snake_case → нормализуем обе нотации.
  */
 @Injectable()
@@ -37,7 +35,6 @@ export class WebhookHandler {
   private readonly logger = new Logger(WebhookHandler.name);
 
   constructor(
-    @Inject(KV_STORE) private readonly kv: KvStore,
     private readonly statusStore: TransactionStatusStore,
     private readonly tenants: TenantRegistry,
   ) {}
@@ -92,20 +89,33 @@ export class WebhookHandler {
     return { status: 'accepted' };
   }
 
-  /** Не-статусные события: дедуп через KV + лог (обработка — по мере надобности). */
+  /**
+   * Не-статусные события: атомарный дедуп+аудит в Postgres (тот же `tx_status`,
+   * INSERT ON CONFLICT по eventRef) + лог. Без ref дедуп невозможен (NULL'ы в
+   * Postgres различны) → не персистим (иначе плодили бы строки), просто принимаем.
+   * tenantId=null: эти события тенанту не атрибутируются (общий пул); из выдачи
+   * статус-поллинга мерчанта они отфильтрованы (findForTenant → только статусные).
+   */
   private async handleOther(n: NormalizedEvent): Promise<Ack> {
-    if (n.ref) {
-      const fresh = await this.kv.setIfAbsent(
-        `wh:${n.ref}`,
-        '1',
-        DEDUP_TTL_SECONDS,
+    if (!n.ref) {
+      this.logger.log(`Вебхук eventType=${clipForLog(n.eventType)} (без ref)`);
+      return { status: 'accepted' };
+    }
+    const fresh = await this.statusStore.record({
+      eventRef: n.ref,
+      tenantId: null,
+      transactionReference: n.transactionReference,
+      eventType: n.eventType,
+      transactionType: n.transactionType,
+      status: n.status,
+      stage: n.stage,
+      payload: n.raw,
+    });
+    if (!fresh) {
+      this.logger.log(
+        `Дубликат вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
       );
-      if (!fresh) {
-        this.logger.log(
-          `Дубликат вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
-        );
-        return { status: 'duplicate' };
-      }
+      return { status: 'duplicate' };
     }
     this.logger.log(`Вебхук eventType=${clipForLog(n.eventType)}`);
     return { status: 'accepted' };

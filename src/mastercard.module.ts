@@ -8,7 +8,6 @@ import {
   ConfigurableModuleClass,
   MODULE_OPTIONS_TOKEN,
 } from './mastercard.module-definition';
-import { StoreModule } from './store/store.module';
 import { AuditModule } from './audit/audit.module';
 import { TenantModule } from './tenants/tenant.module';
 import { SecretsModule } from './secrets/secrets.module';
@@ -46,8 +45,9 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  * `GatewayConfig` (сервисы не читают `process.env`).
  *
  * Требования к хосту при встраивании: TypeORM-соединение, включающее наши entity
- * (`autoLoadEntities: true` или явный список), и `ScheduleModule.forRoot()` (для
- * cron-очистки `kv_store`; необязательно — у kv есть ленивое TTL-удаление).
+ * (`autoLoadEntities: true` или явный список). Идемпотентность платежей и дедуп
+ * вебхуков — на Postgres (`payment_idempotency` / `tx_status`), отдельного KV-слоя
+ * (и его cron-очистки) больше нет.
  */
 @Module({
   imports: [
@@ -56,7 +56,6 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
     // override `@Throttle({ default: { limit: 10, ... } })` на /oauth/token.
     // Несколько одновременных окон (short+long) не нужны → один сет.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
-    StoreModule,
     AuditModule,
     TenantModule,
     SecretsModule,
@@ -73,7 +72,7 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
       useFactory: (opts: MastercardModuleOptions) => new GatewayConfig(opts),
       inject: [MODULE_OPTIONS_TOKEN],
     },
-    // Старт-проверка контракта встраивания (DataSource c entity, ScheduleModule):
+    // Старт-проверка контракта встраивания (DataSource c entity, webhookToken):
     // тихие провалы интеграции → явный WARN на старте.
     HostIntegrityService,
   ],

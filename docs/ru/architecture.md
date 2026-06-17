@@ -22,12 +22,13 @@
 > `mcPassthroughPipe` без `transform` для тел, идущих в MC — плюс композитный декоратор
 > `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
 > ошибок хоста. Аутентификация вебхука — fail-closed в сервисе (+ каркас проверки
-> подписи), а не «доверие к ингрессу». Тонкие модули (Encryption/Idempotency)
-> свёрнуты в провайдеры; health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
+> подписи), а не «доверие к ингрессу». `EncryptionService` свёрнут в провайдер;
+> идемпотентность платежей / дедуп вебхуков — на Postgres (отдельный KV-слой убран, issue #4);
+> health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
 > `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
 > модулем для `DataSource` хоста); сами entity co-located в своих модулях. Старт-сервис
-> `HostIntegrityService` предупреждает, если хост не подключил `DataSource`/
-> `ScheduleModule`/`webhookToken`. «standalone» в §1 описывает режим запуска dev-харнесса.
+> `HostIntegrityService` предупреждает, если хост не подключил `DataSource` или
+> `webhookToken`. «standalone» в §1 описывает режим запуска dev-харнесса.
 
 ## 1. Цель
 
@@ -77,7 +78,8 @@
    ┌──────────────────┐       ┌────────────┐                     ▼
    │   PostgreSQL     │       │ Vault/KMS  │            api.mastercard.com
    │ tenants/oauth/   │       └────────────┘
-   │ audit/kv_store   │
+   │ audit/tx_status/ │
+   │ payment_idempo   │
    └──────────────────┘
 ```
 
@@ -90,7 +92,8 @@
 | Данные | Где |
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
-| идемпотентность платежей, дедуп вебхуков | **PostgreSQL** (`kv_store`, TTL, атомарный `setIfAbsent`) |
+| идемпотентность платежей | **PostgreSQL** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, атомарный `INSERT ON CONFLICT`) |
+| дедуп вебхуков | **PostgreSQL** (`tx_status`, `UNIQUE(eventRef)`, атомарный `INSERT ON CONFLICT`) |
 | rate-limit | самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative) |
 | кэш credentials | **in-memory per-pod** (кэш из Vault, TTL) |
 | секреты партнёров | **Vault/KMS** (через `SecretStore`) |
@@ -201,7 +204,6 @@ documentation.md).
 | Модуль / единица | Ответственность |
 |---|---|
 | `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` + `HostIntegrityService` |
-| `StoreModule` | `KvStore` → `PostgresKvStore` (идемпотентность, дедуп вебхуков) + `KvCleanupService`; `KvEntity` co-located |
 | `TenantModule` | `TenantRegistry` поверх Postgres, статусы, сиды; `TenantEntity` co-located |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory кэш (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (прод) |
@@ -209,12 +211,12 @@ documentation.md).
 | `AdminModule` | ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов, `GET /admin/audit` |
 | `MastercardClientModule` | низкоуровневый `MastercardClient` (axios + интерцепторы encrypt/sign/decrypt); `EncryptionService` — провайдер здесь, не отдельный модуль |
 | `AuditModule` | `AuditInterceptor` (навешивается per-controller через `@UseGatewayContract()`) + батчевый `AuditService` → Postgres; `AuditLogEntity` co-located |
-| `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой), дедуп; статусные события (STATUS_CHG/QUOTE_STATUS_CHG) персистятся в `tx_status` (атомарный дедуп+запись), атрибуция тенанту (OWN→partnerId / PLATFORM→общий пул), нормализация camel/snake |
+| `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой); ВСЕ события персистятся/дедупятся в `tx_status` одним атомарным `INSERT ON CONFLICT` по `eventRef` (KV-слоя нет); статусные (STATUS_CHG/QUOTE_STATUS_CHG) несут status/stage и читаются мерчантом, атрибуция тенанту (OWN→partnerId / PLATFORM→общий пул), нормализация camel/snake |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); общий для `WebhooksModule` (запись) и `CrossBorderModule` (tenant-scoped чтение для polling) |
-| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) + polling статусов (`GET /crossborder/status-events`); использует `mc-paths.ts` (централизованный билдер URL MC) |
+| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) + polling статусов (`GET /crossborder/status-events`); использует `mc-paths.ts` (централизованный билдер URL MC); приватный `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
 | `HealthController` (dev-харнесс) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется в `AppModule` (харнесс), НЕ в зонтичном модуле — корневые пробы конфликтовали бы с хостом; при встраивании пробы даёт хост |
-| `IdempotencyService` | провайдер (через `KvStore`); свёрнут из прежнего `IdempotencyModule` |
+| `PaymentIdempotencyStore` | приватный провайдер `CrossBorderModule`; идемпотентность платежей на Postgres (`payment_idempotency`); заменил прежний KV-based `IdempotencyService` (issue #4) |
 | `common/` | общие cross-cutting утилиты (см. ниже) |
 
 **`common/` (общие утилиты и паттерны):**
@@ -246,7 +248,6 @@ address-validation; теперь в одном аудируемом месте).
 - **Валидация ENV** — на границе dev-харнесса (`env.validation.ts`, class-validator,
   fail-fast на старте); при встраивании хост передаёт типизированные `MastercardModuleOptions`,
   а прод-гейт проверяет `GatewayConfig`.
-- **Cron** — `@nestjs/schedule` (`KvCleanupService` чистит протухший `kv_store`).
 - **Логи** — `nestjs-pino`: структурный JSON + correlation-id (`x-request-id`), redact секретов.
 - **Миграции** — TypeORM CLI (`data-source.ts`, `migration:*`); `synchronize` off в prod.
 
@@ -254,8 +255,9 @@ address-validation; теперь в одном аудируемом месте).
 
 - **Изоляция тенантов:** creds резолвятся строго из аутентифицированного контекста;
   партнёр A не может использовать ключи партнёра B.
-- **Idempotency-Key** на платежах (защита от двойных списаний; бэкстоп — MC
-  `transaction_reference`); ключ валидируется (длина/charset).
+- **Идемпотентность платежей** по `transaction_reference` (защита от двойных списаний),
+  источник истины — Postgres `payment_idempotency` (отдельного KV-слоя/заголовка нет; бэкстоп —
+  дедуп MC по тому же `transaction_reference`).
 - **Audit trail** на все операции — без тел и секретов.
 - **OAuth2:** HS256-пиннинг, хэш-сравнение секретов в постоянном времени, `no-store`.
 - **Прод-гейты:** запрет старта со слабыми/дефолтными секретами (`isWeakSecret()`, общий
@@ -275,14 +277,15 @@ address-validation; теперь в одном аудируемом месте).
 - ✅ **Фаза 6 — Полный набор операций** (payment/retrieve/cancel/confirm) + Swagger.
 - ✅ **Миграция на PostgreSQL** (Redis/in-memory как хранилища убраны).
 - ✅ **Платформенные доработки:** health-пробы (terminus), валидация ENV,
-  TypeORM-миграции, cron-очистка `kv_store`, структурные логи (pino) + correlation-id.
+  TypeORM-миграции, структурные логи (pino) + correlation-id.
 - ✅ **Встраиваемый зонтичный модуль:** единый `MastercardModule` + публичный barrel
   (`src/index.ts`), per-controller cross-cutting связывание, `GatewayConfig`, `HostIntegrityService`.
 - ✅ **Полное покрытие MC API:** все 15 групп MC API Reference под `/crossborder/*`
   (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
-  retrieve-confirmed-quote), payments(+Idempotency-Key)/retrieve/cancel, address-/
+  retrieve-confirmed-quote), payments/retrieve/cancel, address-/
   account-validations, bank-lookups, iban-generations, cash-pickup, endpoint-guide,
-  RFI requests/documents) + **Push Notifications**: вебхук персистит статусы в `tx_status`,
+  RFI requests/documents; идемпотентность платежей по `transaction_reference`) +
+  **Push Notifications**: вебхук персистит статусы в `tx_status`,
   мерчант читает через `GET /crossborder/status-events`.
 - ✅ **Качество:** 10-раундовый аудит безопасности/багов/оптимизаций + 2 раунда регрессий +
   4-линзовый код-ревью (Tier 1 применён); доработка покрытия (confirm-suite 3/3, carded-rate
