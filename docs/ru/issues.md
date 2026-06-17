@@ -327,3 +327,38 @@ env-ветка зашиты в data-layer-сервис.
 
 **Статус:** сделано и проверено. Сам декрипт остаётся открытым блокером (нужен Client-ключ
 расшифровки + per-tenant seam) — этот issue про durability (не терять событие), не про декрипт.
+
+---
+
+## Issue 7 — Remove noop Mastercard webhook signature verifier
+
+**Требование (дословно).**
+> Remove noop Mastercard webhook signature verifier
+
+**Проблема.** На пути вебхука был каркас `WebhookSignatureVerifier` (с дефолтной реализацией
+`NoopSignatureVerifier`) как «второй фактор аутентификации». Но чтение доки MC закрыло бывший
+вопрос «C1»: тело push MC **не подписывает** — аутентичность push у Mastercard обеспечивается
+**mTLS** (публичный mTLS-cert от MC + trust + наш cert-chain через KMP-портал). То есть `verify()`
+мог только всегда `return true` — мёртвый код, который добавлял DI-провайдер, инжектируемую
+зависимость, вводящий в заблуждение тест «valid signature» и неиспользуемую обвязку `rawBody`,
+намекая на проверку, которой не существует.
+
+### Сделано ✅
+- **Удалён** `src/webhooks/webhook-signature.verifier.ts` (абстрактный класс + noop-реализация).
+- **`WebhookAuthGuard`:** убраны инжект `WebhookSignatureVerifier` и ветка `signature.verify(...)`
+  (+ 401 `invalid webhook signature`). Теперь guard — один честный фактор: fail-closed
+  `X-Webhook-Token`. Док класса переписан: у MC нет подписи payload (аутентичность = mTLS);
+  `RawBodyRequest<Request>` → `Request`.
+- **`WebhooksModule`:** убран провайдер `{ provide: WebhookSignatureVerifier, useClass: ... }`.
+- **`main.ts`:** убран `rawBody: true` из `NestFactory.create(...)` — его единственной целью была
+  побайтовая проверка подписи, которой больше нет.
+- **Spec:** убраны мок verifier-а и тест «rejects when the signature verifier returns false»;
+  «accepts the correct token (and a valid signature)» → «accepts the correct token».
+
+### Проверка ✅
+- `tsc` чисто; **unit 175 / hermetic 18 / live 23** (guard-spec потерял тест noop-подписи).
+- В `src/` не осталось ссылок на `WebhookSignatureVerifier`/`rawBody` (grep чисто).
+
+**Статус:** сделано и проверено. Если MC когда-нибудь введёт реальную подпись payload — она
+добавляется тогда точечной правкой guard-а; держать noop-seam ради проверки, которой у MC нет,
+смысла нет.

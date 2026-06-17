@@ -258,9 +258,10 @@ warning — the client has the same combo).
    `mcPassthroughPipe` (crossborder/webhook, `transform:false` so string amounts survive).
    Manual validation (`admin.service`, `typeof body`) removed.
 3. ✅ **Webhook security in-service, not infra.** `WebhookAuthGuard` fail-closed: token
-   required everywhere, no `return true` "relying on mTLS". + `WebhookSignatureVerifier`
-   scaffold (Noop until MC spec, C1). `main.ts` prod gate requires `MC_WEBHOOK_TOKEN`.
-   Throttler "authoritative = ingress" comment removed (per-pod limit is self-sufficient).
+   required everywhere, no `return true` "relying on mTLS". `main.ts` prod gate requires
+   `MC_WEBHOOK_TOKEN`. Throttler "authoritative = ingress" comment removed (per-pod limit is
+   self-sufficient). (A signature-verifier scaffold added here was later removed in issue #7 —
+   MC does not sign push bodies, so the noop check was dead code.)
 4. ✅ **Thin modules collapsed.** EncryptionModule→provider of MastercardClientModule;
    IdempotencyModule→provider of CrossBorderModule; HealthModule→controller (later moved
    to the dev harness `AppModule` — see "Latest milestones").
@@ -286,7 +287,6 @@ webhook without token→401, with token→200).
   (`GET crossborder/quotes/{ref}/proposals/{id}`), Account Validation
   (`POST crossborder/accounts/validations`), Bank Lookup (`crossborder/banks/details`),
   Account generation (`crossborder/accounts/generate`). Separate opt-in suites → ask E1 first.
-- **Webhook signature** — implement `WebhookSignatureVerifier` per MC spec (C1).
 - **Embedding into `b24club-api`:** host must include our entities in its DataSource and
   run their migrations; provide `ScheduleModule.forRoot()` for the kv cleanup cron.
 - The **per-tenant encryption** blocker before prod-OWN is still open.

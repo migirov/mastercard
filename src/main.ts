@@ -46,8 +46,6 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     bufferLogs: true,
-    // сырое тело — для будущей проверки подписи вебхука MC по байтам (вопрос C1)
-    rawBody: true,
   });
   // Структурный логгер (pino) для всего приложения + correlation-id.
   app.useLogger(app.get(PinoLogger));

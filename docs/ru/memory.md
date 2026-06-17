@@ -259,10 +259,10 @@ class-validator/mapped-types — есть и у клиента).
    `mcPassthroughPipe` (crossborder/webhook, `transform:false` — суммы-строки целы).
    Ручная валидация (`admin.service`, `typeof body`) удалена.
 3. ✅ **Безопасность вебхука — в сервисе, не на инфре.** `WebhookAuthGuard`
-   fail-closed: токен обязателен ВЕЗДЕ, нет `return true` «в расчёте на mTLS». +
-   каркас `WebhookSignatureVerifier` (Noop до спецификации MC, вопрос C1). `main.ts`
+   fail-closed: токен обязателен ВЕЗДЕ, нет `return true` «в расчёте на mTLS». `main.ts`
    prod-гейт требует `MC_WEBHOOK_TOKEN`. Throttler-комментарий «авторитет — ингресс»
-   убран (per-pod лимит самодостаточен).
+   убран (per-pod лимит самодостаточен). (Каркас verifier-а подписи, добавленный здесь,
+   позже удалён в issue #7 — тело push MC не подписывает, noop-проверка была мёртвым кодом.)
 4. ✅ **Схлопнуты тонкие модули.** EncryptionModule→провайдер MastercardClientModule;
    IdempotencyModule→провайдер CrossBorderModule; HealthModule→контроллер (позже вынесен
    в dev-харнесс `AppModule` — см. «Последние вехи»).
@@ -289,7 +289,6 @@ webhook без токена→401, с токеном→200).
   (`POST crossborder/accounts/validations`), Bank Lookup (`crossborder/banks/details`),
   Account generation (`crossborder/accounts/generate`). Отдельные опт-ин сьюты → сперва
   вопрос E1 клиенту.
-- **Подпись вебхука** — реализовать `WebhookSignatureVerifier` по спецификации MC (C1).
 - **Встраивание в `b24club-api`:** хост должен включить наши entity в свой DataSource
   и вести их миграции; предоставить `ScheduleModule.forRoot()` для cron-очистки kv.
 - Открыт блокер **per-tenant encryption** перед прод-OWN.

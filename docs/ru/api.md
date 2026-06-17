@@ -340,8 +340,8 @@ MTF/Prod на сконфигурированном коридоре.
 
 - **Аутентификация:** in-service fail-closed токен `X-Webhook-Token` (обязателен в prod и dev).
   **Авторитетная аутентичность push у Mastercard — это mTLS, а НЕ подпись тела** (выяснено по
-  доке MC). Отдельной подписи payload у MC нет: `WebhookSignatureVerifier` — каркас (Noop) на
-  случай, если MC её добавит. mTLS настраивается на TLS-слое; `X-Webhook-Token` — доп. фактор.
+  доке MC). Тело push MC не подписывает, поэтому проверки подписи в коде нет — единственный
+  активный фактор — `X-Webhook-Token`. mTLS настраивается на TLS-слое.
   > **Дословно (`api-mastercard.md`):** *“Contact your mastercard representative for mTLS push
   > notification mastercard public certificate. This certificate needs to be trusted by the
   > receiving application. Also, please share the server certificate chain for validation (via

@@ -341,9 +341,8 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 
 - **Authentication:** in-service fail-closed token `X-Webhook-Token` (mandatory in prod and dev).
   **The authoritative push authenticity at Mastercard is mTLS, NOT a payload signature** (found in
-  the MC docs). MC has no separate payload signature: `WebhookSignatureVerifier` is a scaffold
-  (Noop) in case MC ever adds one. mTLS is configured at the TLS layer; `X-Webhook-Token` is an
-  extra factor.
+  the MC docs). MC does not sign push bodies, so there is no in-code signature check — the single
+  active factor is the `X-Webhook-Token`. mTLS is configured at the TLS layer.
   > **Verbatim (`api-mastercard.md`):** *“Contact your mastercard representative for mTLS push
   > notification mastercard public certificate. This certificate needs to be trusted by the
   > receiving application. Also, please share the server certificate chain for validation (via

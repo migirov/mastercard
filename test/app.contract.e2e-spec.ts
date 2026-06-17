@@ -67,7 +67,6 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     app = moduleRef.createNestApplication<NestExpressApplication>({
       bodyParser: false,
       bufferLogs: false,
-      rawBody: true,
     });
     app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
     app.useBodyParser('json', { limit: '256kb' });

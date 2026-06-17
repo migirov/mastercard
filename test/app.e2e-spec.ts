@@ -1,6 +1,6 @@
 /**
  * E2E против ЖИВОГО sandbox Mastercard. Поднимает реальное приложение на порту
- * 3999 (как dev-харнесс: bodyParser вручную, rawBody, без глобального pipe),
+ * 3999 (как dev-харнесс: bodyParser вручную, без глобального pipe),
  * прогоняет HTTP-проверки через axios и закрывается. Требует: поднятый Postgres
  * (docker compose up -d) и валидный .env с креды sandbox.
  *
@@ -36,7 +36,6 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     app = await NestFactory.create<NestExpressApplication>(AppModule, {
       bodyParser: false,
       bufferLogs: false,
-      rawBody: true,
     });
     // как в main.ts: увеличенный лимит тела ТОЛЬКО для RFI-загрузки документа
     app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());

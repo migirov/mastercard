@@ -334,3 +334,36 @@ was LOST for good (only a log line remained).
 
 **Status:** done + verified. Decryption itself remains the open blocker (needs the client decryption
 key + per-tenant seam) — this issue is about durability (not losing the event), not decryption.
+
+---
+
+## Issue 7 — Remove noop Mastercard webhook signature verifier
+
+**Requirement (verbatim).**
+> Remove noop Mastercard webhook signature verifier
+
+**Problem.** A `WebhookSignatureVerifier` abstraction (with the default `NoopSignatureVerifier`) was
+scaffolded as a "second auth factor" on the webhook path. But reading the MC docs closed the former
+"C1" question: MC does NOT sign push bodies — push authenticity at Mastercard is **mTLS** (public
+mTLS cert from MC + trust + our cert chain via the KMP portal). So `verify()` could only ever
+`return true` — dead code that added a DI provider, an injected dependency, a misleading "valid
+signature" test, and unused `rawBody` plumbing, all suggesting a check that does not exist.
+
+### Done ✅
+- **Deleted** `src/webhooks/webhook-signature.verifier.ts` (the abstract class + the noop impl).
+- **`WebhookAuthGuard`:** dropped the `WebhookSignatureVerifier` injection and the
+  `signature.verify(...)` branch (+ the `invalid webhook signature` 401). The guard is now a single
+  honest factor — the fail-closed `X-Webhook-Token`. The class doc was rewritten to state plainly
+  that MC has no payload signature (authenticity = mTLS); `RawBodyRequest<Request>` → `Request`.
+- **`WebhooksModule`:** removed the `{ provide: WebhookSignatureVerifier, useClass: ... }` provider.
+- **`main.ts`:** removed `rawBody: true` from `NestFactory.create(...)` — its only purpose was the
+  byte-level signature check that no longer exists.
+- **Spec:** removed the verifier mock and the "rejects when the signature verifier returns false"
+  test; "accepts the correct token (and a valid signature)" → "accepts the correct token".
+
+### Verification ✅
+- `tsc` clean; **unit 175 / hermetic 18 / live 23** (the guard spec lost the noop-signature test).
+- No remaining references to `WebhookSignatureVerifier`/`rawBody` in `src/` (grep clean).
+
+**Status:** done + verified. If MC ever introduces a real payload signature, it is added then as a
+focused change to the guard — there is no value in keeping a noop seam for a check MC does not have.

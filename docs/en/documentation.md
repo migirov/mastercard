@@ -588,8 +588,8 @@ MC sends fields in TWO notations — camelCase and snake_case; the handler norma
 - **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod
   and dev. Mastercard's authoritative authenticity for push notifications is **mTLS**, not a
   payload signature (MC has no JWS/HMAC payload signature; the former "C1" is closed by reading
-  the docs). `WebhookSignatureVerifier` stays a scaffold (Noop). Details and the MC quote —
-  `api.md` → Webhooks.
+  the docs). There is no in-code signature check — the single active factor is the token. Details
+  and the MC quote — `api.md` → Webhooks.
 - **Status events** (`STATUS_CHG`/`QUOTE_STATUS_CHG`) → persisted to `tx_status` via a single
   `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup+write atomic). Tenant attribution:
   OWN → by `partnerId`, PLATFORM/unknown → the shared pool (`tenantId=NULL`).
