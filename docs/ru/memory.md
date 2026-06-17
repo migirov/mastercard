@@ -319,8 +319,9 @@ webhook без токена→401, с токеном→200).
 таймер аудита в `onModuleInit`; единый список entity (`mastercard.entities.ts`);
 перенос `src/scripts`→`scripts/` и e2e→`test/app.e2e-spec.ts` (jest-e2e); **REC-1** —
 `AuditInterceptor` переведён с глобального `APP_INTERCEPTOR` на per-controller
-(последний глобальный `APP_*` устранён); **REC-2** — `HostIntegrityService`
-(старт-самопроверка контракта встраивания) + host-checklist в README; named throttler.
+(последний глобальный `APP_*` устранён); **REC-2** — интеграция с хостом — явный контракт
+(чек-лист в README + fail-fast типизированных опций в `GatewayConfig`; старт-самопроверка
+`HostIntegrityService`, добавленная тут изначально, удалена в issue #10); named throttler.
 Полный doc-grounded аудит (4 агента) — HIGH/MED-отклонений нет.
 
 **Ингресс:** в КОДЕ зависимости от ингресса 0 (вебхук fail-closed токен в сервисе,

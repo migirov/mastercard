@@ -19,7 +19,10 @@ import {
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { CurrentTenant, TenantContext } from '../../auth/decorators/current-tenant.decorator';
+import {
+  CurrentTenant,
+  TenantContext,
+} from '../../auth/decorators/current-tenant.decorator';
 import { TenantAuthGuard } from '../../auth/guards/tenant-auth.guard';
 import { ApiErrorResponses } from '../../common/decorators/api-error-responses.decorator';
 import { ErrorResponseDto } from '../../common/dto/error-response.dto';
@@ -350,7 +353,10 @@ export class CrossBorderController {
       'Инициировать платёж. Идемпотентность — по transaction_reference (ретрай с тем же ref → тот же результат без повторного вызова MC).',
   })
   @UsePipes(mcPassthroughPipe())
-  payment(@CurrentTenant() ctx: TenantContext, @Body() body: PaymentRequestDto) {
+  payment(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: PaymentRequestDto,
+  ) {
     return this.svc.createPayment(ctx.tenantId, body);
   }
 

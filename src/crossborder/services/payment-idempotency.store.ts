@@ -130,7 +130,10 @@ export class PaymentIdempotencyStore {
    * idempotent retry: otherwise a second (different) payment would silently return the
    * first one's result. 422 (per the IETF Idempotency-Key / Stripe semantics).
    */
-  private assertSameBody(stored: string | undefined, fingerprint: string): void {
+  private assertSameBody(
+    stored: string | undefined,
+    fingerprint: string,
+  ): void {
     if (stored && stored !== fingerprint) {
       throw new UnprocessableEntityException(
         'transaction_reference reused with a different request body',

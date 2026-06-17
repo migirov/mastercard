@@ -25,9 +25,10 @@ Reflects the **actually implemented** state of the service. Related documents:
 > into a provider; payment idempotency / webhook dedup live on Postgres (the separate KV
 > layer is gone, issue #4); health probes moved to the dev harness (not the umbrella). The single
 > entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
-> the umbrella for the host `DataSource`); entities are co-located in their modules. A
-> startup `HostIntegrityService` warns if the host omits the `DataSource` or
-> `webhookToken`. The "standalone" framing in §1 describes the dev-harness run mode.
+> the umbrella for the host `DataSource`); entities are co-located in their modules. Host
+> integration is an explicit contract (typed options fail-fast in `GatewayConfig` +
+> `MASTERCARD_ENTITIES` + the README checklist), not a runtime self-check (issue #10). The
+> "standalone" framing in §1 describes the dev-harness run mode.
 
 ## 1. Goal
 
@@ -194,15 +195,15 @@ if needed (downsides — in documentation.md).
 
 The host imports **only** `MastercardModule` (the umbrella). Everything below is a
 private sub-module wired up inside it. The umbrella registers the per-pod
-`ThrottlerModule` directly, provides `GatewayConfig` (from the `forRootAsync` options)
-and `HostIntegrityService`, and re-exports `MASTERCARD_ENTITIES`. Health probes
+`ThrottlerModule` directly, provides `GatewayConfig` (from the `forRootAsync` options),
+and re-exports `MASTERCARD_ENTITIES`. Health probes
 (`/health`, `/ready`) live in the dev harness (`AppModule`), NOT in the umbrella —
 root-level probes would collide with the host monolith's own (when embedded the host
 owns liveness/readiness).
 
 | Module / unit | Responsibility |
 |---|---|
-| `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` + `HostIntegrityService` |
+| `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses (PURE data-layer — seeds nothing on boot); `TenantEntity` co-located. Seeding lives outside: `platform` via the dev harness `DevSeedService` (`AppModule`), demo via `npm run seed` (`tenant.seed.ts`); the host provisions its own |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory cache (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
@@ -235,7 +236,7 @@ owns liveness/readiness).
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
 Also at the package root: `src/index.ts` (public-api barrel), `src/mastercard.entities.ts`
-(single entity list), `src/host-integrity.service.ts` (startup self-check),
+(single entity list),
 `src/crossborder/mc-paths.ts` (centralized MC URL path builder — MC prefixes are
 intentionally inconsistent: `/send/partners` vs `/send/v1/partners` vs bare `/crossborder`
 vs the address-validation base; now in one auditable place).
@@ -278,7 +279,8 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - ✅ **Platform enhancements:** health probes (terminus), ENV validation,
   TypeORM migrations, structured logs (pino) + correlation-id.
 - ✅ **Embeddable umbrella module:** single `MastercardModule` + public-api barrel
-  (`src/index.ts`), per-controller cross-cutting binding, `GatewayConfig`, `HostIntegrityService`.
+  (`src/index.ts`), per-controller cross-cutting binding, `GatewayConfig`; integration is an
+  explicit contract (typed options fail-fast + `MASTERCARD_ENTITIES` + README checklist).
 - ✅ **Full MC API coverage:** all 15 MC API Reference groups under `/crossborder/*`
   (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
   retrieve-confirmed-quote), payments/retrieve/cancel, address-/

@@ -54,7 +54,8 @@ is precisely the intent of the issue.
 raw TypeORM `DataSource`. The CLI's `migration:generate` diffs entity metadata against the DB, so
 it needs an entities source. We provide it as the doc-style **static glob** (so there is still no
 hand-maintained array). `MASTERCARD_ENTITIES` remains exported from the package for the host
-(embedding seam) and for `HostIntegrityService`'s startup check.
+(embedding seam — the host spreads it into its DataSource). _(Issue #10 later removed the
+`HostIntegrityService` startup check that also consumed this list.)_
 
 ### Verification ✅
 - `tsc --noEmit` — clean.
@@ -424,7 +425,7 @@ registries/seeds and low-level services → `services/`; interceptors → `inter
 `decorators/`. Small `*.types.ts` and constants (`mc-paths.ts`) stay at the module root (public
 surface / tiny); each `*.spec.ts` sits next to the file it tests. `config/`, `database/`, `types/`
 and the `src/` umbrella+harness files (`mastercard.module.ts`, `app.module.ts`, `main.ts`,
-`index.ts`, `dev-seed.service.ts`, `host-integrity.service.ts`, `mastercard.entities.ts`) stay put.
+`index.ts`, `dev-seed.service.ts`, `mastercard.entities.ts`) stay put.
 
 ### Done ✅
 - **Feature modules** now group by responsibility:
@@ -448,3 +449,43 @@ and the `src/` umbrella+harness files (`mastercard.module.ts`, `app.module.ts`, 
 
 **Status:** done + verified. Pure structural move — no logic touched; the public package API
 (`index.ts`) and host integration seam are untouched.
+
+---
+
+## Issue 10 — Remove HostIntegrityService and make module integration explicit
+
+**Requirement (verbatim).**
+> Remove HostIntegrityService and make module integration explicit
+
+**Problem.** `HostIntegrityService` was a runtime "nanny": on `onApplicationBootstrap` it
+introspected the host and emitted soft **`WARN`**s if (1) the DataSource was missing our entities
+or (2) `webhookToken` was empty. A library policing its host at runtime with warnings that are easy
+to miss is the wrong shape — the integration contract should be **explicit** (declared in the API
+and docs, enforced where it's consumed), not discovered by a self-check.
+
+### Done ✅
+- **Deleted** `src/host-integrity.service.ts` (+ spec) and removed it from `MastercardModule`
+  providers (no other consumers).
+- **Integration is now an explicit contract**, stated where it's enforced/consumed (no behavior the
+  service provided is lost — each item fails loudly on its own):
+  - **Required config** → typed `MastercardModuleOptions` + **fail-fast** in `GatewayConfig` (throws
+    at startup on a missing required option / weak production secret) — already in place.
+  - **Entities** → the `MASTERCARD_ENTITIES` export the host must spread into its DataSource; a
+    forgotten entity throws `EntityMetadataNotFoundError` on first use (loud, not a silent WARN).
+  - **webhookToken** → the fail-closed guard already returns `401` when it's empty (explicit at
+    request time).
+  - **Host-provided wiring that can't be expressed in code** (shutdown hooks, the RFI route
+    body-parser) → the README **"Host integration checklist"**.
+- **`MastercardModule` doc** rewritten to state the explicit contract instead of pointing at a
+  self-check. **README checklist** reworded to "explicit, not runtime-policed" and cleaned up:
+  dropped the stale `ScheduleModule`/`kv_store` `@Cron` item (the KV layer went away in #4) and
+  fixed the moved `rfi-upload.bodyparser` path.
+
+### Verification ✅
+- `tsc` clean; **unit 171 / hermetic 18 / live 23** (unit −4 / one suite: the 4-test
+  `host-integrity.service.spec` was removed with the service).
+- No remaining references to `HostIntegrityService` in `src/` (grep clean).
+
+**Status:** done + verified. The module no longer introspects its host; what the host must provide
+is explicit in the typed options (fail-fast), the `MASTERCARD_ENTITIES` export, and the README
+checklist.

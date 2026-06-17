@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ClientRegistry } from '../../auth/services/client-registry';
-import { CreateTenantInput, TenantRegistry } from '../../tenants/services/tenant.registry';
+import {
+  CreateTenantInput,
+  TenantRegistry,
+} from '../../tenants/services/tenant.registry';
 
 /** Оркестрация admin-операций над партнёрами и их OAuth-клиентами. */
 @Injectable()

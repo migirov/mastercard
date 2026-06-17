@@ -25,7 +25,11 @@ import { PaymentIdempotencyStore } from './services/payment-idempotency.store';
     TypeOrmModule.forFeature([PaymentIdempotencyEntity]),
   ],
   // PaymentIdempotencyStore — a private provider (the only consumer is CrossBorderService).
-  providers: [CrossBorderService, PaymentIdempotencyStore, TenantThrottlerGuard],
+  providers: [
+    CrossBorderService,
+    PaymentIdempotencyStore,
+    TenantThrottlerGuard,
+  ],
   controllers: [CrossBorderController],
   exports: [CrossBorderService],
 })
