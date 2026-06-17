@@ -323,6 +323,17 @@ service; mTLS/ingress is an optional additional layer, not authoritative; `TRUST
 is only for `req.ip`.
 
 ### Latest milestones (after the doc-grounded audit)
+- 🧩 **Team-lead code-review issue series (2026-06-17) — log in [issues.md](./issues.md) (RU+EN).**
+  **#1 Align TypeORM config — ✅:** `database.module.ts` → `autoLoadEntities:true` + `synchronize` REMOVED
+  (schema migrations-only) + `migrationsRun` for the dev-harness; `data-source.ts` (CLI) → entities via a
+  glob; regenerated a single clean `InitialSchema` (migrations == entities, `migration:generate` = "No
+  changes", adds the previously-missing `tenants.createdAt` index). Did NOT adopt the recipe's custom
+  DATA_SOURCE providers (the recipe defers to @nestjs/typeorm + it would break embedding). **#2
+  Encryption→interceptor — 🟡 analysis, awaiting team lead:** encryption is ALREADY in the axios interceptor
+  of `MastercardClient` (not business logic), `EncryptionService` is just the delegate; asked (A) cosmetic vs
+  (B) dissolve the service (not recommended). **#3 transaction_reference idempotency — ✅:** `createPayment`
+  key = `txref:sha256(transaction_reference)`, the `Idempotency-Key` header REMOVED entirely (+ decorator/pipe
+  deleted). Checks: unit 173, hermetic 16, live 23. Details/quirks — auto-memory `mastercard-teamlead-issues`.
 - 🔓 **FLE (encryption) WORKS on sandbox (2026-06-16) — the long-standing "encryption blocker" is gone.**
   Root cause: the MC key model was understood BACKWARDS. Correctly: the **Client Encryption Key**
   (`f031d600`) is the PUBLIC key **WE use to ENCRYPT REQUESTS** (MC holds the private); the **Mastercard
