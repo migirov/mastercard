@@ -487,3 +487,44 @@ env-ветка зашиты в data-layer-сервис.
 **Статус:** сделано и проверено. Модуль больше не интроспектирует хост; что хост обязан
 предоставить — явно в типизированных опциях (fail-fast), экспорте `MASTERCARD_ENTITIES` и чек-листе
 README.
+
+---
+
+## Issue 11 — Move RFI upload body limit into Nest middleware
+
+**Требование (дословно).**
+> Move RFI upload body limit into Nest middleware
+
+**Проблема.** Загрузка RFI-документа (`POST /crossborder/rfi/documents`) несёт base64-файл до
+~1.37MB — выше строгого лимита 256kb. Лимит был прописан сырым Express в `main.ts`
+(`app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser())`) + экспортируемый хелпер + пункт чек-листа «вызови
+сам» — а не через механизм NestJS middleware.
+
+**Порядок body-парсеров (суть, проверено эмпирически).** Express берёт первый парсер, ставящий
+`req._body`; значит увеличенный RFI-лимит должен сработать ДО строгого глобального. Два факта:
+(1) `app.useBodyParser(...)` в `main.ts` регистрируется ДО `app.init()`, т.е. раньше любого
+`configure()`-middleware — middleware его не опередит; (2) межмодульный порядок `configure()` —
+**root-first** (middleware суб-модуля идёт ПОСЛЕ корневого). Поэтому оба лимита должны быть в
+`configure` **корневого** модуля, RFI — первым. (Live-тест 500KB «upload ~500KB → не 413» перешёл
+с 413 на 502/pass после правильного порядка.)
+
+### Сделано ✅
+- **`AppModule.configure(consumer)`** (Nest middleware) теперь владеет body-парсингом:
+  1. `json({limit:'2mb'})` → `POST /crossborder/rfi/documents` (ПЕРВЫМ → выигрывает по
+     first-parser-sets-`req._body`);
+  2. `json({limit:'256kb'})` + `urlencoded` → `'*'` (строгий глобальный лимит для всех прочих).
+- **Убраны** сырой `app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser())` и вызовы `app.useBodyParser(...)`
+  из `main.ts` и обоих e2e-харнессов (парсинг теперь из `AppModule.configure`).
+- **Удалён** `src/common/utils/rfi-upload.bodyparser.ts`; убраны публичные экспорты
+  `RFI_UPLOAD_PATH` / `rfiUploadBodyParser` из `index.ts`.
+- **README / доки (RU+EN):** пункт хост-интеграции теперь «обеспечьте лимит тела для RFI-маршрута
+  (≥~1.4MB)», а не «вызовите наш экспортируемый парсер»; список экспортов + описание `common/` в
+  architecture обновлены.
+
+### Проверка ✅
+- `tsc` чисто; **live e2e**: загрузка ~500KB RFI → **502 (доходит до MC), не 413** — route-scoped
+  лимит 2MB работает, прочие маршруты держат 256kb. Полный прогон ниже.
+
+**Статус:** сделано и проверено. RFI-лимит — Nest middleware в корневом модуле; кастомный
+Express-хелпер и его публичные экспорты убраны. При встраивании body-парсингом владеет хост
+(задокументировано), т.к. middleware суб-модуля не опередит глобальный парсер хоста.

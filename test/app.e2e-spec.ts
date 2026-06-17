@@ -18,10 +18,6 @@ import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
 import { TenantEntity } from '../src/tenants/entities/tenant.entity';
 import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
-import {
-  RFI_UPLOAD_PATH,
-  rfiUploadBodyParser,
-} from '../src/common/utils/rfi-upload.bodyparser';
 
 const PORT = 3999;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -37,10 +33,8 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
       bodyParser: false,
       bufferLogs: false,
     });
-    // как в main.ts: увеличенный лимит тела ТОЛЬКО для RFI-загрузки документа
-    app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
-    app.useBodyParser('json', { limit: '256kb' });
-    app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
+    // как в main.ts: лимит тела (256kb + RFI-2mb для своего маршрута) задаётся
+    // Nest middleware (AppModule.configure), не вручную.
     // как в main.ts: глобального pipe НЕТ — каждый контроллер несёт свой.
     await app.listen(PORT);
 

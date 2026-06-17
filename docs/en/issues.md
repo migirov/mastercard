@@ -489,3 +489,45 @@ and docs, enforced where it's consumed), not discovered by a self-check.
 **Status:** done + verified. The module no longer introspects its host; what the host must provide
 is explicit in the typed options (fail-fast), the `MASTERCARD_ENTITIES` export, and the README
 checklist.
+
+---
+
+## Issue 11 — Move RFI upload body limit into Nest middleware
+
+**Requirement (verbatim).**
+> Move RFI upload body limit into Nest middleware
+
+**Problem.** The RFI document upload (`POST /crossborder/rfi/documents`) carries a base64 file up to
+~1.37MB, above the strict 256kb JSON limit. It was wired as raw Express in `main.ts`
+(`app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser())`) plus an exported helper + a host-checklist
+"call this yourself" item — not the NestJS middleware mechanism.
+
+**Body-parser ordering (the crux, verified empirically).** Express uses the first parser that sets
+`req._body`; the larger RFI limit must therefore run BEFORE the strict global parser. Two facts:
+(1) `app.useBodyParser(...)` registered in `main.ts` runs before `app.init()`, i.e. before any
+`configure()` middleware — so a middleware can't pre-empt it; (2) cross-module `configure()` order
+is **root-first** — a sub-module's middleware runs after the root's. So the limits must be
+co-located in the **root** module's `configure`, RFI applied first. (The live 500KB e2e test —
+"upload ~500KB → not 413" — flipped from 413 to 502/pass once ordered correctly.)
+
+### Done ✅
+- **`AppModule.configure(consumer)`** (Nest middleware) now owns body parsing:
+  1. `json({limit:'2mb'})` → `POST /crossborder/rfi/documents` (applied FIRST → wins via
+     first-parser-sets-`req._body`);
+  2. `json({limit:'256kb'})` + `urlencoded` → `'*'` (the strict global limit for every other route).
+- **Removed** the raw `app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser())` and the
+  `app.useBodyParser(...)` calls from `main.ts` and both e2e harnesses (parsing now comes from
+  `AppModule.configure`).
+- **Deleted** `src/common/utils/rfi-upload.bodyparser.ts`; dropped the `RFI_UPLOAD_PATH` /
+  `rfiUploadBodyParser` public exports from `index.ts`.
+- **README / docs (RU+EN):** the host-integration item is now "ensure the body limit allows the RFI
+  route (≥~1.4MB)" rather than "call our exported parser"; architecture export list + `common/`
+  description updated.
+
+### Verification ✅
+- `tsc` clean; **live e2e**: the ~500KB RFI upload returns **502 (reaches MC), not 413** — the
+  route-scoped 2MB limit applies, while other routes keep 256kb. Full suite below.
+
+**Status:** done + verified. The RFI body limit is Nest middleware in the root module; the bespoke
+Express helper and its public exports are gone. Embedded hosts own body parsing (documented), since
+a sub-module's middleware cannot pre-empt the host's global parser.

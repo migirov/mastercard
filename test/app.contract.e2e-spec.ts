@@ -20,10 +20,6 @@ import { CredentialsService } from '../src/credentials/services/credentials.serv
 import { MastercardClient } from '../src/mastercard/services/mastercard-client.service';
 import { TenantEntity } from '../src/tenants/entities/tenant.entity';
 import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
-import {
-  RFI_UPLOAD_PATH,
-  rfiUploadBodyParser,
-} from '../src/common/utils/rfi-upload.bodyparser';
 
 const PORT = 3998;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -68,9 +64,8 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
       bodyParser: false,
       bufferLogs: false,
     });
-    app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
-    app.useBodyParser('json', { limit: '256kb' });
-    app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
+    // Body limits (256kb global + RFI 2mb for its route) come from Nest middleware
+    // (AppModule.configure), not manual app.use.
     await app.listen(PORT);
 
     // Demo tenants are NO LONGER seeded on startup (issue #5) — we add them explicitly for

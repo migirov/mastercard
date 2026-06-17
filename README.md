@@ -169,13 +169,13 @@ warn about these; if an item is omitted, the affected feature fails as noted.
    throw `EntityMetadataNotFoundError` on the first query (loud, not silent).
 2. **`app.enableShutdownHooks()`** — required so the audit buffer is flushed on
    `SIGTERM` (`beforeApplicationShutdown`).
-3. **Route-scoped body parser for RFI upload** — `POST /crossborder/rfi/documents`
-   carries a base64 file up to ~1.37MB. The dev-harness (`main.ts`) registers a 2MB
-   parser for that path before the global JSON parser; when embedded, `main.ts` does
-   not run, so the **host must do the same** — `app.use(RFI_UPLOAD_PATH,
-   rfiUploadBodyParser())` (both exported from `src/common/utils/rfi-upload.bodyparser.ts`)
-   before its global JSON parser, **or** ensure its global JSON limit is ≥2MB for that
-   route. Missing → RFI uploads near MC's ~1MB limit return `413`.
+3. **Body limit for RFI upload** — `POST /crossborder/rfi/documents` carries a base64
+   file up to ~1.37MB, above a typical strict JSON limit. The dev-harness applies this as
+   Nest middleware (`AppModule.configure`: a 2MB JSON parser for that route, registered
+   before the strict global one). When embedded, the **host owns body parsing**, so it
+   must allow ≥~1.4MB for that route — either a route-scoped JSON parser for
+   `POST /crossborder/rfi/documents` or a high-enough global JSON limit. Missing → RFI
+   uploads near MC's ~1MB limit return `413`.
 4. **`webhookToken` set** — required for inbound Mastercard webhooks; empty ⇒
    fail-closed (every `/webhooks/mastercard` request → `401`).
 5. **Do not pass `isGlobal: false`** to `forRoot/forRootAsync`. The umbrella module

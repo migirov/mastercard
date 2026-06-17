@@ -1,5 +1,11 @@
 import { randomUUID } from 'crypto';
-import { Module } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
+import { json, urlencoded } from 'express';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TerminusModule } from '@nestjs/terminus';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -109,4 +115,28 @@ import { TenantEntity } from './tenants/entities/tenant.entity';
   controllers: [HealthController],
   providers: [DevSeedService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * Body-size limits as Nest middleware (the dev harness owns the GLOBAL limit; in a
+   * monolith the host does). Registered here via `configure`, NOT `app.useBodyParser`
+   * in main.ts, so the order is explicit and controllable:
+   *   1. RFI upload (`POST /crossborder/rfi/documents`) — 2mb (a base64 file up to
+   *      ~1.37MB). Applied FIRST so Express's first-parser-wins lets it claim the body
+   *      (`req._body`), and the global parser below then skips this route.
+   *   2. everything else — strict 256kb (json + urlencoded for the OAuth2 token form).
+   * Cross-module middleware order is root-first, so this MUST live in the root module
+   * (a sub-module's `configure` would run after the global parser and be pre-empted).
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(json({ limit: '2mb' })).forRoutes({
+      path: 'crossborder/rfi/documents',
+      method: RequestMethod.POST,
+    });
+    consumer
+      .apply(
+        json({ limit: '256kb' }),
+        urlencoded({ extended: false, limit: '256kb' }),
+      )
+      .forRoutes('*');
+  }
+}
