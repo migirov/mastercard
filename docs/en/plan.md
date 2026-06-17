@@ -271,8 +271,8 @@ All verified live (boot + functionally):
    access + real per-tenant keys. See [production-questions.md](./production-questions.md).
 2. 🟡 **Webhook authenticity = mTLS (former "C1"):** per the official MC docs, push
    notifications are authenticated via **mTLS**, NOT a payload signature (JWS/HMAC). So
-   there is no payload signature to verify in code; `WebhookSignatureVerifier` stays a
-   scaffold (Noop). The active factor today is the fail-closed `X-Webhook-Token`.
+   there is no payload signature to verify in code, so the noop verifier scaffold was
+   removed in issue #7. The active factor today is the fail-closed `X-Webhook-Token`.
    MC quote (`api-mastercard.md`): *“Contact your mastercard representative for mTLS
    push notification mastercard public certificate. This certificate needs to be trusted
    by the receiving application. Also, please share the server certificate chain for

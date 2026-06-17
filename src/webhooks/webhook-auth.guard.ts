@@ -2,40 +2,34 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  RawBodyRequest,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { GatewayConfig } from '../config/gateway-config';
 import { matchSharedToken } from '../common/crypto.util';
-import { WebhookSignatureVerifier } from './webhook-signature.verifier';
 
 /**
- * Аутентификация входящих вебхуков Mastercard — В САМОМ СЕРВИСЕ, а не за счёт
- * доверия к инфраструктуре (ингресс/mTLS).
+ * Authenticates inbound Mastercard webhooks IN THE SERVICE itself, not by trusting
+ * the infrastructure (ingress/mTLS).
  *
- * Два фактора:
- *   1) shared-token `X-Webhook-Token` — **fail-closed**: если токен не настроен
- *      (`webhookToken` пуст), приём ВЕБХУКОВ ОТКЛОНЯЕТСЯ (а не пропускается «в
- *      расчёте на mTLS»). Токен обязателен и в dev, и в prod.
- *   2) подпись MC по сырому телу — `WebhookSignatureVerifier`. Сейчас заглушка
- *      (ждём спецификацию подписи MC, вопрос C1); включается без правок здесь.
+ * Shared-token `X-Webhook-Token` — **fail-closed**: if the token is not configured
+ * (`webhookToken` empty), webhook delivery is REJECTED (not let through "relying on
+ * mTLS"). The token is mandatory in both dev and prod.
  *
- * mTLS на ингрессе (если есть) — дополнительный сетевой слой, но НЕ замена
- * аутентификации в приложении.
+ * There is no payload-signature check: MC does not sign push bodies — push
+ * authenticity at Mastercard is mTLS (public mTLS cert from MC + trust + our cert
+ * chain via the KMP portal), confirmed from the MC docs. mTLS at the ingress (if
+ * present) is an extra network layer, NOT a replacement for in-service auth.
  */
 @Injectable()
 export class WebhookAuthGuard implements CanActivate {
-  constructor(
-    private readonly config: GatewayConfig,
-    private readonly signature: WebhookSignatureVerifier,
-  ) {}
+  constructor(private readonly config: GatewayConfig) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    const req = ctx.switchToHttp().getRequest<RawBodyRequest<Request>>();
+    const req = ctx.switchToHttp().getRequest<Request>();
     const expected = this.config.webhookToken;
 
-    // fail-closed: без настроенного токена не доверяем никому.
+    // fail-closed: with no configured token we trust no one.
     if (!expected) {
       throw new UnauthorizedException(
         'webhook authentication is not configured',
@@ -44,11 +38,6 @@ export class WebhookAuthGuard implements CanActivate {
 
     if (!matchSharedToken(req.headers['x-webhook-token'], expected)) {
       throw new UnauthorizedException('invalid webhook token');
-    }
-
-    // Второй фактор — криптоподпись MC по сырому телу (заглушка до C1).
-    if (!this.signature.verify(req.headers ?? {}, req.rawBody)) {
-      throw new UnauthorizedException('invalid webhook signature');
     }
     return true;
   }

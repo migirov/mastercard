@@ -29,7 +29,7 @@ node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
 
 > На этой связке Windows + WSL-UNC Jest вызывается через `node node_modules\jest\bin\jest.js`
 > — `npx` не резолвится на смонтированном диске. E2E-харнесс поднимает реальный
-> `AppModule` на порту `3999` (ручной bodyParser, `rawBody`, без глобального pipe —
+> `AppModule` на порту `3999` (ручной bodyParser, без глобального pipe —
 > как в `main.ts`) и гоняет его через `axios`.
 
 ---

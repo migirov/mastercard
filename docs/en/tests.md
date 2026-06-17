@@ -29,7 +29,7 @@ node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
 
 > On this Windows + WSL-UNC setup Jest is invoked via `node node_modules\jest\bin\jest.js`
 > — `npx` does not resolve on the mapped drive. The E2E harness boots the real
-> `AppModule` on port `3999` (manual bodyParser, `rawBody`, no global pipe — like
+> `AppModule` on port `3999` (manual bodyParser, no global pipe — like
 > `main.ts`) and drives it with `axios`.
 
 ---
