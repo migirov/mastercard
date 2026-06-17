@@ -36,7 +36,7 @@ is precisely the intent of the issue.
 - **`src/database/data-source.ts`** (TypeORM CLI for `migration:generate/run/revert`):
   - `entities: [...MASTERCARD_ENTITIES]` → **static glob** `*.entity{.ts,.js}` (the doc's
     *"static glob path"* form). Removes the explicit array here too; `synchronize: false` already.
-- Comment cleanups referencing `synchronize` (e.g. `src/tenants/tenant.entity.ts`).
+- Comment cleanups referencing `synchronize` (e.g. `src/tenants/entities/tenant.entity.ts`).
 
 ### Not done — and why ❌
 - **Did NOT rewrite to the recipe's custom `DATA_SOURCE` provider pattern** (`database.providers.ts`
@@ -89,7 +89,7 @@ schema were found"** → migrations and entities are now in exact sync. `AddTxSt
 > Move EncryptionService logic to interceptor
 
 **Current state (from the code).** `EncryptionService` is used **only** from the axios
-interceptors of `MastercardClient` (`src/mastercard/mastercard-client.service.ts`) — nowhere else
+interceptors of `MastercardClient` (`src/mastercard/services/mastercard-client.service.ts`) — nowhere else
 (confirmed by grep: only the interceptor + its spec + the provider registration). Flow: business
 logic (`CrossBorderService`) returns a plain object and knows nothing about crypto →
 `MastercardClient.request()` → **axios REQUEST interceptor** calls `encryption.encryptRequest()`,
@@ -263,7 +263,7 @@ deliberately, not silently on every boot), and keeps local/e2e zero-config.
 - **`TenantRegistry` is a pure data layer:** dropped `onModuleInit` (and `implements OnModuleInit`),
   demo seeding, the `isProduction` branch, the private `seedIfAbsent`, and the unused
   `GatewayConfig`/`Logger` deps. No seeding/side-effects on boot.
-- **New `src/tenants/tenant.seed.ts`** — single source of seed data: `PLATFORM_TENANT`,
+- **New `src/tenants/services/tenant.seed.ts`** — single source of seed data: `PLATFORM_TENANT`,
   `DEMO_TENANTS` (acme/own-sandbox/own-demo) + idempotent `seedTenants(repo, list)`
   (`INSERT … ON CONFLICT DO NOTHING RETURNING id`, race-free under multi-pod; existing rows are NOT
   overwritten → admin approval/suspend edits survive; returns the ids actually inserted).
@@ -406,3 +406,45 @@ hit "value too long" → 500 → broken always-200 contract → endless MC retry
 
 **Status:** done + verified. `varchar(n)` with an arbitrary `n` was the only reason WIDTHS and
 truncation existed; `text` removes both while keeping the always-200 guarantee.
+
+---
+
+## Issue 9 — Organize module files by responsibility
+
+**Requirement (verbatim).**
+> Organize module files by responsibility. Current module files are placed directly in the module
+> root folder. This makes the module harder to navigate as it grows. Move controllers to
+> controllers/, services/handlers to services/, guards to guards/, entities to entities/, DTOs to
+> dto/; update imports after moving files; keep module root clean with only the module definition
+> and public exports if needed.
+
+**Approach.** Applied the convention to every feature module **and** to `common/` (the shared kit).
+Files that don't map onto the five named buckets were placed by responsibility: handlers/stores/
+registries/seeds and low-level services → `services/`; interceptors → `interceptors/`; decorators →
+`decorators/`. Small `*.types.ts` and constants (`mc-paths.ts`) stay at the module root (public
+surface / tiny); each `*.spec.ts` sits next to the file it tests. `config/`, `database/`, `types/`
+and the `src/` umbrella+harness files (`mastercard.module.ts`, `app.module.ts`, `main.ts`,
+`index.ts`, `dev-seed.service.ts`, `host-integrity.service.ts`, `mastercard.entities.ts`) stay put.
+
+### Done ✅
+- **Feature modules** now group by responsibility:
+  - `admin/` → `controllers/`, `services/` (dto/ already existed)
+  - `audit/` → `entities/`, `services/`, `interceptors/`
+  - `auth/` → `controllers/`, `services/` (oauth.service + client-registry), `entities/`,
+    `decorators/` (guards/, dto/ existed)
+  - `credentials/`, `secrets/`, `mastercard/`, `encryption/` → `services/`
+  - `crossborder/` → `controllers/`, `services/` (service + payment-idempotency.store), `entities/`
+  - `tenants/` → `entities/`, `services/` (registry + seed)
+  - `webhooks/` → `controllers/`, `services/` (handler + transaction-status.store), `entities/`,
+    `guards/`
+  - `health/` → `controllers/`
+- **`common/`** (shared kit) → `guards/`, `pipes/`, `decorators/`, `filters/`, `utils/` (dto/ existed).
+- **Module roots are clean:** each holds only its `*.module.ts` (+ a small `*.types.ts`/`mc-paths.ts`
+  where applicable). All imports updated (verified by `tsc`).
+
+### Verification ✅
+- `tsc` clean; **unit 175 / hermetic 18 / live 23** — all green after the move (no behavior change).
+- All `*.module.ts` and the embeddable public surface (`index.ts`, `MASTERCARD_ENTITIES`) unchanged.
+
+**Status:** done + verified. Pure structural move — no logic touched; the public package API
+(`index.ts`) and host integration seam are untouched.

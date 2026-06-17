@@ -1,8 +1,8 @@
-import { AuditLogEntity } from './audit/audit-log.entity';
-import { OAuthClientEntity } from './auth/oauth-client.entity';
-import { PaymentIdempotencyEntity } from './crossborder/payment-idempotency.entity';
-import { TenantEntity } from './tenants/tenant.entity';
-import { TransactionStatusEntity } from './webhooks/transaction-status.entity';
+import { AuditLogEntity } from './audit/entities/audit-log.entity';
+import { OAuthClientEntity } from './auth/entities/oauth-client.entity';
+import { PaymentIdempotencyEntity } from './crossborder/entities/payment-idempotency.entity';
+import { TenantEntity } from './tenants/entities/tenant.entity';
+import { TransactionStatusEntity } from './webhooks/entities/transaction-status.entity';
 
 /**
  * Единый список TypeORM-сущностей модуля — ОДИН источник истины (раньше дублировался

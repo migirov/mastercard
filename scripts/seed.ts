@@ -14,8 +14,8 @@ import { Logger } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { TenantEntity } from '../src/tenants/tenant.entity';
-import { DEMO_TENANTS, seedTenants } from '../src/tenants/tenant.seed';
+import { TenantEntity } from '../src/tenants/entities/tenant.entity';
+import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
 
 async function main() {
   const log = new Logger('seed');

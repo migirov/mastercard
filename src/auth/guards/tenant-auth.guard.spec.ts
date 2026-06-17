@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { GatewayConfig } from '../../config/gateway-config';
-import { TenantRegistry } from '../../tenants/tenant.registry';
+import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { TenantAuthGuard } from './tenant-auth.guard';
 
 interface FakeReq {

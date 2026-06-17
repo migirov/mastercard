@@ -16,14 +16,14 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
-import { CredentialsService } from '../src/credentials/credentials.service';
-import { MastercardClient } from '../src/mastercard/mastercard-client.service';
-import { TenantEntity } from '../src/tenants/tenant.entity';
-import { DEMO_TENANTS, seedTenants } from '../src/tenants/tenant.seed';
+import { CredentialsService } from '../src/credentials/services/credentials.service';
+import { MastercardClient } from '../src/mastercard/services/mastercard-client.service';
+import { TenantEntity } from '../src/tenants/entities/tenant.entity';
+import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
 import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
-} from '../src/common/rfi-upload.bodyparser';
+} from '../src/common/utils/rfi-upload.bodyparser';
 
 const PORT = 3998;
 const BASE = `http://127.0.0.1:${PORT}`;

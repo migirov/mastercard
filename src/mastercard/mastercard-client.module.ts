@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { EncryptionService } from '../encryption/encryption.service';
-import { MastercardClient } from './mastercard-client.service';
+import { EncryptionService } from '../encryption/services/encryption.service';
+import { MastercardClient } from './services/mastercard-client.service';
 
 /**
  * Низкоуровневый клиент Mastercard (axios + интерцепторы encrypt/sign/decrypt).

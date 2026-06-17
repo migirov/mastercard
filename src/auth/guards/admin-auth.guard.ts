@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
-import { matchSharedToken } from '../../common/crypto.util';
+import { matchSharedToken } from '../../common/utils/crypto.util';
 
 /** Admin-API под отдельным токеном (X-Admin-Token). */
 @Injectable()

@@ -16,12 +16,12 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
-import { TenantEntity } from '../src/tenants/tenant.entity';
-import { DEMO_TENANTS, seedTenants } from '../src/tenants/tenant.seed';
+import { TenantEntity } from '../src/tenants/entities/tenant.entity';
+import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
 import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
-} from '../src/common/rfi-upload.bodyparser';
+} from '../src/common/utils/rfi-upload.bodyparser';
 
 const PORT = 3999;
 const BASE = `http://127.0.0.1:${PORT}`;

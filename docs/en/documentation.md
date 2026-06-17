@@ -59,7 +59,7 @@ of the ingress); an ingress limit, if any, is optional defense-in-depth, not aut
 
 Mastercard requires **field-level encryption (JWE)**: the request body to MC is
 encrypted, the response is decrypted. Code: [`src/encryption/`](../../src/encryption/),
-integration — in [`src/mastercard/mastercard-client.service.ts`](../../src/mastercard/mastercard-client.service.ts).
+integration — in [`src/mastercard/services/mastercard-client.service.ts`](../../src/mastercard/services/mastercard-client.service.ts).
 
 ## Where it lives (separate service + interceptor)
 
@@ -192,7 +192,7 @@ entity: access (OAuth clients), Mastercard credentials, approval status, and iso
 > `partner_id` (the Mastercard identifier, a tenant field). Details at the end.
 
 Code: [`src/tenants/tenant.types.ts`](../../src/tenants/tenant.types.ts),
-registry: [`src/tenants/tenant.registry.ts`](../../src/tenants/tenant.registry.ts).
+registry: [`src/tenants/services/tenant.registry.ts`](../../src/tenants/services/tenant.registry.ts).
 
 ## Fields
 
@@ -331,8 +331,8 @@ admin API or, eventually, via a webhook).
 systems obtain an access token (`POST /oauth/token`, grant `client_credentials`) and
 then call the Cross-Border API with a Bearer JWT. One tenant has 0..N clients.
 
-Code: [`src/auth/client-registry.ts`](../../src/auth/client-registry.ts),
-entity (co-located in the module): [`src/auth/oauth-client.entity.ts`](../../src/auth/oauth-client.entity.ts).
+Code: [`src/auth/services/client-registry.ts`](../../src/auth/services/client-registry.ts),
+entity (co-located in the module): [`src/auth/entities/oauth-client.entity.ts`](../../src/auth/entities/oauth-client.entity.ts).
 Table `oauth_clients`.
 
 ## Fields
@@ -370,9 +370,9 @@ Table `oauth_clients`.
 bound **per-controller** via the composed `@UseGatewayContract()` decorator (not globally
 via `APP_INTERCEPTOR` — the module is embeddable). **Without request/response bodies and without secrets.**
 
-Code: [`src/audit/audit.service.ts`](../../src/audit/audit.service.ts),
-interceptor: [`src/audit/audit.interceptor.ts`](../../src/audit/audit.interceptor.ts),
-entity (co-located in the module): [`src/audit/audit-log.entity.ts`](../../src/audit/audit-log.entity.ts).
+Code: [`src/audit/services/audit.service.ts`](../../src/audit/services/audit.service.ts),
+interceptor: [`src/audit/interceptors/audit.interceptor.ts`](../../src/audit/interceptors/audit.interceptor.ts),
+entity (co-located in the module): [`src/audit/entities/audit-log.entity.ts`](../../src/audit/entities/audit-log.entity.ts).
 Table `audit_log`.
 
 ## Fields
@@ -447,8 +447,8 @@ Status Change) for merchant delivery via polling. Dedup AND write are **atomic**
 `INSERT … ON CONFLICT (eventRef) DO NOTHING` (no "crash between marking dedup and writing
 the status" window that a separate kv-dedup would have).
 
-Code: [`src/webhooks/transaction-status.store.ts`](../../src/webhooks/transaction-status.store.ts),
-entity: [`src/webhooks/transaction-status.entity.ts`](../../src/webhooks/transaction-status.entity.ts).
+Code: [`src/webhooks/services/transaction-status.store.ts`](../../src/webhooks/services/transaction-status.store.ts),
+entity: [`src/webhooks/entities/transaction-status.entity.ts`](../../src/webhooks/entities/transaction-status.entity.ts).
 Table `tx_status`.
 
 ## Fields
@@ -570,7 +570,7 @@ Status events are **persisted** to [`tx_status`](#transactionstatus-tx_status); 
 (Carded Rate Push, RFI, etc.) are not stored, only deduped via a `eventRef` marker in
 [`kv_store`](#kventry-kv_store).
 
-Code: [`src/webhooks/webhook.handler.ts`](../../src/webhooks/webhook.handler.ts).
+Code: [`src/webhooks/services/webhook.handler.ts`](../../src/webhooks/services/webhook.handler.ts).
 
 ## Fields (known; the payload is extensible)
 
