@@ -459,10 +459,10 @@ Table `tx_status`.
 | `eventRef` | `varchar(200)` UNIQUE, null | Dedup key (NULLs don't conflict → ref-less events always insert). |
 | `tenantId` | `varchar(64)` null | OWN → resolved by `partnerId`; PLATFORM/unknown → `NULL` (shared pool). |
 | `transactionReference` | `varchar(256)` null | Transaction/quote reference. |
-| `eventType` | `varchar(32)` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
-| `transactionType` | `varchar(16)` null | `QUOTE` / `PAYMENT`. |
-| `status` | `varchar(32)` null | Status (from `quote.confirmStatus.status` or top level). |
-| `stage` | `varchar(32)` null | Stage (`pendingStage`: Expired/Ambiguous, etc.). |
+| `eventType` | `text` null | `STATUS_CHG` / `QUOTE_STATUS_CHG`. |
+| `transactionType` | `text` null | `QUOTE` / `PAYMENT`. |
+| `status` | `text` null | Status (from `quote.confirmStatus.status` or top level). |
+| `stage` | `text` null | Stage (`pendingStage`: Expired/Ambiguous, etc.). |
 | `payload` | `jsonb` | The raw (normalized) event in full. |
 | `receivedAt` | `timestamptz` (indexed) DEFAULT now() | Receipt moment. |
 
@@ -472,9 +472,12 @@ read-by-ref path; (`receivedAt`).
 ## Behavior
 
 - **Write (`record`)** — an atomic `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
-  `true` = inserted (fresh), `false` = duplicate. String fields are **truncated** to the
-  column widths BEFORE insert (status/stage/… come from an unsigned body not covered by DTO
-  validation → otherwise "value too long" → 500 + an endless MC retry of a permanent error).
+  `true` = inserted (fresh), `false` = duplicate. **No truncation** (issue #8): the projection
+  columns (eventType/transactionType/status/stage) are `text` — no width to overflow, so an
+  overlong value from the uncapped MC body can't cause "value too long" → 500 (which would break
+  the always-200 contract + trigger an endless MC retry). The indexed `varchar` columns
+  (`eventRef`/`transactionReference`) are bounded upstream by the webhook DTO's `@MaxLength`,
+  `tenantId` is an internally resolved id.
 - **Read (`findForTenant`)** — by `transaction_reference`, tenant-scoped: OWN sees STRICTLY
   its own rows; PLATFORM sees its own + the shared pool (`tenantId IS NULL`). `LIMIT 200`,
   ordered by `id ASC`. Endpoint: `GET /crossborder/status-events?ref=`.

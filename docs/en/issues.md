@@ -367,3 +367,42 @@ signature" test, and unused `rawBody` plumbing, all suggesting a check that does
 
 **Status:** done + verified. If MC ever introduces a real payload signature, it is added then as a
 focused change to the guard — there is no value in keeping a noop seam for a check MC does not have.
+
+---
+
+## Issue 8 — Simplify transaction status persistence
+
+**Requirement (verbatim).**
+> Simplify transaction status persistence. TransactionStatusStore currently duplicates varchar
+> limits in WIDTHS and truncates webhook fields before insert.
+
+**Problem.** `TransactionStatusStore` held a `WIDTHS` map that duplicated the `@Column({ length })`
+values already declared on `TransactionStatusEntity` — two sources of truth that can (and did)
+drift: `eventType`'s column was `varchar(32)` while its DTO cap is 64. Each field was then truncated
+to those widths before insert. The truncation existed only because the projection columns were
+arbitrary small `varchar(n)`: `status`/`stage`/`transactionType` are pulled from arbitrary spots of
+the MC body and are NOT length-validated by the DTO, so without truncation an overlong value would
+hit "value too long" → 500 → broken always-200 contract → endless MC retry.
+
+### Done ✅
+- **Entity:** the projection columns `eventType`/`transactionType`/`status`/`stage` are now `text`
+  (no width). There is nothing to overflow → nothing to truncate. The full event is preserved in
+  `payload` (jsonb) regardless, and these columns are not indexed.
+- **Store:** removed the `WIDTHS` constant AND the `trunc()` helper. `record()` now inserts the
+  values verbatim. No 500 risk: the `text` projection columns can't overflow, and the indexed
+  `varchar` columns are bounded upstream — `eventRef`/`transactionReference` by the webhook DTO's
+  `@MaxLength`, `tenantId` is an internally resolved id. Single source of truth = the entity.
+- **Migration:** `tx_status` projection columns `varchar(…)` → `text` in `InitialSchema` (rebuilt on
+  a fresh volume; `migration:generate` then reports **"No changes"** — entity == migration == DB).
+- **Test:** the e2e case that asserted truncation ("overlong status truncated to varchar(32)") was
+  rewritten to assert the better invariant — an overlong status is stored **in full** and the
+  webhook still returns 200 (never a 500).
+- **Docs (RU+EN):** `documentation.md` tx_status column types + the `record` behavior updated.
+
+### Verification ✅
+- `tsc` clean; migration `No changes`; **unit 175 / hermetic 18 / live 23** (the truncation e2e
+  was rewritten, not removed — counts unchanged).
+- `WIDTHS` / `trunc` no longer present in `src/` (grep clean).
+
+**Status:** done + verified. `varchar(n)` with an arbitrary `n` was the only reason WIDTHS and
+truncation existed; `text` removes both while keeping the always-200 guarantee.

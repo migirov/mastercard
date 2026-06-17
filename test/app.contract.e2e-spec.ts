@@ -384,10 +384,11 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(platSeesPool.data).toHaveLength(1);
   });
 
-  it('overlong status усекается под колонку (varchar 32) — 200, не 500', async () => {
+  it('overlong status (uncapped MC field) — stored in full, 200 not 500', async () => {
     const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
     const t = Date.now();
     const ref = `E2ETRUNC_${t}`;
+    const longStatus = 'S'.repeat(50); // status isn't DTO length-capped
     const post = await http.post(
       '/webhooks/mastercard',
       {
@@ -396,7 +397,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
         transactionReference: ref,
         partnerId: 'NOBODY',
         transactionType: 'PAYMENT',
-        quote: { confirmStatus: { status: 'S'.repeat(50) } },
+        quote: { confirmStatus: { status: longStatus } },
       },
       { headers: webhook },
     );
@@ -407,6 +408,8 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
       headers: internal,
     });
     expect(poll.data).toHaveLength(1);
-    expect(poll.data[0].status).toHaveLength(32); // усечено под varchar(32)
+    // `status` is a `text` column → no width to overflow, no truncation: an overlong
+    // value is stored verbatim and the webhook still returns 200 (never a 500).
+    expect(poll.data[0].status).toBe(longStatus);
   });
 });
