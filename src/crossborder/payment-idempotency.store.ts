@@ -78,9 +78,13 @@ export class PaymentIdempotencyStore {
 
   /**
    * Атомарный захват слота одним стейтментом: `INSERT ... ON CONFLICT DO UPDATE`,
-   * где UPDATE срабатывает ТОЛЬКО для протухшего in-progress замка (краш процесса).
-   * `RETURNING id` непуст ⇔ мы вставили новую запись ИЛИ перезахватили протухшую →
-   * владеем слотом. Свежий in-progress / готовая запись → `WHERE` ложно → 0 строк.
+   * где UPDATE срабатывает ТОЛЬКО для протухшего in-progress замка (краш процесса)
+   * И ТОЛЬКО при совпадающем теле (`fingerprint = EXCLUDED.fingerprint`). `RETURNING
+   * id` непуст ⇔ мы вставили новую запись ИЛИ перезахватили протухшую с тем же телом
+   * → владеем слотом. Свежий in-progress / готовая запись / протухшая с ДРУГИМ телом
+   * → `WHERE` ложно → 0 строк → разбор в `resolveExisting` (там «другое тело» → 422,
+   * согласованно со свежим замком; иначе 409). Тело при перезахвате НЕ перезаписываем
+   * (берём только совпадающее), поэтому `SET` трогает лишь `lockedAt`.
    */
   private async acquire(
     tenantId: string,
@@ -91,9 +95,10 @@ export class PaymentIdempotencyStore {
       `INSERT INTO payment_idempotency ("tenantId", "idemKey", fingerprint, done, "lockedAt")
        VALUES ($1, $2, $3, false, now())
        ON CONFLICT ("tenantId", "idemKey") DO UPDATE
-         SET "lockedAt" = now(), fingerprint = EXCLUDED.fingerprint
+         SET "lockedAt" = now()
          WHERE payment_idempotency.done = false
            AND payment_idempotency."lockedAt" < now() - make_interval(secs => $4)
+           AND payment_idempotency.fingerprint = EXCLUDED.fingerprint
        RETURNING id`,
       [tenantId, key, fingerprint, LOCK_TTL_SECONDS],
     );

@@ -216,4 +216,18 @@ idempotency itself.
   same ref → cached and MC called once, different body → 422), **live e2e 23** (sandbox).
 - Fresh DB: schema built from migrations; `migration:generate` → "No changes".
 
+### Post-review hardening (5 passes: bugs/optimization/security) ✅
+- **Correctness (Med):** re-claiming a stale in-progress lock now requires a MATCHING body
+  (`fingerprint = EXCLUDED.fingerprint`); otherwise `422`, consistent with the fresh-lock path
+  (previously "same ref + different body" bypassed `422` within the stale-lock window).
+- **Optimization (Low):** removed the unused `payment_idempotency(lockedAt)` index (it's evaluated
+  as a filter on a row already located by the UNIQUE index, not an index scan; there's no background
+  cleanup) → regenerated `InitialSchema`.
+- **Retention/PII (Low, open infra item):** `payment_idempotency.result` and `tx_status` have no
+  app-level TTL (cron removed) → documented in `production-questions.md` (needs a DB retention/prune
+  policy, especially for PII).
+- Re-checked, no findings: no SQL injection (bound params), tenant isolation via `(tenantId,
+  idemKey)`, a non-string `transaction_reference` → `400` (not `500`), the `index.ts` barrel is
+  clean, the issue #1 TypeORM config is fine. Tests after fixes: unit 171 / hermetic 17 / live 23.
+
 **Status:** done + fully verified.
