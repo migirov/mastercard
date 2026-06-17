@@ -12,10 +12,14 @@
  */
 import { Test } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
 import { CredentialsService } from '../src/credentials/credentials.service';
 import { MastercardClient } from '../src/mastercard/mastercard-client.service';
+import { TenantEntity } from '../src/tenants/tenant.entity';
+import { DEMO_TENANTS, seedTenants } from '../src/tenants/tenant.seed';
 import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
@@ -70,8 +74,15 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
     await app.listen(PORT);
 
+    // Демо-тенанты больше НЕ засеваются на старте (issue #5) — ставим их явно для
+    // e2e (базовый `platform` сеет DevSeedService dev-харнесса). acme — PLATFORM/ACTIVE.
+    await seedTenants(
+      app.get<Repository<TenantEntity>>(getRepositoryToken(TenantEntity)),
+      DEMO_TENANTS,
+    );
+
     http = axios.create({ baseURL: BASE, validateStatus: () => true });
-    // acme — сид PLATFORM/ACTIVE; creds резолвятся стабом (без certs).
+    // acme — демо PLATFORM/ACTIVE; creds резолвятся стабом (без certs).
     internal = {
       'x-internal-token': process.env.MC_INTERNAL_TOKEN ?? '',
       'x-tenant-id': 'acme',

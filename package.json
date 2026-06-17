@@ -17,6 +17,7 @@
     "ping": "ts-node scripts/ping.ts",
     "encrypt-poc": "ts-node scripts/encrypt-poc.ts",
     "boot-check": "ts-node scripts/boot-check.ts",
+    "seed": "ts-node scripts/seed.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate",
     "migration:run": "npm run typeorm -- migration:run",

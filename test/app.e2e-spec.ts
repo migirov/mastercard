@@ -12,8 +12,12 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
 import { AppModule } from '../src/app.module';
+import { TenantEntity } from '../src/tenants/tenant.entity';
+import { DEMO_TENANTS, seedTenants } from '../src/tenants/tenant.seed';
 import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
@@ -40,6 +44,13 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
     // как в main.ts: глобального pipe НЕТ — каждый контроллер несёт свой.
     await app.listen(PORT);
+
+    // Демо-тенанты больше НЕ засеваются на старте (issue #5) — ставим их явно для
+    // e2e (базовый `platform` сеет DevSeedService dev-харнесса). own-sandbox — OWN/ACTIVE.
+    await seedTenants(
+      app.get<Repository<TenantEntity>>(getRepositoryToken(TenantEntity)),
+      DEMO_TENANTS,
+    );
 
     http = axios.create({ baseURL: BASE, validateStatus: () => true });
     internal = {

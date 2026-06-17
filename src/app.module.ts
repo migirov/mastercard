@@ -2,12 +2,15 @@ import { randomUUID } from 'crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TerminusModule } from '@nestjs/terminus';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation';
 import { MastercardModuleOptions } from './config/gateway-config';
 import { DatabaseModule } from './database/database.module';
+import { DevSeedService } from './dev-seed.service';
 import { HealthController } from './health/health.controller';
 import { MastercardModule } from './mastercard.module';
+import { TenantEntity } from './tenants/tenant.entity';
 
 /**
  * Dev-харнесс (standalone-запуск, e2e, Swagger). В production-монолите хост
@@ -74,6 +77,9 @@ import { MastercardModule } from './mastercard.module';
     }),
     // Dev-БД: TypeORM-соединение (в монолите его даёт хост).
     DatabaseModule,
+    // Репозиторий TenantEntity для DevSeedService (засев базового platform на старте
+    // — только dev-харнесс; во встраиваемом модуле засева на boot нет).
+    TypeOrmModule.forFeature([TenantEntity]),
     // Вся интеграция Mastercard — одним модулем. Конфиг берём из .env через
     // ConfigService (в монолите хост передаёт свой useFactory).
     MastercardModule.forRootAsync({
@@ -101,5 +107,6 @@ import { MastercardModule } from './mastercard.module';
     }),
   ],
   controllers: [HealthController],
+  providers: [DevSeedService],
 })
 export class AppModule {}

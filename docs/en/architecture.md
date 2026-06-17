@@ -203,7 +203,7 @@ owns liveness/readiness).
 | Module / unit | Responsibility |
 |---|---|
 | `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` + `HostIntegrityService` |
-| `TenantModule` | `TenantRegistry` over Postgres, statuses, seeds; `TenantEntity` co-located |
+| `TenantModule` | `TenantRegistry` over Postgres, statuses (PURE data-layer — seeds nothing on boot); `TenantEntity` co-located. Seeding lives outside: `platform` via the dev harness `DevSeedService` (`AppModule`), demo via `npm run seed` (`tenant.seed.ts`); the host provisions its own |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory cache (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |

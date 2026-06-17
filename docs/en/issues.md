@@ -231,3 +231,62 @@ idempotency itself.
   clean, the issue #1 TypeORM config is fine. Tests after fixes: unit 171 / hermetic 17 / live 23.
 
 **Status:** done + fully verified.
+
+---
+
+## Issue 5 — Clean up TenantRegistry bootstrap and demo tenants
+
+**Requirement (verbatim).**
+> Clean up TenantRegistry bootstrap and demo tenants
+> Implement seed script
+
+**Problem.** `TenantRegistry.onModuleInit` seeded on EVERY boot: `platform` (everywhere, incl.
+prod) + demo tenants `acme`/`own-sandbox`/`own-demo` (env-gated on `!isProduction`). Downsides:
+the embeddable module silently writes test data into the host DB on boot; demo data and the env
+branch are baked into a data-layer service.
+
+### Decision
+`onModuleInit` runs INSIDE the embeddable `MastercardModule` too (the `b24club-api` host), so any
+boot-time seeding would write into the host DB on every start — exactly what the issue asks to
+remove. Therefore:
+- **`TenantRegistry` seeds nothing** — a pure data layer; embedding is fully clean (the module never
+  touches the host DB on boot).
+- **The `platform` baseline is seeded only by the dev harness** (`DevSeedService` in `AppModule`, not
+  the embeddable module) — zero-config for local runs / `ping` / e2e.
+- **Demo tenants** (acme/own-sandbox/own-demo) come from `npm run seed`.
+- **In prod the host** provisions tenants explicitly (admin API or `SEED_DEMO=false npm run seed`).
+
+This makes the bootstrap fully clean, removes the security smell (a pre-approved tenant is created
+deliberately, not silently on every boot), and keeps local/e2e zero-config.
+
+### Done ✅
+- **`TenantRegistry` is a pure data layer:** dropped `onModuleInit` (and `implements OnModuleInit`),
+  demo seeding, the `isProduction` branch, the private `seedIfAbsent`, and the unused
+  `GatewayConfig`/`Logger` deps. No seeding/side-effects on boot.
+- **New `src/tenants/tenant.seed.ts`** — single source of seed data: `PLATFORM_TENANT`,
+  `DEMO_TENANTS` (acme/own-sandbox/own-demo) + idempotent `seedTenants(repo, list)`
+  (`INSERT … ON CONFLICT DO NOTHING RETURNING id`, race-free under multi-pod; existing rows are NOT
+  overwritten → admin approval/suspend edits survive; returns the ids actually inserted).
+- **`src/dev-seed.service.ts` (`DevSeedService`)** — a dev-harness-ONLY provider (in `AppModule`,
+  NOT the embeddable `MastercardModule`): on `onApplicationBootstrap` it seeds the baseline
+  `platform` (zero-config for `ts-node src/main.ts`/`ping`/e2e). The host doesn't get it → the module
+  writes nothing to the host DB on boot.
+- **Seed script `scripts/seed.ts`** (`npm run seed`) — boots an `AppModule` context (like `ping`;
+  `DevSeedService` seeds `platform` then), seeds the demo tenants; `SEED_DEMO=false` → only the
+  baseline `platform`. Idempotent; DB config comes from the same `.env`.
+- **e2e:** demo tenants no longer appear "for free" → both suites (`app.contract`/`app.e2e`) seed
+  `DEMO_TENANTS` in `beforeAll` (`platform` comes from `DevSeedService` on bootstrap).
+
+### Host implication (record on embedding)
+The embeddable `MastercardModule` no longer creates `platform` itself → the host must provision
+tenants (`platform` and its own) via the admin API or `SEED_DEMO=false npm run seed`. Recorded in
+`production-questions.md` (host integration checklist).
+
+### Verification ✅
+- `tsc` clean; on a FRESH DB: **unit 171 / hermetic 17 / live 23**.
+- After live e2e on a fresh DB the table holds exactly 4 tenants: `platform` (from `DevSeedService`)
+  + `acme`/`own-sandbox`/`own-demo` (from e2e `beforeAll`); `own-demo` pending `f`/`f`.
+- `npm run seed` on an empty DB: schema (migrations) + `platform` (DevSeedService) + demo; re-run →
+  "already present" (idempotent).
+
+**Status:** done + fully verified.
