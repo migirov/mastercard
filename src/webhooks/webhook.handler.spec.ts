@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { sha256hex } from '../common/crypto.util';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { TransactionStatusStore } from './transaction-status.store';
 import { WebhookHandler } from './webhook.handler';
@@ -21,8 +22,8 @@ describe('WebhookHandler', () => {
     handler = moduleRef.get(WebhookHandler);
   });
 
-  describe('статусные события → персист с атомарным дедупом', () => {
-    it('STATUS_CHG (свежее) → record + accepted', async () => {
+  describe('status events → persist with atomic dedup', () => {
+    it('STATUS_CHG (fresh) → record + accepted', async () => {
       statusStore.record.mockResolvedValue(true);
       const r = await handler.handle({
         eventRef: 'e1',
@@ -39,7 +40,7 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('STATUS_CHG (дубликат: record=false) → duplicate', async () => {
+    it('STATUS_CHG (duplicate: record=false) → duplicate', async () => {
       statusStore.record.mockResolvedValue(false);
       const r = await handler.handle({
         eventRef: 'e1',
@@ -48,7 +49,7 @@ describe('WebhookHandler', () => {
       expect(r).toEqual({ status: 'duplicate' });
     });
 
-    it('атрибуция тенанту: OWN-partnerId резолвится в tenantId', async () => {
+    it('tenant attribution: OWN partnerId resolves to tenantId', async () => {
       tenants.findOwnTenantIdByPartnerId.mockResolvedValue('own-1');
       await handler.handle({
         eventRef: 'e2',
@@ -63,7 +64,7 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('PLATFORM/неизвестный partnerId → общий пул (tenantId=null)', async () => {
+    it('PLATFORM/unknown partnerId → shared pool (tenantId=null)', async () => {
       tenants.findOwnTenantIdByPartnerId.mockResolvedValue(null);
       await handler.handle({
         eventRef: 'e3',
@@ -75,7 +76,7 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('snake_case нотация (event_type/event_ref/...) нормализуется', async () => {
+    it('snake_case notation (event_type/event_ref/...) is normalized', async () => {
       await handler.handle({
         event_ref: 'snake-1',
         event_type: 'STATUS_CHG',
@@ -89,7 +90,7 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('достаёт status/stage из quote.confirmStatus', async () => {
+    it('pulls status/stage from quote.confirmStatus', async () => {
       await handler.handle({
         eventRef: 'e4',
         eventType: 'STATUS_CHG',
@@ -103,8 +104,8 @@ describe('WebhookHandler', () => {
     });
   });
 
-  describe('не-статусные события → атомарный дедуп в Postgres', () => {
-    it('CARDFX_PUB (snake_case) → record по event_ref, tenantId=null', async () => {
+  describe('non-status events → atomic dedup in Postgres', () => {
+    it('CARDFX_PUB (snake_case) → record by event_ref, tenantId=null', async () => {
       statusStore.record.mockResolvedValue(true);
       const r = await handler.handle({
         event_ref: 'cf1',
@@ -120,7 +121,7 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('duplicate, когда record=false (eventRef уже был)', async () => {
+    it('duplicate when record=false (eventRef already seen)', async () => {
       statusStore.record.mockResolvedValue(false);
       const r = await handler.handle({
         eventRef: 'x1',
@@ -129,7 +130,7 @@ describe('WebhookHandler', () => {
       expect(r).toEqual({ status: 'duplicate' });
     });
 
-    it('fallback на notificationId, когда нет eventRef', async () => {
+    it('falls back to notificationId when eventRef is absent', async () => {
       statusStore.record.mockResolvedValue(true);
       await handler.handle({ notificationId: 'n1', eventType: 'CARDFX_PUB' });
       expect(statusStore.record).toHaveBeenCalledWith(
@@ -137,13 +138,13 @@ describe('WebhookHandler', () => {
       );
     });
 
-    it('accepted без дедупа/персиста, когда ref вообще нет', async () => {
+    it('accepted without dedup/persist when there is no ref at all', async () => {
       const r = await handler.handle({ eventType: 'CARDFX_PUB' });
       expect(r).toEqual({ status: 'accepted' });
       expect(statusStore.record).not.toHaveBeenCalled();
     });
 
-    it('пустое/undefined тело → accepted (без 500)', async () => {
+    it('empty/undefined body → accepted (no 500)', async () => {
       await expect(handler.handle(undefined as never)).resolves.toEqual({
         status: 'accepted',
       });
@@ -154,11 +155,68 @@ describe('WebhookHandler', () => {
     });
   });
 
-  it('зашифрованный push → accepted без обработки (декрипт не подключён)', async () => {
-    const r = await handler.handle({
-      encrypted_payload: { data: 'JWE...' },
-    } as never);
-    expect(r).toEqual({ status: 'accepted' });
-    expect(statusStore.record).not.toHaveBeenCalled();
+  describe('encrypted push → persist BEFORE ack (decryption not wired)', () => {
+    it('persisted to tx_status (eventType=ENCRYPTED, tenantId=null) → accepted', async () => {
+      statusStore.record.mockResolvedValue(true);
+      const r = await handler.handle({
+        encrypted_payload: { data: 'JWE...' },
+      } as never);
+      expect(r).toEqual({ status: 'accepted' });
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ENCRYPTED',
+          tenantId: null,
+          payload: expect.objectContaining({
+            encrypted_payload: { data: 'JWE...' },
+          }),
+        }),
+      );
+    });
+
+    it('dedup key = enc:sha256(ciphertext) when there is no outer ref', async () => {
+      statusStore.record.mockResolvedValue(true);
+      await handler.handle({ encrypted_payload: { data: 'CIPHER' } } as never);
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventRef: `enc:${sha256hex('CIPHER')}` }),
+      );
+    });
+
+    it('a top-level ref (outside the cipher) is used as the key when present', async () => {
+      statusStore.record.mockResolvedValue(true);
+      await handler.handle({
+        eventRef: 'OUTER1',
+        encrypted_payload: { data: 'X' },
+      } as never);
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventRef: 'OUTER1', eventType: 'ENCRYPTED' }),
+      );
+    });
+
+    it('an EMPTY outer ref is not used → key = enc:sha256(data) (no collision)', async () => {
+      statusStore.record.mockResolvedValue(true);
+      await handler.handle({
+        eventRef: '',
+        notificationId: '   ',
+        encrypted_payload: { data: 'C2' },
+      } as never);
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventRef: `enc:${sha256hex('C2')}` }),
+      );
+    });
+
+    it('retry of an already-stored envelope (record=false) → duplicate', async () => {
+      statusStore.record.mockResolvedValue(false);
+      const r = await handler.handle({
+        encrypted_payload: { data: 'JWE...' },
+      } as never);
+      expect(r).toEqual({ status: 'duplicate' });
+    });
+
+    it('a persist failure is NOT swallowed → throws (→ 500 → MC retries, no ack)', async () => {
+      statusStore.record.mockRejectedValue(new Error('db down'));
+      await expect(
+        handler.handle({ encrypted_payload: { data: 'JWE...' } } as never),
+      ).rejects.toThrow('db down');
+    });
   });
 });

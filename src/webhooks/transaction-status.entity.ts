@@ -1,9 +1,9 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**
- * Персист push-уведомлений MC — единый источник истины обработки вебхуков (KV-слоя
- * нет). Статусные (Status Change / Quote Status Change) несут status/stage и
- * читаются мерчантом; прочие (Carded Rate / RFI) лежат для дедупа+аудита.
+ * Persists MC push notifications — the single source of truth for webhook processing (no
+ * KV layer). Status events (Status Change / Quote Status Change) carry status/stage and are
+ * read by the merchant; others (Carded Rate / RFI) sit there for dedup+audit.
  *
  * `eventRef` UNIQUE → дедуп И запись атомарны (один `INSERT ... ON CONFLICT
  * DO NOTHING`), что снимает риск «жёсткий краш между пометкой дедупа и записью

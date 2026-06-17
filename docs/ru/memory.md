@@ -344,13 +344,17 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   истины = выбор юзера «Postgres-таблица», сохранены 409/422/кэш, готовые записи постоянны). Вебхуки →
   `handleOther` дедупит через `tx_status` (тот же атомарный `INSERT ON CONFLICT` по eventRef), статус-выдача
   отфильтрована по статусным типам. Перегенерил `InitialSchema` (kv_store→payment_idempotency).
-  **#5 Clean up TenantRegistry bootstrap + seed script — ✅ («лучшее из двух» после ревью):**
-  registry стал ЧИСТЫМ data-layer (убран `onModuleInit` целиком — он выполнялся и внутри
-  встраиваемого модуля → писал `platform` в БД хоста на старте). `platform`-baseline сеет
-  `DevSeedService` ТОЛЬКО dev-харнесса (`src/dev-seed.service.ts` в `AppModule`); демо — в
-  `src/tenants/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e сеют демо в `beforeAll`.
-  Хост провижит тенантов явно (admin/seed). Проверки на свежей БД: unit 171, hermetic 17, live 23.
-  Детали/квирки — авто-память `mastercard-teamlead-issues`.
+  **#5 Clean up TenantRegistry bootstrap + seed script — ✅:** registry стал ЧИСТЫМ data-layer
+  (убран `onModuleInit` целиком — он выполнялся и внутри встраиваемого модуля → писал `platform` в
+  БД хоста на старте). `platform`-baseline сеет `DevSeedService` ТОЛЬКО dev-харнесса
+  (`src/dev-seed.service.ts` в `AppModule`); демо — в `src/tenants/tenant.seed.ts` + `scripts/seed.ts`
+  (`npm run seed`); e2e сеют демо в `beforeAll`. Хост провижит тенантов явно (admin/seed).
+  **#6 Persist encrypted webhook events before ack — ✅:** зашифрованный push (`{encrypted_payload}`,
+  декрипт не подключён) теперь ПЕРСИСТИТСЯ в `tx_status` (`eventType='ENCRYPTED'`) ДО ack
+  (`WebhookHandler.handleEncrypted`) — иначе после 200 MC не ретраит и событие терялось бы; persist
+  падает → 500 → MC ретраит; дедуп по `enc:sha256(шифротекста)`/внешнему ref; переиспользуем
+  `tx_status` (не новая таблица). Проверки: unit 174, hermetic 18, live 23.
+  Детали/квирки всех issue — авто-память `mastercard-teamlead-issues`.
 - 🔓 **FLE (шифрование) ЗАРАБОТАЛО на sandbox (2026-06-16) — снят многолетний «блокер шифрования».**
   Корень: модель ключей MC понимали ЗЕРКАЛЬНО. Правильно: **Client Encryption Key** (`f031d600`) —
   публичный, им **МЫ шифруем ЗАПРОСЫ** (приватный у MC); **Mastercard Encryption Key** — публичный, им

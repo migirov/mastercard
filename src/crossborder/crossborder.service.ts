@@ -98,23 +98,22 @@ export class CrossBorderService {
   }
 
   /**
-   * Инициировать платёж (POST). Идемпотентность — на стороне MC по
-   * transaction_reference (тот же ref = та же транзакция). Тело шифруется в
-   * MTF/Prod так же, как quote.
+   * Initiate a payment (POST). Idempotency is keyed on `transaction_reference` (same ref =
+   * same transaction), backed by Postgres. The body is encrypted in MTF/Prod, same as quote.
    */
   async createPayment(tenantId: string, body: PaymentRequestDto) {
-    // Резолвим credentials (gating + возможный медленный SecretStore) ДО захвата
-    // замка идемпотентности: producer внутри замка должен быть ограничен только
-    // 30-сек таймаутом MC (≪ LOCK_TTL 120с), иначе медленный Vault может растянуть
-    // producer за TTL → второй под перезахватит замок → двойной POST.
+    // Resolve credentials (gating + a possibly slow SecretStore) BEFORE claiming the
+    // idempotency lock: the producer inside the lock must be bounded only by MC's 30s
+    // timeout (≪ LOCK_TTL 120s), otherwise a slow Vault could stretch the producer past the
+    // TTL → another pod re-claims the lock → a double POST.
     const creds = await this.resolveActive(tenantId);
-    // Идемпотентность по `transaction_reference` — бизнес-ключ платежа и источник
-    // истины: он обязателен у MC и по нему MC сам дедупит. Ретрай с тем же
-    // `transaction_reference` → тот же результат БЕЗ повторного вызова MC (защита от
-    // двойных списаний); состояние держим в Postgres (`payment_idempotency`), не в KV.
-    // Ключ хешируем (ref — произвольная строка клиента → bounded для колонки idemKey).
-    // Fingerprint тела: тот же ref с ДРУГИМ телом → 422 (защита от подмены платежа).
-    // Нет ref → MC всё равно отвергнет платёж (поле обязательно) → идемпотентности нет.
+    // Idempotency by `transaction_reference` — the payment's business key and source of
+    // truth: it's mandatory at MC and MC dedups on it. A retry with the same
+    // `transaction_reference` → the same result WITHOUT re-calling MC (double-charge
+    // protection); the state lives in Postgres (`payment_idempotency`), not in KV. The key
+    // is hashed (ref is an arbitrary client string → bounded for the idemKey column). Body
+    // fingerprint: same ref with a DIFFERENT body → 422 (protects against payment swap).
+    // No ref → MC rejects the payment anyway (field is mandatory) → no idempotency.
     const ref = body?.paymentrequest?.transaction_reference;
     const idemKey = ref ? `txref:${sha256hex(ref)}` : undefined;
     const fingerprint = sha256hex(JSON.stringify(body));

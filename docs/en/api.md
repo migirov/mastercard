@@ -361,9 +361,11 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 - **Notations:** MC sends fields in both camelCase and snake_case — the handler normalizes both.
 - **Tenant attribution:** OWN — by `partnerId` (→ its `tenantId`); PLATFORM/unknown → the shared pool (`tenantId=NULL`).
 - **Merchant delivery:** polling via `GET /crossborder/status-events?ref=…`.
-- **Encrypted push** (`{encrypted_payload:{data}}`): detected, acked `200` without processing (the
-  decryption key exists; what remains is threading it into the handler + the per-tenant seam —
-  relevant in MTF/Prod, sandbox push is “Not Applicable”).
+- **Encrypted push** (`{encrypted_payload:{data}}`): decryption isn't wired yet (open MTF/Prod
+  blocker: decryption key + per-tenant seam), but the raw envelope is **persisted to `tx_status`
+  (`eventType='ENCRYPTED'`) BEFORE the `200`** (issue #6) — otherwise the event would be lost after
+  the ack (MC won't retry). Deduped by `enc:sha256(ciphertext)` (or an outer ref if present).
+  Processed later from the DB once decryption is wired. Sandbox push is “Not Applicable”.
 
 ---
 

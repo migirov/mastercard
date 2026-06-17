@@ -349,7 +349,12 @@ is only for `req.ip`.
   `DevSeedService` (`src/dev-seed.service.ts` in `AppModule`); demo lives in
   `src/tenants/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e seed demo in `beforeAll`.
   The host provisions tenants explicitly (admin/seed). Fresh-DB checks: unit 171, hermetic 17, live
-  23. Details/quirks — auto-memory `mastercard-teamlead-issues`.
+  23. **#6 Persist encrypted webhook events before ack — ✅:** encrypted pushes (`{encrypted_payload}`,
+  decryption not wired) are now PERSISTED to `tx_status` (`eventType='ENCRYPTED'`) BEFORE the ack
+  (`WebhookHandler.handleEncrypted`) — otherwise MC won't retry after 200 and the event was lost; a
+  failed persist → 500 → MC retries; deduped by `enc:sha256(ciphertext)`/outer ref; reuses `tx_status`
+  (no new table). Checks: unit 174, hermetic 18, live 23. Details/quirks — auto-memory
+  `mastercard-teamlead-issues`.
 - 🔓 **FLE (encryption) WORKS on sandbox (2026-06-16) — the long-standing "encryption blocker" is gone.**
   Root cause: the MC key model was understood BACKWARDS. Correctly: the **Client Encryption Key**
   (`f031d600`) is the PUBLIC key **WE use to ENCRYPT REQUESTS** (MC holds the private); the **Mastercard

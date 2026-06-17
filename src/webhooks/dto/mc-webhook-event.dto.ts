@@ -7,8 +7,8 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
  * Здесь типизируем и документируем известные поля для Swagger и обработчика.
  */
 export class McWebhookEventDto {
-  // eventRef/notificationId становятся ключом дедупа `tx_status.eventRef`
-  // (varchar 200), поэтому ограничиваем длину под ширину колонки.
+  // eventRef/notificationId become the dedup key `tx_status.eventRef` (varchar 200),
+  // so we cap the length to the column width.
   @ApiPropertyOptional({ maxLength: 200 })
   @IsOptional()
   @IsString()
@@ -30,9 +30,9 @@ export class McWebhookEventDto {
   @MaxLength(64)
   eventType?: string;
 
-  // Лимит ЩЕДРЫЙ (256 — ширина `tx_status.transactionReference`): достаточно
-  // ограничить лог-инъекцию, но не отвергнуть легитимный длинный ref MC (тело не
-  // подписано → 400 = MC-ретрай).
+  // GENEROUS limit (256 — the `tx_status.transactionReference` width): enough to limit
+  // log injection without rejecting a legitimately long MC ref (the body isn't signed →
+  // a 400 = an MC retry).
   @ApiPropertyOptional({ maxLength: 256 })
   @IsOptional()
   @IsString()

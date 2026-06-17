@@ -1,14 +1,13 @@
 /**
- * Засев тенантов в БД — для ЛОКАЛЬНОЙ разработки и e2e (НЕ для production):
- *   npm run seed                 — базовый platform (на старте) + демо-тенанты
- *   SEED_DEMO=false npm run seed  — только базовый platform (демо пропущены)
+ * Seed tenants into the DB — for LOCAL development and e2e (NOT for production):
+ *   npm run seed                 — baseline platform (on boot) + demo tenants
+ *   SEED_DEMO=false npm run seed  — only the baseline platform (demo skipped)
  *
- * Базовый `platform`-тенант засевается приложением на старте
- * (`TenantRegistry.onModuleInit`) во всех средах; этот скрипт добавляет
- * ДЕМО-тенантов (acme / own-sandbox / own-demo), которые из bootstrap'а убраны
- * (issue #5), чтобы встраиваемый модуль не плодил тестовые данные в БД хоста.
- * Идемпотентно (`INSERT ... ON CONFLICT DO NOTHING`). Конфиг БД (`DATABASE_URL`)
- * берётся из того же `.env`, что и приложение.
+ * The baseline `platform` tenant is seeded by the dev harness on boot (`DevSeedService`);
+ * this script adds the DEMO tenants (acme / own-sandbox / own-demo), which were removed
+ * from the bootstrap (issue #5) so the embeddable module doesn't breed test data in the
+ * host DB. Idempotent (`INSERT ... ON CONFLICT DO NOTHING`). The DB config (`DATABASE_URL`)
+ * comes from the same `.env` as the app.
  */
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
@@ -28,13 +27,13 @@ async function main() {
   );
 
   if (process.env.SEED_DEMO === 'false') {
-    log.log('SEED_DEMO=false — демо-тенанты пропущены (platform засеян на старте)');
+    log.log('SEED_DEMO=false — demo tenants skipped (platform seeded on boot)');
   } else {
     const inserted = await seedTenants(repo, DEMO_TENANTS);
     log.log(
       inserted.length
-        ? `Засеяны демо-тенанты: ${inserted.join(', ')}`
-        : 'Демо-тенанты уже присутствуют — нечего засевать',
+        ? `Seeded demo tenants: ${inserted.join(', ')}`
+        : 'Demo tenants already present — nothing to seed',
     );
   }
 

@@ -74,15 +74,15 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
     await app.listen(PORT);
 
-    // Демо-тенанты больше НЕ засеваются на старте (issue #5) — ставим их явно для
-    // e2e (базовый `platform` сеет DevSeedService dev-харнесса). acme — PLATFORM/ACTIVE.
+    // Demo tenants are NO LONGER seeded on startup (issue #5) — we add them explicitly for
+    // e2e (the baseline `platform` is seeded by the dev-harness DevSeedService). acme — PLATFORM/ACTIVE.
     await seedTenants(
       app.get<Repository<TenantEntity>>(getRepositoryToken(TenantEntity)),
       DEMO_TENANTS,
     );
 
     http = axios.create({ baseURL: BASE, validateStatus: () => true });
-    // acme — демо PLATFORM/ACTIVE; creds резолвятся стабом (без certs).
+    // acme — demo PLATFORM/ACTIVE; creds resolved by the stub (no certs).
     internal = {
       'x-internal-token': process.env.MC_INTERNAL_TOKEN ?? '',
       'x-tenant-id': 'acme',
@@ -217,11 +217,11 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     );
   });
 
-  it('POST /crossborder/payments — идемпотентность по transaction_reference (Postgres, без KV)', async () => {
+  it('POST /crossborder/payments — idempotency by transaction_reference (Postgres, no KV)', async () => {
     const ref = `E2EIDEM_${Date.now()}`;
     const body = { paymentrequest: { transaction_reference: ref } };
 
-    // 1) первый платёж → доходит до MC, результат кэшируется в payment_idempotency
+    // 1) first payment → reaches MC, the result is cached in payment_idempotency
     stubMc.next = { status: 200, data: { paymentId: 'PAY1' } };
     const before = stubMc.request.mock.calls.length;
     const p1 = await http.post('/crossborder/payments', body, {
@@ -231,16 +231,16 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(p1.data).toEqual({ paymentId: 'PAY1' });
     expect(stubMc.request.mock.calls.length).toBe(before + 1);
 
-    // 2) ретрай тем же ref+телом → отдаём КЭШ из Postgres, MC повторно НЕ зовём
+    // 2) retry with the same ref+body → return the CACHE from Postgres, MC NOT called again
     stubMc.next = { status: 200, data: { paymentId: 'MUST_NOT_LEAK' } };
     const p2 = await http.post('/crossborder/payments', body, {
       headers: internal,
     });
     expect(p2.status).toBe(201);
-    expect(p2.data).toEqual({ paymentId: 'PAY1' }); // кэш, не новый ответ MC
-    expect(stubMc.request.mock.calls.length).toBe(before + 1); // MC не вызван второй раз
+    expect(p2.data).toEqual({ paymentId: 'PAY1' }); // cache, not a new MC response
+    expect(stubMc.request.mock.calls.length).toBe(before + 1); // MC not called a second time
 
-    // 3) тот же ref, ДРУГОЕ тело → 422 (защита от подмены платежа), MC не зовём
+    // 3) same ref, DIFFERENT body → 422 (protects against payment swap), MC not called
     const p3 = await http.post(
       '/crossborder/payments',
       {
@@ -298,6 +298,27 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     const post2 = await http.post('/webhooks/mastercard', body, {
       headers: webhook,
     });
+    expect(post2.data).toEqual({ status: 'duplicate' });
+  });
+
+  it('encrypted push → persist BEFORE ack (200 accepted); retry of the same → duplicate', async () => {
+    const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
+    // A unique "ciphertext" per run (tx_status persists between runs).
+    const body = { encrypted_payload: { data: `E2EENC_${Date.now()}` } };
+
+    // Decryption isn't wired → we do NOT process it, but the envelope is persisted BEFORE the ack.
+    const post1 = await http.post('/webhooks/mastercard', body, {
+      headers: webhook,
+    });
+    expect(post1.status).toBe(200);
+    expect(post1.data).toEqual({ status: 'accepted' });
+
+    // Retry of the identical envelope → dedup by enc:sha256(data) (= proves the first one
+    // was stored) → duplicate, also 200.
+    const post2 = await http.post('/webhooks/mastercard', body, {
+      headers: webhook,
+    });
+    expect(post2.status).toBe(200);
     expect(post2.data).toEqual({ status: 'duplicate' });
   });
 

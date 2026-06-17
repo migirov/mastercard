@@ -39,9 +39,9 @@ const WIDTHS = {
 const READ_LIMIT = 200;
 
 /**
- * Статусные типы событий. `tx_status` теперь хранит ВСЕ вебхуки (дедуп по eventRef),
- * но в polling статусов мерчанту отдаём ТОЛЬКО статусные — прочие (Carded Rate / RFI)
- * лежат для дедупа+аудита и наружу через этот путь не идут.
+ * Status event types. `tx_status` now stores ALL webhooks (deduped by eventRef), but the
+ * merchant status poll returns ONLY status events — the others (Carded Rate / RFI) sit there
+ * for dedup+audit and never go out through this path.
  */
 const STATUS_EVENT_TYPES = ['STATUS_CHG', 'QUOTE_STATUS_CHG'];
 
@@ -51,9 +51,9 @@ function trunc(value: string | null | undefined, max: number): string | null {
 }
 
 /**
- * Хранилище push-уведомлений MC поверх PostgreSQL — единый источник истины для
- * обработки вебхуков (дедуп по eventRef для ВСЕХ событий; статусные дополнительно
- * несут status/stage и читаются мерчантом). Отдельного KV-слоя дедупа нет.
+ * Store for MC push notifications on top of PostgreSQL — the single source of truth for
+ * webhook processing (dedup by eventRef for ALL events; status events additionally carry
+ * status/stage and are read by the merchant). There is no separate KV dedup layer.
  */
 @Injectable()
 export class TransactionStatusStore {
@@ -110,8 +110,8 @@ export class TransactionStatusStore {
     const qb = this.repo
       .createQueryBuilder('s')
       .where('s.transactionReference = :ref', { ref: transactionReference })
-      // Только статусные события: не-статусные (Carded Rate / RFI) тоже лежат в
-      // `tx_status` для дедупа, но в статус-выдачу мерчанту попадать не должны.
+      // Status events only: non-status ones (Carded Rate / RFI) also live in `tx_status`
+      // for dedup, but must not appear in the merchant status read.
       .andWhere('s.eventType IN (:...statusTypes)', {
         statusTypes: STATUS_EVENT_TYPES,
       });

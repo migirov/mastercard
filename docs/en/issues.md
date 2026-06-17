@@ -290,3 +290,47 @@ tenants (`platform` and its own) via the admin API or `SEED_DEMO=false npm run s
   "already present" (idempotent).
 
 **Status:** done + fully verified.
+
+---
+
+## Issue 6 — Persist encrypted Mastercard webhook events before ack
+
+**Requirement (verbatim).**
+> Persist encrypted Mastercard webhook events before ack
+
+**Problem.** Encrypted pushes (`{encrypted_payload:{data}}`) arrive while decryption is NOT yet
+wired (the open MTF/Prod blocker: needs the client decryption key + a per-tenant seam). The handler
+used to log and immediately `ack 200` WITHOUT storing → after a 200 MC does not retry, so the event
+was LOST for good (only a log line remained).
+
+### Done ✅
+- **`WebhookHandler.handleEncrypted`:** the raw envelope is PERSISTED to `tx_status`
+  (`eventType='ENCRYPTED'`, `payload` = the whole envelope incl. `encrypted_payload.data`) **before**
+  the ack. No decryption/processing (fields are under the cipher); the rows are processed later from
+  the DB once decryption is wired.
+- **persist-before-ack:** if the write fails (DB down) the exception is NOT swallowed → `500` → MC
+  retries (no data loss). `200` is returned only after a successful persist.
+- **Dedup:** key = a top-level ref if MC sends one OUTSIDE the cipher, else `enc:sha256(ciphertext)`
+  (a retry of the identical envelope → dedup via `UNIQUE(eventRef)`; if MC re-encrypts per retry the
+  hash differs → a possible duplicate, reconciled after decryption is wired).
+- `tenantId=null` (partnerId is under the cipher); such rows are filtered out of the merchant status
+  read (`findForTenant` → status types only). No dedicated table — we reuse `tx_status` (the single
+  Postgres webhook source of truth, per issue #4).
+
+### Post-review (2 passes: bugs/security/optimization) ✅
+- **Bug (Med):** the dedup key was built with `??`, which does NOT drop an empty string — an
+  `eventRef` arriving as `''` would become the key and collapse all such events into one row
+  (`UNIQUE(eventRef)`) → lost events. Added `firstRef()` (first non-blank after trim); applied in
+  `handleEncrypted` AND in `normalize()` (the same latent bug on the status/other paths).
+- **Invariant test:** added a test that a persist failure is NOT swallowed (→ exception → 500 → MC
+  retries, not a false ack); a test for empty ref → hash; the duplicate log was clarified.
+- **Security:** re-checked — token-gated + rate-limited, the ciphertext is opaque and filtered out of
+  the merchant read; unbounded growth is covered by the retention item (`production-questions.md`).
+- Final checks: **unit 176 / hermetic 18 / live 23**.
+
+### Verification ✅
+- `tsc` clean; **unit 174→176** (persist/hash-dedup/outer-ref/empty-ref/persist-failure), **hermetic
+  e2e 18** (encrypted push → `200 accepted`, retry of the same → `duplicate`), **live e2e 23**.
+
+**Status:** done + verified. Decryption itself remains the open blocker (needs the client decryption
+key + per-tenant seam) — this issue is about durability (not losing the event), not decryption.

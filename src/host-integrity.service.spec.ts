@@ -4,10 +4,10 @@ import { GatewayConfig } from './config/gateway-config';
 import { HostIntegrityService } from './host-integrity.service';
 import { MASTERCARD_ENTITIES } from './mastercard.entities';
 
-// Заглушки хост-инфраструктуры (нам важны только проверяемые методы/наличие).
+// Host-infrastructure stubs (only the checked methods/presence matter to us).
 const dsWith = (hasMetadata: boolean) =>
   ({ hasMetadata: () => hasMetadata }) as unknown as DataSource;
-// Конфиг с заданным webhookToken (чтобы не срабатывал webhook-WARN, если не цель теста).
+// Config with a webhookToken set (so the webhook WARN doesn't fire when not the test's target).
 const cfg = (webhookToken = 'wh-token') =>
   ({ webhookToken }) as unknown as GatewayConfig;
 

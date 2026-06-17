@@ -10,19 +10,19 @@ import { Repository } from 'typeorm';
 import { PaymentIdempotencyEntity } from './payment-idempotency.entity';
 
 /**
- * Короткий замок in-progress (> таймаута MC 30с): если процесс упадёт между
- * захватом слота и записью результата, запись считается протухшей через LOCK_TTL
- * и перезахватывается следующим retry (ключ не залипает навсегда). Готовые
- * (`done=true`) записи живут постоянно — это и есть идемпотентность платежа.
+ * Short in-progress lock (> MC's 30s timeout): if a process crashes between claiming the
+ * slot and writing the result, the row is considered stale after LOCK_TTL and is
+ * re-claimed by the next retry (the key never gets stuck forever). Completed (`done=true`)
+ * rows live permanently — that is the payment idempotency itself.
  */
 const LOCK_TTL_SECONDS = 120;
 
 /**
- * Идемпотентность платежей на PostgreSQL — источник истины по
- * `transaction_reference` (через `payment_idempotency`). Заменяет KV-слой
- * (`IdempotencyService` поверх `kv_store`): тот же ключ → тот же результат без
- * повторного вызова MC. Поведение сохранено 1:1 (кэш результата, 409 in-progress,
- * 422 «тот же ключ, другое тело», fail-safe при 5xx) — поменялся только бэкенд.
+ * Payment idempotency on PostgreSQL — the source of truth keyed on `transaction_reference`
+ * (via `payment_idempotency`). Replaces the KV layer (`IdempotencyService` over
+ * `kv_store`): same key → same result without re-calling MC. Behaviour preserved 1:1
+ * (result cache, 409 in-progress, 422 "same key, different body", fail-safe on 5xx) — only
+ * the backend changed.
  */
 @Injectable()
 export class PaymentIdempotencyStore {
@@ -39,11 +39,11 @@ export class PaymentIdempotencyStore {
     producer: () => Promise<T>,
     fingerprint: string,
   ): Promise<T> {
-    if (!key) return producer(); // без ключа (нет transaction_reference) — без идемпотентности
+    if (!key) return producer(); // no key (no transaction_reference) — no idempotency
 
-    // Захват слота атомарно: вставить НОВЫЙ, ЛИБО перезахватить ПРОТУХШИЙ in-progress
-    // замок (краш процесса). Если слот занят свежим in-progress или уже готов —
-    // вернётся false, и существующую запись разбираем ниже.
+    // Claim the slot atomically: insert a NEW row, OR re-claim a STALE in-progress lock
+    // (process crash). If the slot is held by a fresh in-progress call or already done —
+    // returns false, and we resolve the existing row below.
     const owned = await this.acquire(tenantId, key, fingerprint);
     if (!owned) return this.resolveExisting<T>(tenantId, key, fingerprint);
 
@@ -51,18 +51,19 @@ export class PaymentIdempotencyStore {
     try {
       result = await producer();
     } catch (e) {
-      // Освобождаем слот ТОЛЬКО при клиентских 4xx — при них мутация (платёж) точно
-      // не прошла, ретрай безопасен. При 5xx/таймауте/сетевой ошибке исход НЕИЗВЕСТЕН
-      // (MC мог принять до обрыва) → слот НЕ трогаем (fail-safe против двойного
-      // списания): ретрай в окне LOCK_TTL получит 409, после — перезахватит замок,
-      // а MC дедупит по transaction_reference.
+      // Release the slot ONLY on client 4xx — there the mutation (payment) definitely did
+      // not go through, so a retry is safe. On 5xx/timeout/network error the outcome is
+      // UNKNOWN (MC may have accepted it before the drop) → do NOT touch the slot
+      // (fail-safe against double charges): a retry within LOCK_TTL gets 409, after that it
+      // re-claims the lock, and MC dedups by transaction_reference.
       const status = e instanceof HttpException ? e.getStatus() : 500;
       if (status < 500) await this.release(tenantId, key);
       throw e;
     }
 
-    // Вызов MC УСПЕШЕН — фиксируем результат. Сбой записи НЕ должен превратить
-    // успешный платёж в ошибку клиенту: отдаём результат, замок протухнет по LOCK_TTL.
+    // The MC call SUCCEEDED — record the result. A write failure must NOT turn a successful
+    // payment into an error for the client: return the result, the lock will expire by
+    // LOCK_TTL.
     try {
       await this.repo.update(
         { tenantId, idemKey: key },
@@ -70,21 +71,21 @@ export class PaymentIdempotencyStore {
       );
     } catch (err) {
       this.logger.error(
-        `payment_idempotency: не удалось зафиксировать результат для '${key}': ${(err as Error).message}`,
+        `payment_idempotency: failed to record the result for '${key}': ${(err as Error).message}`,
       );
     }
     return result;
   }
 
   /**
-   * Атомарный захват слота одним стейтментом: `INSERT ... ON CONFLICT DO UPDATE`,
-   * где UPDATE срабатывает ТОЛЬКО для протухшего in-progress замка (краш процесса)
-   * И ТОЛЬКО при совпадающем теле (`fingerprint = EXCLUDED.fingerprint`). `RETURNING
-   * id` непуст ⇔ мы вставили новую запись ИЛИ перезахватили протухшую с тем же телом
-   * → владеем слотом. Свежий in-progress / готовая запись / протухшая с ДРУГИМ телом
-   * → `WHERE` ложно → 0 строк → разбор в `resolveExisting` (там «другое тело» → 422,
-   * согласованно со свежим замком; иначе 409). Тело при перезахвате НЕ перезаписываем
-   * (берём только совпадающее), поэтому `SET` трогает лишь `lockedAt`.
+   * Atomic slot claim in a single statement: `INSERT ... ON CONFLICT DO UPDATE`, where the
+   * UPDATE fires ONLY for a stale in-progress lock (process crash) AND ONLY when the body
+   * matches (`fingerprint = EXCLUDED.fingerprint`). `RETURNING id` is non-empty ⇔ we
+   * inserted a new row OR re-claimed a stale one with the same body → we own the slot. A
+   * fresh in-progress / done row / stale row with a DIFFERENT body → `WHERE` is false → 0
+   * rows → resolved in `resolveExisting` (where "different body" → 422, consistent with the
+   * fresh-lock path; otherwise 409). The body is NOT overwritten on re-claim (we only take
+   * over a matching one), so `SET` touches only `lockedAt`.
    */
   private async acquire(
     tenantId: string,
@@ -106,9 +107,10 @@ export class PaymentIdempotencyStore {
   }
 
   /**
-   * Разбор СУЩЕСТВУЮЩЕЙ записи (захват не удался — слот занят): сверяет тело и
-   * отдаёт готовый результат, иначе 409 «уже в обработке». Запись могла исчезнуть
-   * между захватом и чтением (конкурентный 4xx-release) → 409, клиент повторит.
+   * Resolve an EXISTING row (the claim failed — the slot is taken): compares the body and
+   * returns the ready result, otherwise 409 "already being processed". The row may have
+   * vanished between the claim and the read (a concurrent 4xx release) → 409, the client
+   * retries.
    */
   private async resolveExisting<T>(
     tenantId: string,
@@ -124,9 +126,9 @@ export class PaymentIdempotencyStore {
   }
 
   /**
-   * Тот же `transaction_reference` с ДРУГИМ телом — ошибка клиента, не идемпотентный
-   * ретрай: иначе второй (другой) платёж молча вернул бы результат первого. 422 (по
-   * семантике IETF Idempotency-Key / Stripe).
+   * The same `transaction_reference` with a DIFFERENT body is a client error, not an
+   * idempotent retry: otherwise a second (different) payment would silently return the
+   * first one's result. 422 (per the IETF Idempotency-Key / Stripe semantics).
    */
   private assertSameBody(stored: string | undefined, fingerprint: string): void {
     if (stored && stored !== fingerprint) {
@@ -136,7 +138,7 @@ export class PaymentIdempotencyStore {
     }
   }
 
-  /** Освободить in-progress слот (только при клиентском 4xx — платёж не прошёл). */
+  /** Release the in-progress slot (only on a client 4xx — the payment did not go through). */
   private async release(tenantId: string, key: string): Promise<void> {
     await this.repo.delete({ tenantId, idemKey: key, done: false });
   }
