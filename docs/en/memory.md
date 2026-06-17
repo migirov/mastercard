@@ -210,7 +210,7 @@ warning — the client has the same combo).
   uncovered: successful payment+cache (needs the KYC flow), per-tenant key path.
 - **Native Nest modules** (used off-the-shelf, all verified live): health probes
   `@nestjs/terminus` (`/health`, `/ready`); ENV validation `ConfigModule.validate`
-  (class-validator, fail-fast); TypeORM migrations (`src/database/data-source.ts`,
+  (Zod, fail-fast); TypeORM migrations (`src/database/data-source.ts`,
   `migration:*`, `InitialSchema` generated+run, synchronize off in prod);
   `@nestjs/schedule` `KvCleanupService` (cron cleans kv_store); `nestjs-pino`
   structured JSON logs + correlation-id `x-request-id` + secret redaction. New env:

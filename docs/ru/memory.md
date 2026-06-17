@@ -211,7 +211,7 @@ class-validator/mapped-types — есть и у клиента).
   `tests.md`. Не покрыто: JWE (sandbox без FLE), успешный платёж+кэш (нужен KYC-флоу).
 - **Платформенные модули Nest** (взяли готовое, все проверены вживую): health-пробы
   `@nestjs/terminus` (`/health`, `/ready`); валидация ENV `ConfigModule.validate`
-  (class-validator, fail-fast); TypeORM-миграции (`src/database/data-source.ts`,
+  (Zod, fail-fast); TypeORM-миграции (`src/database/data-source.ts`,
   `migration:*`, `InitialSchema` сгенерирована+прогнана, synchronize off в prod);
   `@nestjs/schedule` `KvCleanupService` (cron чистит kv_store); `nestjs-pino`
   структурные JSON-логи + correlation-id `x-request-id` + redact секретов. Новые

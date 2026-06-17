@@ -574,3 +574,41 @@ the host monolith's routes (or be missing / different there). So binding stays p
 
 **Status:** done + verified. The "custom passthrough pipe" is replaced by one shared validation
 strategy with `Strict`/`Passthrough` presets; per-route binding is kept for embeddability.
+
+## Issue 13 — Replace env validation with Zod
+
+**Requirement (verbatim).**
+> Replace env validation with Zod
+
+**Problem.** Environment-variable validation (`src/config/env.validation.ts`) was built on
+`class-validator` + `class-transformer`: an `EnvVars` class with decorators + `plainToInstance` +
+`validateSync`. The team lead wants Zod — a declarative schema instead of a decorated class (and no
+reflection/`reflect-metadata` dependency for env validation).
+
+### Done ✅
+- **Added `zod@^3.23.8`** to `dependencies` (`class-validator`/`class-transformer` left in place —
+  DTOs and `gatewayValidationPipe` depend on them; only the env-validation mechanism changes).
+- **Rewrote `env.validation.ts` with Zod:** a `z.object({...})` schema mirrors the prior rules 1:1 —
+  required strings (`z.string().min(1)`), `MC_JWT_SECRET` → `min(16)`, optional enums
+  (`z.enum(['true','false'])`, `z.enum(['local','vault'])`), `DB_POOL_MAX` → positive-integer string
+  (`/^[1-9][0-9]*$/` — slightly stricter than the old `isNumberString`, which also accepted
+  signs/floats like `-3.5` that are meaningless as a pool size; surfaced by the review pass, fail-fast
+  is better). `validateEnv(config)` keeps the `ConfigModule.validate` contract: on failure
+  it throws `Invalid .env configuration: <path>: <msg>; …`, on success it **returns the original
+  `config`** (not the parsed object) so vars not declared in the schema (`NODE_ENV`, `PORT`, PoC
+  keys) stay available in `ConfigService` (Zod ignores unknown keys rather than rejecting them).
+  Values stay strings (no coercion): the app converts them itself (`=== 'true'`, `Number(...)`).
+- **New `env.validation.spec.ts`** (env validation was previously untested): valid config passes and
+  is returned as-is; `NODE_ENV`/`PORT` preserved; each of the 9 required vars throws (naming the key)
+  when missing; empty required string; short `MC_JWT_SECRET`; valid optionals; invalid enum/numeric
+  values throw.
+- **Docs RU+EN** (architecture, plan, memory): "class-validator" → "Zod" in the env-validation
+  description (other class-validator mentions — DTOs and the benign peer-warning — left as-is).
+
+### Verification ✅
+- `tsc` clean, ESLint clean; **unit 192** (+21 — the new env spec) **/ hermetic 18 / live 23**. Both
+  e2e suites bring up `AppModule` → `ConfigModule.forRoot({ validate: validateEnv })`, i.e. they
+  genuinely bootstrap through Zod validation — the migration is confirmed end-to-end.
+
+**Status:** done + verified. Env validation runs on a Zod schema; the `validateEnv` contract and
+behavior (fail-fast, passthrough of unknown keys, strings without coercion) are preserved 1:1.
