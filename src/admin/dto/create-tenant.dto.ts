@@ -33,7 +33,7 @@ export class CreateTenantDto {
   id?: string;
 
   // partnerId уходит в URL-пути/заголовки запросов к MC. Ограничиваем тем же
-  // безопасным charset и длиной, что и CredentialsService.SAFE_PARTNER_ID
+  // безопасным charset и длиной, что и SAFE_PARTNER_ID в credential-sanitize
   // (`^[A-Za-z0-9._-]{1,64}$`), иначе плохой partnerId сохранится и упадёт лишь на
   // первой транзакции непрозрачной ошибкой резолва, а не понятным 400 при создании.
   @ApiPropertyOptional({ maxLength: 64 })
@@ -49,7 +49,7 @@ export class CreateTenantDto {
   // secretRef интерполируется в ключ-путь секрет-стора (Vault) → ограничиваем
   // charset и запрещаем `..`-сегменты (path-traversal / key-confusion: иначе
   // одного тенанта можно онбордить с ref на чужой/платформенный секрет). Дублируется
-  // защитой на границе резолва (CredentialsService.safeSecretRef).
+  // защитой на границе резолва (safeSecretRef в credential-sanitize).
   @ApiPropertyOptional({
     maxLength: 256,
     description: 'Обязателен для credentialMode=OWN.',

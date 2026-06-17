@@ -492,7 +492,10 @@ in-memory (per-pod). The rest of the code works only with this type and **does n
 know** whether these are the shared platform keys or the partner's own keys.
 
 Code: [`src/credentials/credentials.types.ts`](../../src/credentials/credentials.types.ts),
-resolver: [`src/credentials/credentials.service.ts`](../../src/credentials/credentials.service.ts).
+resolver: [`src/credentials/credentials.service.ts`](../../src/credentials/credentials.service.ts)
+(a thin facade — issue #14 — delegating to `PlatformCredentialsProvider` and
+`OwnCredentialsProvider`; the OWN cache lives in `OwnCredentialsCache`, the boundary
+guards in `utils/credential-sanitize.ts`).
 
 ## Fields
 
@@ -558,7 +561,7 @@ normalized to PEM (`loadPrivateKeyFromP12*`).
 
 ## Boundary validation
 
-`CredentialsService.validateBundle` requires the minimum for signing: `consumerKey`
+`OwnCredentialsProvider.validateBundle` requires the minimum for signing: `consumerKey`
 and `signing`. Encryption fields are optional (needed only with `MC_ENCRYPTION_ENABLED`).
 
 ---

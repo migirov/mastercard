@@ -10,7 +10,7 @@
 **Суть.** Field-level encryption (JWE) сейчас **платформенного уровня**:
 интерцептор шифрует запрос ключом из `.env`
 (`MC_ENCRYPTION_CERT_PATH` / `MC_ENCRYPTION_FINGERPRINT` / `MC_DECRYPTION_KEY_PATH`)
-через единый `EncryptionService`. При этом `CredentialsService.fetchOwn` уже
+через единый `EncryptionService`. При этом `OwnCredentialsProvider` уже
 резолвит **per-tenant** ключи шифрования (`encryptionCertPem`,
 `encryptionFingerprint`, `decryptionKeyPem`) в `McCredentials` — но **их никто не
 использует**.

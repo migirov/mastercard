@@ -6,8 +6,8 @@ import { MerchantSecretBundle, SecretStore } from '../secret-store.types';
  * (HashiCorp Vault / AWS Secrets Manager / GCP Secret Manager).
  *
  * Контракт: по secretRef вернуть MerchantSecretBundle (ключи лучше хранить
- * как p12Base64). Добавить кэш на стороне CredentialsService уже есть; здесь —
- * только обращение к вендору + поддержка ротации.
+ * как p12Base64). Кэш уже есть на стороне OwnCredentialsProvider/OwnCredentialsCache;
+ * здесь — только обращение к вендору + поддержка ротации.
  */
 @Injectable()
 export class VaultSecretStore implements SecretStore {
