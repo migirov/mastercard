@@ -1,83 +1,80 @@
-# Team-lead issues — status & decisions
+# Issues от тимлида — статус и решения
 
-Per-issue log of feedback raised by the team lead: the **requirement**, **what was done**,
-**what was deliberately NOT done**, and **why** (with documentation references). Kept so the
-reasoning behind each decision is auditable (especially where we diverge from a literal reading).
+Лог по каждому замечанию тимлида: **требование**, **что сделано**, **что сознательно НЕ
+сделано** и **почему** (со ссылками на доку). Ведём, чтобы обоснование каждого решения было
+прослеживаемым (особенно где отходим от буквального прочтения). EN-версия —
+[docs/en/issues.md](../en/issues.md).
 
 ---
 
 ## Issue 1 — Align TypeORM config
 
-**Requirement (verbatim).**
+**Требование (дословно).**
 > Remove `synchronize` and switch to migrations-only schema management. We should follow the
 > NestJS/TypeORM recommendations and manage schema changes through migrations only.
 > `entities: [...MASTERCARD_ENTITIES],` — remove.
 > Reference: https://docs.nestjs.com/recipes/sql-typeorm
 
-**Decision basis.** The linked page (`recipes/sql-typeorm`) is the "build a `DataSource` from
-scratch with custom providers" recipe, which **its own warning** says "contains a lot of overhead
-that you can omit using the ready-to-use `@nestjs/typeorm` package" and defers to
-[`techniques/sql`](https://docs.nestjs.com/techniques/database). This project already uses
-`@nestjs/typeorm`, so we follow `techniques/sql` — whose **"Auto-load entities"** section
-prescribes exactly `autoLoadEntities: true`, and whose warnings prescribe migrations-only. That
-is precisely the intent of the issue.
+**Основание решения.** Страница из ссылки (`recipes/sql-typeorm`) — это рецепт «собрать
+`DataSource` с нуля через кастомные провайдеры», и в **его же предупреждении** сказано, что в
+нём «много overhead, который можно убрать готовым пакетом `@nestjs/typeorm`», и он отсылает к
+[`techniques/sql`](https://docs.nestjs.com/techniques/database). Проект уже на `@nestjs/typeorm`,
+поэтому следуем `techniques/sql` — где секция **«Auto-load entities»** предписывает именно
+`autoLoadEntities: true`, а предупреждения — только миграции. Это и есть суть issue.
 
-### Done ✅
-- **`src/database/database.module.ts`** (dev-harness runtime; not shipped into the host):
-  - `entities: [...MASTERCARD_ENTITIES]` → **`autoLoadEntities: true`** — entities are picked up
-    from each sub-module's `TypeOrmModule.forFeature(...)` (techniques/sql: *"referencing entities
-    from the root module breaks application domain boundaries… set `autoLoadEntities: true`"*).
-  - **Removed `synchronize` entirely** (TypeORM defaults to `false`) → schema is migrations-only,
-    in every environment.
-  - `migrationsRun: !isProd || DB_MIGRATIONS_RUN==='true'` — the dev-harness now builds the schema
-    from migrations on boot (this replaces the old `synchronize` convenience for local/e2e); in
-    production it stays gated (the host / a dedicated Job runs migrations, not every pod).
-- **`src/database/data-source.ts`** (TypeORM CLI for `migration:generate/run/revert`):
-  - `entities: [...MASTERCARD_ENTITIES]` → **static glob** `*.entity{.ts,.js}` (the doc's
-    *"static glob path"* form). Removes the explicit array here too; `synchronize: false` already.
-- Comment cleanups referencing `synchronize` (e.g. `src/tenants/tenant.entity.ts`).
+### Сделано ✅
+- **`src/database/database.module.ts`** (рантайм dev-харнесса; в монолит хоста не идёт):
+  - `entities: [...MASTERCARD_ENTITIES]` → **`autoLoadEntities: true`** — сущности берутся из
+    `TypeOrmModule.forFeature(...)` каждого суб-модуля (techniques/sql: *«явный список в
+    корневом модуле течёт границами домена… ставьте `autoLoadEntities: true`»*).
+  - **`synchronize` убран полностью** (TypeORM по умолчанию `false`) → схема ведётся только
+    миграциями, во всех средах.
+  - `migrationsRun: !isProd || DB_MIGRATIONS_RUN==='true'` — dev-харнесс строит схему из
+    миграций на старте (замена прежнего удобства `synchronize` для local/e2e); в проде остаётся
+    под флагом (миграции гонит хост / отдельный Job, а не каждый под).
+- **`src/database/data-source.ts`** (TypeORM CLI для `migration:generate/run/revert`):
+  - `entities: [...MASTERCARD_ENTITIES]` → **статический glob** `*.entity{.ts,.js}` (форма из
+    доки *«static glob path»*). Явный массив убран и здесь; `synchronize: false` уже было.
+- Чистка комментариев про `synchronize` (напр. `src/tenants/tenant.entity.ts`).
 
-### Not done — and why ❌
-- **Did NOT rewrite to the recipe's custom `DATA_SOURCE` provider pattern** (`database.providers.ts`
-  with `new DataSource().initialize()`, per-entity `*_REPOSITORY` providers, and
-  `@Inject('X_REPOSITORY')` in services). Reasons:
-  1. The recipe itself recommends the `@nestjs/typeorm` package instead (which we use).
-  2. It would **break the embeddable-module design** — the host monolith provides the TypeORM
-     `DataSource` (via `forRoot` + `autoLoadEntities`/entity list); a self-owned `DATA_SOURCE`
-     provider would conflict with the host's connection.
-  3. It would require rewriting repository injection across ~5 modules for no functional gain.
-  If the team lead specifically wants this rewrite, it's a separate, larger task — flag it.
+### НЕ сделано — и почему ❌
+- **НЕ переписывал на кастомные `DATA_SOURCE`-провайдеры из рецепта** (`database.providers.ts`
+  с `new DataSource().initialize()`, провайдеры `*_REPOSITORY` на каждую сущность и
+  `@Inject('X_REPOSITORY')` в сервисах). Причины:
+  1. Рецепт сам советует пакет `@nestjs/typeorm` (он у нас).
+  2. Это **сломало бы embeddable-дизайн** — монолит-хост сам даёт `DataSource` (через `forRoot`
+     + `autoLoadEntities`/список сущностей); собственный `DATA_SOURCE`-провайдер конфликтовал бы
+     с соединением хоста.
+  3. Пришлось бы переписывать инъекцию репозиториев в ~5 модулях без функциональной пользы.
+  Если тимлид хочет именно этот рефактор — это отдельная, большая задача, нужно флагнуть.
 
-### Why `data-source.ts` keeps an entities source (not `autoLoadEntities`)
-`autoLoadEntities` is a `@nestjs/typeorm` **`TypeOrmModule`** feature — it does **not** apply to a
-raw TypeORM `DataSource`. The CLI's `migration:generate` diffs entity metadata against the DB, so
-it needs an entities source. We provide it as the doc-style **static glob** (so there is still no
-hand-maintained array). `MASTERCARD_ENTITIES` remains exported from the package for the host
-(embedding seam) and for `HostIntegrityService`'s startup check.
+### Почему `data-source.ts` оставляет источник сущностей (не `autoLoadEntities`)
+`autoLoadEntities` — фича `@nestjs/typeorm` **`TypeOrmModule`**, на сырой `DataSource` она **не
+действует**. `migration:generate` в CLI диффает метаданные сущностей против БД, поэтому источник
+сущностей нужен. Дали его doc-формой — **статический glob** (ручного массива всё равно нет).
+`MASTERCARD_ENTITIES` остаётся экспортом пакета для хоста (seam встраивания) и для проверки на
+старте в `HostIntegrityService`.
 
-### Verification ✅
-- `tsc --noEmit` — clean.
-- **Fresh DB** (volume recreated): the schema was built **entirely by migrations** on boot
-  (`migrationsRun`), no `synchronize`. Confirmed `\dt` → 5 entity tables + `migrations`;
-  applied: `InitialSchema`, `AddTxStatus`.
-- **unit 184/184**, **hermetic e2e 16/16**, **live e2e 23/23** (real MC sandbox; validations
-  return real FLE data; admin/webhook/persist work via `autoLoadEntities`).
-- **`migration:generate` (data-source.ts glob) resolves entities** — confirmed it picks up all
-  `*.entity.ts` (not empty), so the glob works on this setup.
+### Проверка ✅
+- `tsc --noEmit` — чисто.
+- **Свежая БД** (volume пересоздан): схема построена **полностью миграциями** на старте
+  (`migrationsRun`), без `synchronize`. `\dt` → 5 entity-таблиц + `migrations`.
+- **unit 184/184**, **hermetic e2e 16/16**, **live e2e 23/23** (реальный sandbox; validations
+  отдают реальные FLE-данные; admin/webhook/persist работают через `autoLoadEntities`).
+- **`migration:generate`** (glob в `data-source.ts`) резолвит сущности — подтверждено.
 
-### Follow-up surfaced by this change → RESOLVED ✅ (migrations now == entities)
-Removing `synchronize` exposed a **pre-existing drift**: the old migrations didn't fully match
-the entity `@Index()` metadata (index names; the `tx_status` composite column order; and a
-missing `tenants.createdAt` index that `synchronize` used to create).
+### Находка, всплывшая из-за перехода → УСТРАНЕНА ✅ (миграции == entity)
+Убрав `synchronize`, обнажили **существовавший дрейф**: старые миграции не полностью совпадали с
+entity-метаданными `@Index()` (имена индексов; порядок колонок составного индекса `tx_status`;
+отсутствующий индекс `tenants.createdAt`, который раньше создавал `synchronize`).
 
-**Resolution (project is not yet deployed anywhere → safe to regenerate):** dropped the dev DB
-to empty, removed the two old migrations (`InitialSchema` + `AddTxStatus`) and **regenerated a
-single clean `InitialSchema`** from the current entities (`migration:generate` against an empty
-DB). It creates all 5 tables with the entity-derived indexes — including the previously-missing
-`tenants("createdAt")` index and the correct `tx_status("transactionReference","tenantId")`
-composite order. Verified: a follow-up `migration:generate` reports **"No changes in database
-schema were found"** → migrations and entities are now in exact sync. `AddTxStatus` is folded
-into `InitialSchema` (no longer a separate migration).
+**Решение (проект ещё нигде не задеплоен → перегенерировать безопасно):** сбросили dev-БД в
+пустую, удалили две старые миграции (`InitialSchema` + `AddTxStatus`) и **перегенерировали
+единый чистый `InitialSchema`** из текущих сущностей (`migration:generate` против пустой БД). Он
+создаёт все 5 таблиц с entity-индексами — включая пропавший `tenants("createdAt")` и правильный
+порядок `tx_status("transactionReference","tenantId")`. Проверка: повторный `migration:generate`
+→ **«No changes in database schema were found»** → миграции и entity синхронны. `AddTxStatus`
+свёрнут в `InitialSchema`.
 
-**Status:** config change **done + fully verified**; index drift **resolved** (single clean
-`InitialSchema`, `migration:generate` clean); e2e re-run on the regenerated schema.
+**Статус:** config-правка **сделана и полностью проверена**; дрейф индексов **устранён** (единый
+чистый `InitialSchema`, `migration:generate` чистый); e2e перепрогнан на новой схеме.
