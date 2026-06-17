@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { isWeakSecret } from '../common/secret-strength';
+import { isWeakSecret } from '../common/utils/secret-strength';
 
 /**
  * Конфиг встраиваемого модуля. Хост-приложение (b24club-api или dev-харнесс)

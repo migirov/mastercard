@@ -346,7 +346,7 @@ mTLS/ingress — опциональный доп. слой, не authoritative; 
   **#5 Clean up TenantRegistry bootstrap + seed script — ✅:** registry стал ЧИСТЫМ data-layer
   (убран `onModuleInit` целиком — он выполнялся и внутри встраиваемого модуля → писал `platform` в
   БД хоста на старте). `platform`-baseline сеет `DevSeedService` ТОЛЬКО dev-харнесса
-  (`src/dev-seed.service.ts` в `AppModule`); демо — в `src/tenants/tenant.seed.ts` + `scripts/seed.ts`
+  (`src/dev-seed.service.ts` в `AppModule`); демо — в `src/tenants/services/tenant.seed.ts` + `scripts/seed.ts`
   (`npm run seed`); e2e сеют демо в `beforeAll`. Хост провижит тенантов явно (admin/seed).
   **#6 Persist encrypted webhook events before ack — ✅:** зашифрованный push (`{encrypted_payload}`,
   декрипт не подключён) теперь ПЕРСИСТИТСЯ в `tx_status` (`eventType='ENCRYPTED'`) ДО ack

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { GatewayConfig } from '../config/gateway-config';
 import { SECRET_STORE } from './secret-store.types';
-import { LocalSecretStore } from './local-secret-store';
-import { VaultSecretStore } from './vault-secret-store';
+import { LocalSecretStore } from './services/local-secret-store';
+import { VaultSecretStore } from './services/vault-secret-store';
 
 /**
  * Выбор реализации хранилища секретов по опции модуля `secretStore`:

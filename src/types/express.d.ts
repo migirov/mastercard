@@ -1,4 +1,4 @@
-import { TenantContext } from '../auth/current-tenant.decorator';
+import { TenantContext } from '../auth/decorators/current-tenant.decorator';
 
 /**
  * Декларативное слияние со стандартным `express.Request` — добавляем поля,

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TransactionStatusEntity } from './transaction-status.entity';
-import { TransactionStatusStore } from './transaction-status.store';
+import { TransactionStatusEntity } from './entities/transaction-status.entity';
+import { TransactionStatusStore } from './services/transaction-status.store';
 
 /**
  * Владеет персистом статус-событий push-уведомлений (`tx_status`). Выделен в

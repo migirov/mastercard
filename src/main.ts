@@ -8,8 +8,8 @@ import { AppModule } from './app.module';
 import {
   RFI_UPLOAD_PATH,
   rfiUploadBodyParser,
-} from './common/rfi-upload.bodyparser';
-import { isWeakSecret } from './common/secret-strength';
+} from './common/utils/rfi-upload.bodyparser';
+import { isWeakSecret } from './common/utils/secret-strength';
 
 /** В production не даём стартовать со слабыми/дефолтными секретами. */
 function assertProdSecrets(): void {

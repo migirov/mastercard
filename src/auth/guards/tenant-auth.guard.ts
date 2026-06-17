@@ -8,9 +8,9 @@ import {
 import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
 import { JwtService } from '@nestjs/jwt';
-import { matchSharedToken } from '../../common/crypto.util';
-import { TenantRegistry } from '../../tenants/tenant.registry';
-import { TenantContext } from '../current-tenant.decorator';
+import { matchSharedToken } from '../../common/utils/crypto.util';
+import { TenantRegistry } from '../../tenants/services/tenant.registry';
+import { TenantContext } from '../decorators/current-tenant.decorator';
 
 /**
  * Единый гард для двух путей входа:

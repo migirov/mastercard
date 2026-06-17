@@ -5,12 +5,12 @@ import { AuthModule } from '../auth/auth.module';
 import { CredentialsModule } from '../credentials/credentials.module';
 import { MastercardClientModule } from '../mastercard/mastercard-client.module';
 import { TenantModule } from '../tenants/tenant.module';
-import { TenantThrottlerGuard } from '../common/tenant-throttler.guard';
+import { TenantThrottlerGuard } from '../common/guards/tenant-throttler.guard';
 import { TransactionStatusModule } from '../webhooks/transaction-status.module';
-import { CrossBorderService } from './crossborder.service';
-import { CrossBorderController } from './crossborder.controller';
-import { PaymentIdempotencyEntity } from './payment-idempotency.entity';
-import { PaymentIdempotencyStore } from './payment-idempotency.store';
+import { CrossBorderService } from './services/crossborder.service';
+import { CrossBorderController } from './controllers/crossborder.controller';
+import { PaymentIdempotencyEntity } from './entities/payment-idempotency.entity';
+import { PaymentIdempotencyStore } from './services/payment-idempotency.store';
 
 @Module({
   imports: [

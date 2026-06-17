@@ -347,7 +347,7 @@ is only for `req.ip`.
   data-layer (dropped `onModuleInit` entirely — it ran inside the embeddable module too → wrote
   `platform` into the host DB on boot). The `platform` baseline is seeded ONLY by the dev harness
   `DevSeedService` (`src/dev-seed.service.ts` in `AppModule`); demo lives in
-  `src/tenants/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e seed demo in `beforeAll`.
+  `src/tenants/services/tenant.seed.ts` + `scripts/seed.ts` (`npm run seed`); e2e seed demo in `beforeAll`.
   The host provisions tenants explicitly (admin/seed). Fresh-DB checks: unit 171, hermetic 17, live
   23. **#6 Persist encrypted webhook events before ack — ✅:** encrypted pushes (`{encrypted_payload}`,
   decryption not wired) are now PERSISTED to `tx_status` (`eventType='ENCRYPTED'`) BEFORE the ack

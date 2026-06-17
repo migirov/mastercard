@@ -3,14 +3,14 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditModule } from '../audit/audit.module';
 import { GatewayConfig } from '../config/gateway-config';
-import { OAuthClientEntity } from './oauth-client.entity';
+import { OAuthClientEntity } from './entities/oauth-client.entity';
 import { TenantModule } from '../tenants/tenant.module';
-import { ClientRegistry } from './client-registry';
-import { OAuthService } from './oauth.service';
-import { OAuthController } from './oauth.controller';
+import { ClientRegistry } from './services/client-registry';
+import { OAuthService } from './services/oauth.service';
+import { OAuthController } from './controllers/oauth.controller';
 import { TenantAuthGuard } from './guards/tenant-auth.guard';
 import { AdminAuthGuard } from './guards/admin-auth.guard';
-import { OAuthThrottlerGuard } from '../common/oauth-throttler.guard';
+import { OAuthThrottlerGuard } from '../common/guards/oauth-throttler.guard';
 
 @Module({
   imports: [

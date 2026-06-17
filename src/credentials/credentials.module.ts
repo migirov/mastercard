@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SecretsModule } from '../secrets/secrets.module';
-import { CredentialsService } from './credentials.service';
+import { CredentialsService } from './services/credentials.service';
 
 @Module({
   imports: [SecretsModule],

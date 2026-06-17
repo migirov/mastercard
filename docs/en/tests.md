@@ -103,7 +103,7 @@ just "not 404/500".
 > MUST be **valid RFC-4122 UUIDs**. Previously the invalid demo ids (`33000000-0000-0000-0000-
 > 000000000000`, `10000000-…-082000`; version/variant nibbles = 0) reached MC and got
 > `400 062000 INVALID_INPUT_FORMAT "Value contains invalid character"` (Source: `request_id`).
-> **Now** `UuidParamPipe` (`src/common/uuid-param.pipe.ts`) validates the format at the boundary
+> **Now** `UuidParamPipe` (`src/common/pipes/uuid-param.pipe.ts`) validates the format at the boundary
 > and returns a clean local `400` with no outbound call (unit: `uuid-param.pipe.spec`, 13/13).
 > With a **valid v4 form** (`33000000-0000-4000-8000-000000000000`) the request passes the pipe
 > and MC's format check, but MC returns **`401 AUTHORIZATION_FAILED`** (code `050007`, "Unauthorized
