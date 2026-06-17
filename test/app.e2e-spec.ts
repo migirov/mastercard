@@ -140,14 +140,17 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(typeof view.data.status).toBe('string');
   });
 
-  it('POST /crossborder/payments с кривым Idempotency-Key → 400 (до MC)', async () => {
-    const badKey = await http.post(
+  it('POST /crossborder/payments — без заголовка, идемпотентность по transaction_reference → доходит до MC', async () => {
+    // Заголовка Idempotency-Key больше нет (issue #3): ключ идемпотентности теперь
+    // выводится из transaction_reference в теле. Проверяем, что маршрут не падает
+    // локально (пайпа нет) и доходит до MC (там платёж без KYC отклонится — но НЕ 404/500).
+    const r = await http.post(
       '/crossborder/payments',
-      {},
-      { headers: { ...internal, 'idempotency-key': 'bad key!' } },
+      { paymentrequest: { transaction_reference: `e2e-${Date.now()}` } },
+      { headers: internal },
     );
-    expect(badKey.status).toBe(400);
-    expect(JSON.stringify(badKey.data)).toContain('Idempotency-Key');
+    expect(r.status).not.toBe(404);
+    expect(r.status).not.toBe(500);
   });
 
   it('POST /crossborder/address-validations (FLE) → 200 VALID/VERIFIED', async () => {

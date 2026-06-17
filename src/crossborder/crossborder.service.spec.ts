@@ -9,6 +9,7 @@ import {
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { Tenant } from '../tenants/tenant.types';
 import { UpstreamHttpException } from '../common/upstream.exception';
+import { sha256hex } from '../common/crypto.util';
 import { TransactionStatusStore } from '../webhooks/transaction-status.store';
 import { CrossBorderService } from './crossborder.service';
 
@@ -57,7 +58,7 @@ function make(opts?: {
     idempotency as unknown as IdempotencyService,
     statusEvents as unknown as TransactionStatusStore,
   );
-  return { svc, client, registry, credentials, statusEvents };
+  return { svc, client, registry, credentials, statusEvents, idempotency };
 }
 
 /** Достаёт McRequest, переданный в client.request. */
@@ -114,10 +115,28 @@ describe('CrossBorderService — path construction', () => {
       `/send/v1/partners/${PID}/crossborder/quotes`,
     );
     const p = make();
-    await p.svc.createPayment('acme', {} as never, undefined);
+    await p.svc.createPayment('acme', {} as never);
     expect(reqOf(p.client).path).toBe(
       `/send/v1/partners/${PID}/crossborder/payment`,
     );
+  });
+
+  it('createPayment — ключ идемпотентности = txref:sha256(transaction_reference)', async () => {
+    const p = make();
+    const ref = '08POC342598033X';
+    await p.svc.createPayment('acme', {
+      paymentrequest: { transaction_reference: ref },
+    } as never);
+    // idempotency.run(tenantId, key, producer, fingerprint)
+    const call = p.idempotency.run.mock.calls[0];
+    expect(call[0]).toBe('acme');
+    expect(call[1]).toBe(`txref:${sha256hex(ref)}`);
+  });
+
+  it('createPayment без transaction_reference → ключ undefined (без идемпотентности)', async () => {
+    const p = make();
+    await p.svc.createPayment('acme', {} as never);
+    expect(p.idempotency.run.mock.calls[0][1]).toBeUndefined();
   });
 
   it('address-validation — собственная база (без /crossborder и без partner-id)', async () => {

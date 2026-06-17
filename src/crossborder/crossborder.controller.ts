@@ -24,8 +24,6 @@ import { TenantAuthGuard } from '../auth/guards/tenant-auth.guard';
 import { ApiErrorResponses } from '../common/api-error-responses.decorator';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { UseGatewayContract } from '../common/gateway-contract.decorator';
-import { IdempotencyKey } from '../common/idempotency-key.decorator';
-import { IdempotencyKeyPipe } from '../common/idempotency-key.pipe';
 import { SafeIdPipe } from '../common/safe-id.pipe';
 import { UuidParamPipe } from '../common/uuid-param.pipe';
 import { StringQueryPipe } from '../common/string-query.pipe';
@@ -347,20 +345,13 @@ export class CrossBorderController {
   @Post('payments')
   // 201 (дефолт POST) намеренно: инициирование платежа СОЗДАёт ресурс-платёж в MC —
   // в отличие от compute/state-change POST'ов выше, помеченных @HttpCode(200).
-  @ApiOperation({ summary: 'Инициировать платёж. Idempotency-Key опционален.' })
-  @ApiHeader({
-    name: 'Idempotency-Key',
-    required: false,
-    description:
-      'Опциональный ключ идемпотентности (≤128, [A-Za-z0-9._:-]). Тот же ключ+тело → тот же результат без повторного вызова MC.',
+  @ApiOperation({
+    summary:
+      'Инициировать платёж. Идемпотентность — по transaction_reference (ретрай с тем же ref → тот же результат без повторного вызова MC).',
   })
   @UsePipes(mcPassthroughPipe())
-  payment(
-    @CurrentTenant() ctx: TenantContext,
-    @Body() body: PaymentRequestDto,
-    @IdempotencyKey(IdempotencyKeyPipe) idempotencyKey?: string,
-  ) {
-    return this.svc.createPayment(ctx.tenantId, body, idempotencyKey);
+  payment(@CurrentTenant() ctx: TenantContext, @Body() body: PaymentRequestDto) {
+    return this.svc.createPayment(ctx.tenantId, body);
   }
 
   /** Поиск платежа по reference: GET /crossborder/payments?ref=... */
