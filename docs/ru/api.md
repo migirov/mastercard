@@ -107,7 +107,6 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 |---|---|---|
 | `SafeIdPipe` | непустая строка без `/`,`\`,пробелов,`..` (анти path-traversal) | id/ref в пути MC |
 | `UuidParamPipe` | строгий RFC-4122 UUID (v1–5 + variant) | RFI `request_id`/`document_id` |
-| `IdempotencyKeyPipe` | опц.; строка ≤128 из `[A-Za-z0-9._:-]` | заголовок `Idempotency-Key` |
 | `StringQueryPipe` | опц.; отвергает не-строку (дубль-ключи query) | query-параметры каталогов |
 | `mcPassthroughPipe()` | мягкая: валидирует объявленные поля, НЕ режет неизвестные, НЕ коэрсит типы (суммы MC — строки) | тела к MC |
 | `strictDtoPipe()` | строгая: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth тела |
@@ -129,7 +128,7 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 ```
 1. POST /crossborder/quotes               → предложение (proposal) с ценой/курсом
 2. POST /crossborder/quotes/confirmations → подтвердить выбранное предложение
-3. POST /crossborder/payments             → инициировать платёж (+ Idempotency-Key)
+3. POST /crossborder/payments             → инициировать платёж (идемпотентность по transaction_reference)
 4. GET  /crossborder/payments/:id         → опрашивать статус (или ждать вебхук)
 ```
 
@@ -180,9 +179,10 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 **Назначение.** Инициировать платёж. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/payment` · **Auth:** tenant · **FLE:** да · **Код:** `201` (создание ресурса).
 
 Тело — `PaymentRequestDto` (passthrough, обёртка `paymentrequest`, суммы — строки).
-Заголовок **`Idempotency-Key`** (опц., рекомендуется): тот же ключ + то же тело → тот же
-результат без повторного вызова MC (защита от двойного списания при ретрае). Ключ ≤128
-символов из `[A-Za-z0-9._:-]`. Бэкстоп на стороне MC — `transaction_reference`.
+**Идемпотентность — по `transaction_reference`** (обязательное поле тела, по нему дедупит и сам
+MC): ретрай с тем же `transaction_reference` → тот же результат без повторного вызова MC (защита
+от двойного списания). Ключ хешируется (`sha256`) для KV-безопасности; тот же ref с ДРУГИМ телом
+→ `422`. Отдельного заголовка `Idempotency-Key` больше нет (убран — issue #3).
 
 ### GET /crossborder/payments/:id
 **Назначение.** Статус платежа по id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** нет тела. Параметр `id` — `SafeIdPipe`.

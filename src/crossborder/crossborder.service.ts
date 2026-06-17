@@ -102,25 +102,24 @@ export class CrossBorderService {
    * transaction_reference (тот же ref = та же транзакция). Тело шифруется в
    * MTF/Prod так же, как quote.
    */
-  async createPayment(
-    tenantId: string,
-    body: PaymentRequestDto,
-    idempotencyKey?: string,
-  ) {
-    // Idempotency-Key уже провалидирован на границе (IdempotencyKeyPipe: длина
-    // ≤128 + безопасный charset для kv_store.key). Здесь — только бизнес-логика.
+  async createPayment(tenantId: string, body: PaymentRequestDto) {
     // Резолвим credentials (gating + возможный медленный SecretStore) ДО захвата
     // замка идемпотентности: producer внутри замка должен быть ограничен только
     // 30-сек таймаутом MC (≪ LOCK_TTL 120с), иначе медленный Vault может растянуть
     // producer за TTL → второй под перезахватит замок → двойной POST.
     const creds = await this.resolveActive(tenantId);
-    // Идемпотентность: тот же Idempotency-Key → тот же результат, без повторного
-    // вызова MC (защита от двойных списаний при ретрае). Fingerprint тела: тот же
-    // ключ с ДРУГИМ телом → 422 (не молчаливый возврат результата первого платежа).
+    // Идемпотентность по `transaction_reference` — бизнес-ключ платежа: он обязателен
+    // у MC и по нему MC сам дедупит. Ретрай с тем же `transaction_reference` → тот же
+    // результат БЕЗ повторного вызова MC (защита от двойных списаний). Ключ хешируем
+    // (ref — произвольная строка клиента → KV-безопасно для `kv_store.key`).
+    // Fingerprint тела: тот же ref с ДРУГИМ телом → 422 (защита от подмены платежа).
+    // Нет ref → MC всё равно отвергнет платёж (поле обязательно) → идемпотентности нет.
+    const ref = body?.paymentrequest?.transaction_reference;
+    const idemKey = ref ? `txref:${sha256hex(ref)}` : undefined;
     const fingerprint = sha256hex(JSON.stringify(body));
     return this.idempotency.run(
       tenantId,
-      idempotencyKey,
+      idemKey,
       () =>
         this.call(
           creds,

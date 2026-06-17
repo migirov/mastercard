@@ -121,3 +121,36 @@ merchant→gateway request/response, not the outbound MC call.
 (A) confirm/cosmetic, or (B) remove the service?). Recommended: **(A)** keep the service; optionally
 extract a dedicated encryption axios-interceptor for cleanliness. **Done so far:** nothing changed
 in code yet (analysis only).
+
+---
+
+## Issue 3 — Use transaction_reference for idempotency
+
+**Requirement (verbatim).**
+> Use transaction_reference for idempotency
+
+**Done ✅ (literally as instructed — the idempotency key IS `transaction_reference`).**
+- `CrossBorderService.createPayment` now derives the idempotency key from
+  `body.paymentrequest.transaction_reference`, hashed as `txref:sha256(ref)` (KV-safe regardless of
+  the client's ref length/charset). The body-hash fingerprint is kept (same ref + DIFFERENT body →
+  `422`). If `transaction_reference` is absent → no idempotency (MC rejects the payment anyway — the
+  field is mandatory there).
+- **Removed the old `Idempotency-Key` header path entirely** (the mechanism being replaced): the
+  `@IdempotencyKey` param + `@ApiHeader` on the payment route, and the now-orphaned
+  `idempotency-key.decorator.ts` / `idempotency-key.pipe.ts` (+ spec). `IdempotencyService` itself is
+  unchanged — it still takes a key string; only the *source* of the key changed.
+- Tests: `crossborder.service.spec` asserts the key = `txref:sha256(transaction_reference)` and
+  `undefined` when the ref is absent; the old e2e "bad Idempotency-Key → 400" test (which exercised
+  the removed pipe) was replaced with a payment-reaches-MC check. `api.md` (RU+EN) updated (payment
+  section + pipes table + flow).
+
+**Why this is better.** `transaction_reference` is required and is MC's own dedup key, so payment
+idempotency is now **automatic and always-on** for every payment — previously it only kicked in if
+the client happened to send the optional `Idempotency-Key` header.
+
+**Decision recorded.** We asked whether to keep the header as an optional override; the team lead
+chose **(a) remove it entirely** — pure `transaction_reference`.
+
+**Verification:** tsc clean; unit + hermetic + live e2e green.
+
+**Status:** done + verified.

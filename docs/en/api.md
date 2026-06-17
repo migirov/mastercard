@@ -107,7 +107,6 @@ JWE (RSA-OAEP-256 + A256GCM), implemented as an **axios interceptor inside `Mast
 |---|---|---|
 | `SafeIdPipe` | non-empty string with no `/`,`\`,whitespace,`..` (anti path-traversal) | id/ref in MC path |
 | `UuidParamPipe` | strict RFC-4122 UUID (v1–5 + variant) | RFI `request_id`/`document_id` |
-| `IdempotencyKeyPipe` | optional; string ≤128 of `[A-Za-z0-9._:-]` | `Idempotency-Key` header |
 | `StringQueryPipe` | optional; rejects non-string (duplicate query keys) | catalog query params |
 | `mcPassthroughPipe()` | soft: validates declared fields, does NOT strip unknown, does NOT coerce types (MC amounts are strings) | MC-bound bodies |
 | `strictDtoPipe()` | strict: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth bodies |
@@ -129,7 +128,7 @@ OAuth1-signed with the tenant’s keys; the body (if any) is JWE-encrypted — t
 ```
 1. POST /crossborder/quotes               → proposal with price/rate
 2. POST /crossborder/quotes/confirmations → confirm the chosen proposal
-3. POST /crossborder/payments             → initiate the payment (+ Idempotency-Key)
+3. POST /crossborder/payments             → initiate the payment (idempotency by transaction_reference)
 4. GET  /crossborder/payments/:id         → poll status (or wait for the webhook)
 ```
 
@@ -180,9 +179,10 @@ Path params `transactionReference`, `proposalId` — both `SafeIdPipe`.
 **Purpose.** Initiate a payment. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/payment` · **Auth:** tenant · **FLE:** yes · **Code:** `201` (resource creation).
 
 Body — `PaymentRequestDto` (passthrough, `paymentrequest` wrapper, amounts are strings).
-Header **`Idempotency-Key`** (optional, recommended): same key + same body → same result without
-re-calling MC (guards against double charges on retry). Key ≤128 chars of `[A-Za-z0-9._:-]`.
-The MC-side backstop is `transaction_reference`.
+**Idempotency is keyed on `transaction_reference`** (a required body field that MC itself dedupes
+on): a retry with the same `transaction_reference` → the same result without re-calling MC (guards
+against double charges). The key is hashed (`sha256`) for KV safety; the same ref with a DIFFERENT
+body → `422`. There is no separate `Idempotency-Key` header anymore (removed — issue #3).
 
 ### GET /crossborder/payments/:id
 **Purpose.** Payment status by id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** no body. Param `id` — `SafeIdPipe`.
