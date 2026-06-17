@@ -232,7 +232,7 @@ All fixes passed typecheck:
 All verified live (boot + functionally):
 - ✅ **`@nestjs/terminus`** — `/health` (liveness), `/ready` (readiness + DB ping)
   for k8s. Probes excluded from audit and pino autoLogging.
-- ✅ **ENV validation** — `ConfigModule.forRoot({ validate })` (class-validator),
+- ✅ **ENV validation** — `ConfigModule.forRoot({ validate })` (Zod),
   fail-fast at startup instead of scattered lazy checks.
 - ✅ **TypeORM migrations** — `data-source.ts`, scripts `migration:generate/run/revert`,
   initial `InitialSchema` (generated and run). `synchronize` off in prod.

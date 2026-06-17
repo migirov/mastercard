@@ -249,7 +249,7 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` inside the umbrella;
   one named set `default` 120/min, per-pod), with a per-route override on `/oauth/token`.
 - **Health probes** — `@nestjs/terminus` (`HealthController` in the dev harness `AppModule`; when embedded the host owns probes) for k8s.
-- **ENV validation** — at the dev-harness boundary (`env.validation.ts`, class-validator,
+- **ENV validation** — at the dev-harness boundary (`env.validation.ts`, Zod,
   fail-fast at startup); when embedded the host passes typed `MastercardModuleOptions` and
   `GatewayConfig` enforces the prod gate.
 - **Logs** — `nestjs-pino`: structured JSON + correlation-id (`x-request-id`), secret redaction.

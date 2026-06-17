@@ -572,3 +572,41 @@ skipMissingProperties:true` — для тел, идущих в Mastercard) и `s
 
 **Статус:** сделано и проверено. «Кастомный passthrough-pipe» заменён одной общей стратегией
 валидации с пресетами `Strict`/`Passthrough`; связывание per-route сохранено ради встраиваемости.
+
+## Issue 13 — Replace env validation with Zod
+
+**Требование (дословно).**
+> Replace env validation with Zod
+
+**Проблема.** Валидация переменных окружения (`src/config/env.validation.ts`) была на
+`class-validator` + `class-transformer`: класс `EnvVars` с декораторами + `plainToInstance` +
+`validateSync`. Тимлид хочет на Zod — декларативная схема вместо класса-с-декораторами (и без
+зависимости env-валидации от рефлексии/`reflect-metadata`).
+
+### Сделано ✅
+- **Добавлен `zod@^3.23.8`** в `dependencies` (`class-validator`/`class-transformer` НЕ трогал —
+  на них держатся DTO и `gatewayValidationPipe`; меняется только механизм env-валидации).
+- **`env.validation.ts` переписан на Zod:** схема `z.object({...})` 1:1 повторяет прежние правила —
+  обязательные строки (`z.string().min(1)`), `MC_JWT_SECRET` → `min(16)`, опциональные
+  enum'ы (`z.enum(['true','false'])`, `z.enum(['local','vault'])`), `DB_POOL_MAX` → строка
+  положительного целого (`/^[1-9][0-9]*$/` — чуть строже прежнего `isNumberString`, который пускал
+  знаки/дробные вроде `-3.5`, бессмысленные для размера пула; нашёл ревью-проход, fail-fast лучше).
+  `validateEnv(config)` сохраняет контракт `ConfigModule.validate`:
+  на ошибке бросает `Invalid .env configuration: <path>: <msg>; …`, при успехе **возвращает исходный
+  `config`** (не parsed) — чтобы НЕ объявленные в схеме переменные (`NODE_ENV`, `PORT`, PoC-ключи)
+  остались доступны в `ConfigService` (Zod незнакомые ключи игнорирует, а не отвергает). Значения —
+  по-прежнему строки (без coercion): приложение само конвертит (`=== 'true'`, `Number(...)`).
+- **Новый `env.validation.spec.ts`** (env-валидация раньше НЕ покрывалась тестами): валидный конфиг
+  проходит и возвращается as-is; сохранность `NODE_ENV`/`PORT`; каждый из 9 обязательных при пропуске
+  → throw с именем ключа; пустая обязательная строка; короткий `MC_JWT_SECRET`; валидные опционалы;
+  невалидные значения enum/числа → throw.
+- **Доки RU+EN** (architecture, plan, memory): «class-validator» → «Zod» в описании env-валидации
+  (прочие упоминания class-validator — про DTO и benign peer-warning — оставлены).
+
+### Проверка ✅
+- `tsc` чисто, ESLint чисто; **unit 192** (+21 — новый env-спек) **/ hermetic 18 / live 23**. Оба
+  e2e-сьюта поднимают `AppModule` → `ConfigModule.forRoot({ validate: validateEnv })`, т.е. реально
+  бутстрапятся через Zod-валидацию — миграция подтверждена end-to-end.
+
+**Статус:** сделано и проверено. Env-валидация — на Zod-схеме; контракт `validateEnv` и поведение
+(fail-fast, passthrough незнакомых ключей, строки без coercion) сохранены 1:1.

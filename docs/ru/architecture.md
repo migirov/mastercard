@@ -250,7 +250,7 @@ address-validation; теперь в одном аудируемом месте).
 - **Rate-limit** — `@nestjs/throttler` (`ThrottlerModule.forRoot` внутри зонтичного модуля;
   один именованный сет `default` 120/мин, per-pod), с per-route override на `/oauth/token`.
 - **Health-пробы** — `@nestjs/terminus` (`HealthController` в dev-харнессе `AppModule`; при встраивании пробы даёт хост) для k8s.
-- **Валидация ENV** — на границе dev-харнесса (`env.validation.ts`, class-validator,
+- **Валидация ENV** — на границе dev-харнесса (`env.validation.ts`, Zod,
   fail-fast на старте); при встраивании хост передаёт типизированные `MastercardModuleOptions`,
   а прод-гейт проверяет `GatewayConfig`.
 - **Логи** — `nestjs-pino`: структурный JSON + correlation-id (`x-request-id`), redact секретов.

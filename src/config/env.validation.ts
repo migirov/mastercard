@@ -1,59 +1,59 @@
-import { plainToInstance } from 'class-transformer';
-import {
-  IsIn,
-  IsNotEmpty,
-  IsNumberString,
-  IsOptional,
-  IsString,
-  MinLength,
-  validateSync,
-} from 'class-validator';
+import { z } from 'zod';
 
 /**
- * Схема переменных окружения. Валидируется ОДИН раз на старте (ConfigModule
- * `validate`), fail-fast — вместо разбросанных ленивых `throw` при первом доступе.
- * Условные переменные (ключи шифрования при MC_ENCRYPTION_ENABLED=true и т.п.)
- * остаются опциональными здесь и проверяются в месте использования.
+ * Environment-variable schema. Validated ONCE at startup (ConfigModule
+ * `validate`), fail-fast — instead of scattered lazy `throw`s on first access.
+ * Conditional vars (encryption keys when MC_ENCRYPTION_ENABLED=true, etc.) stay
+ * optional here and are checked at their point of use.
+ *
+ * Values are kept as strings (no coercion): the app reads them via
+ * `ConfigService.get<string>(...)` and converts explicitly (`=== 'true'`,
+ * `Number(...)`), so the schema only validates FORMAT and leaves types untouched.
  */
-class EnvVars {
-  // --- обязательные всегда ---
-  @IsString() @IsNotEmpty() MC_BASE_URL!: string;
-  @IsString() @IsNotEmpty() MC_CONSUMER_KEY!: string;
-  @IsString() @IsNotEmpty() MC_PARTNER_ID!: string;
-  @IsString() @IsNotEmpty() MC_SIGNING_KEY_PATH!: string;
-  @IsString() @IsNotEmpty() MC_SIGNING_KEY_PASSWORD!: string;
-  @IsString() @IsNotEmpty() DATABASE_URL!: string;
-  @IsString() @MinLength(16) MC_JWT_SECRET!: string;
-  @IsString() @IsNotEmpty() MC_INTERNAL_TOKEN!: string;
-  @IsString() @IsNotEmpty() MC_ADMIN_TOKEN!: string;
+const EnvSchema = z.object({
+  // --- always required ---
+  MC_BASE_URL: z.string().min(1),
+  MC_CONSUMER_KEY: z.string().min(1),
+  MC_PARTNER_ID: z.string().min(1),
+  MC_SIGNING_KEY_PATH: z.string().min(1),
+  MC_SIGNING_KEY_PASSWORD: z.string().min(1),
+  DATABASE_URL: z.string().min(1),
+  MC_JWT_SECRET: z.string().min(16),
+  MC_INTERNAL_TOKEN: z.string().min(1),
+  MC_ADMIN_TOKEN: z.string().min(1),
 
-  // --- опциональные / с дефолтами (проверяем формат, если заданы) ---
-  @IsOptional() @IsIn(['true', 'false']) MC_ENCRYPTION_ENABLED?: string;
-  @IsOptional() @IsIn(['local', 'vault']) MC_SECRET_STORE?: string;
-  @IsOptional() @IsIn(['true', 'false']) DB_SYNC?: string;
-  @IsOptional() @IsNumberString() DB_POOL_MAX?: string;
-  @IsOptional() @IsString() MC_ENCRYPTION_CERT_PATH?: string;
-  @IsOptional() @IsString() MC_ENCRYPTION_FINGERPRINT?: string;
-  @IsOptional() @IsString() MC_DECRYPTION_KEY_PATH?: string;
-  @IsOptional() @IsString() MC_WEBHOOK_TOKEN?: string;
-  @IsOptional() @IsString() TRUST_PROXY?: string;
-}
+  // --- optional / defaulted (validate format only if present) ---
+  MC_ENCRYPTION_ENABLED: z.enum(['true', 'false']).optional(),
+  MC_SECRET_STORE: z.enum(['local', 'vault']).optional(),
+  DB_SYNC: z.enum(['true', 'false']).optional(),
+  // positive-integer string (pool size; parsed later via Number()). Stricter than
+  // the old @IsNumberString, which also accepted floats/signs (e.g. '-3.5') that
+  // make no sense as a pool max — fail fast on those instead.
+  DB_POOL_MAX: z
+    .string()
+    .regex(/^[1-9][0-9]*$/, 'must be a positive integer')
+    .optional(),
+  MC_ENCRYPTION_CERT_PATH: z.string().optional(),
+  MC_ENCRYPTION_FINGERPRINT: z.string().optional(),
+  MC_DECRYPTION_KEY_PATH: z.string().optional(),
+  MC_WEBHOOK_TOKEN: z.string().optional(),
+  TRUST_PROXY: z.string().optional(),
+});
 
-/** ConfigModule `validate`: бросает с понятным сообщением, если .env невалиден. */
+/** ConfigModule `validate`: throws with a readable message if .env is invalid. */
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  const parsed = plainToInstance(EnvVars, config, {
-    enableImplicitConversion: false,
-  });
-  const errors = validateSync(parsed, { skipMissingProperties: false });
-  if (errors.length > 0) {
-    const details = errors
-      .map((e) => Object.values(e.constraints ?? {}).join(', '))
+  const result = EnvSchema.safeParse(config);
+  if (!result.success) {
+    const details = result.error.issues
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
       .join('; ');
     throw new Error(`Invalid .env configuration: ${details}`);
   }
-  // Возвращаем исходный config (а не instance) — чтобы НЕ задекларированные здесь
-  // переменные (NODE_ENV, PORT, PoC-ключи и т.п.) остались доступны в ConfigService.
+  // Return the ORIGINAL config (not the parsed object): Zod strips keys it does
+  // not declare, and we must keep undeclared vars (NODE_ENV, PORT, PoC keys, …)
+  // available in ConfigService. Unknown keys are ignored by the schema, not
+  // rejected, so they pass validation untouched.
   return config;
 }
