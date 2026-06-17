@@ -63,7 +63,11 @@ describe('PaymentIdempotencyStore', () => {
   it('claim failed + row in-progress → 409', async () => {
     const repo = makeRepo();
     repo.query.mockResolvedValue([]);
-    repo.findOne.mockResolvedValue({ done: false, result: null, fingerprint: FP });
+    repo.findOne.mockResolvedValue({
+      done: false,
+      result: null,
+      fingerprint: FP,
+    });
     await expect(
       makeStore(repo).run('t1', 'k1', jest.fn(), FP),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -96,9 +100,14 @@ describe('PaymentIdempotencyStore', () => {
     repo.query.mockResolvedValue([{ id: 1 }]);
     const err = new HttpException('bad', 400);
     await expect(
-      makeStore(repo).run('t1', 'k1', async () => {
-        throw err;
-      }, FP),
+      makeStore(repo).run(
+        't1',
+        'k1',
+        async () => {
+          throw err;
+        },
+        FP,
+      ),
     ).rejects.toBe(err);
     expect(repo.delete).toHaveBeenCalledWith({
       tenantId: 't1',
@@ -113,9 +122,14 @@ describe('PaymentIdempotencyStore', () => {
     repo.query.mockResolvedValue([{ id: 1 }]);
     const err = new HttpException('upstream', 502);
     await expect(
-      makeStore(repo).run('t1', 'k1', async () => {
-        throw err;
-      }, FP),
+      makeStore(repo).run(
+        't1',
+        'k1',
+        async () => {
+          throw err;
+        },
+        FP,
+      ),
     ).rejects.toBe(err);
     expect(repo.delete).not.toHaveBeenCalled();
   });
@@ -124,9 +138,14 @@ describe('PaymentIdempotencyStore', () => {
     const repo = makeRepo();
     repo.query.mockResolvedValue([{ id: 1 }]);
     await expect(
-      makeStore(repo).run('t1', 'k1', async () => {
-        throw new Error('ECONNRESET');
-      }, FP),
+      makeStore(repo).run(
+        't1',
+        'k1',
+        async () => {
+          throw new Error('ECONNRESET');
+        },
+        FP,
+      ),
     ).rejects.toThrow('ECONNRESET');
     expect(repo.delete).not.toHaveBeenCalled();
   });

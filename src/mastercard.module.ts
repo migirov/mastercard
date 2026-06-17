@@ -17,7 +17,6 @@ import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
-import { HostIntegrityService } from './host-integrity.service';
 
 // Список сущностей — единый источник в mastercard.entities.ts. Ре-экспортируем,
 // чтобы публичный API модуля (host: `import { MASTERCARD_ENTITIES }`) не менялся.
@@ -44,10 +43,19 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  * Конфиг приходит через `forRootAsync` и раздаётся под-сервисам через глобальный
  * `GatewayConfig` (сервисы не читают `process.env`).
  *
- * Host requirements when embedding: a TypeORM connection that includes our entities
- * (`autoLoadEntities: true` or an explicit list). Payment idempotency and webhook dedup live
- * on Postgres (`payment_idempotency` / `tx_status`); there is no separate KV layer (or its
- * cron cleanup) anymore.
+ * Host integration is an EXPLICIT contract — the module does NOT introspect the host
+ * at runtime to warn about misconfiguration. What's required is stated where it's
+ * enforced or consumed:
+ *   - required config → typed `MastercardModuleOptions`, fail-fast in `GatewayConfig`
+ *     (throws at startup on a missing required option / weak prod secret);
+ *   - the TypeORM connection must include `MASTERCARD_ENTITIES` (the host spreads the
+ *     exported list, or `autoLoadEntities: true`) — a missing entity throws
+ *     `EntityMetadataNotFoundError` on first use, not silently;
+ *   - host-provided wiring that can't be expressed in code (shutdown hooks, the RFI
+ *     route body-parser, `webhookToken` for inbound webhooks) → the README
+ *     "Host integration checklist".
+ * Payment idempotency and webhook dedup live on Postgres (`payment_idempotency` /
+ * `tx_status`); there is no separate KV layer (or its cron cleanup) anymore.
  */
 @Module({
   imports: [
@@ -72,9 +80,6 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
       useFactory: (opts: MastercardModuleOptions) => new GatewayConfig(opts),
       inject: [MODULE_OPTIONS_TOKEN],
     },
-    // Startup check of the embedding contract (DataSource with entities, webhookToken):
-    // silent integration failures → an explicit WARN at startup.
-    HostIntegrityService,
   ],
   exports: [GatewayConfig],
 })

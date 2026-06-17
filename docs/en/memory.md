@@ -317,8 +317,9 @@ removed `process.env` leaks from the embeddable module; `Idempotency-Key` → pi
 lifecycle — audit timer in `onModuleInit`; single entity list (`mastercard.entities.ts`);
 moved `src/scripts` → `scripts/` and e2e → `test/app.e2e-spec.ts` (jest-e2e); **REC-1** —
 `AuditInterceptor` moved from a global `APP_INTERCEPTOR` to per-controller (the last
-global `APP_*` removed); **REC-2** — `HostIntegrityService` (startup self-check of the
-host contract) + host checklist in the README; named throttler. Full doc-grounded audit
+global `APP_*` removed); **REC-2** — host integration is an explicit contract (README
+checklist + typed-options fail-fast in `GatewayConfig`; the `HostIntegrityService` startup
+self-check originally added here was removed in issue #10); named throttler. Full doc-grounded audit
 (4 agents) — no HIGH/MED deviations.
 
 **Ingress:** zero code dependency on the ingress (webhook fail-closed token in the

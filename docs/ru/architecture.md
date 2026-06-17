@@ -26,9 +26,10 @@
 > идемпотентность платежей / дедуп вебхуков — на Postgres (отдельный KV-слой убран, issue #4);
 > health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
 > `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
-> модулем для `DataSource` хоста); сами entity co-located в своих модулях. Старт-сервис
-> `HostIntegrityService` предупреждает, если хост не подключил `DataSource` или
-> `webhookToken`. «standalone» в §1 описывает режим запуска dev-харнесса.
+> модулем для `DataSource` хоста); сами entity co-located в своих модулях. Интеграция с
+> хостом — ЯВНЫЙ контракт (типизированные опции с fail-fast в `GatewayConfig` +
+> `MASTERCARD_ENTITIES` + чек-лист в README), а не рантайм-самопроверка (issue #10).
+> «standalone» в §1 описывает режим запуска dev-харнесса.
 
 ## 1. Цель
 
@@ -196,14 +197,14 @@ documentation.md).
 
 Хост импортирует **только** `MastercardModule` (зонтичный). Всё ниже — приватные
 под-модули, собранные внутри него. Зонтичный модуль напрямую регистрирует per-pod
-`ThrottlerModule`, предоставляет `GatewayConfig` (из опций `forRootAsync`) и
-`HostIntegrityService`, реэкспортирует `MASTERCARD_ENTITIES`. Health-пробы (`/health`,
+`ThrottlerModule`, предоставляет `GatewayConfig` (из опций `forRootAsync`),
+реэкспортирует `MASTERCARD_ENTITIES`. Health-пробы (`/health`,
 `/ready`) живут в dev-харнессе (`AppModule`), а НЕ в зонтичном модуле — корневые пробы
 конфликтовали бы с пробами хост-монолита (при встраивании liveness/readiness — за хостом).
 
 | Модуль / единица | Ответственность |
 |---|---|
-| `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` + `HostIntegrityService` |
+| `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` поверх Postgres, статусы (ЧИСТЫЙ data-layer — на старте НЕ сеет); `TenantEntity` co-located. Засев тенантов вынесен наружу: `platform` — `DevSeedService` dev-харнесса (`AppModule`), демо — `npm run seed` (`tenant.seed.ts`); хост провижит сам |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory кэш (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (прод) |
@@ -236,7 +237,7 @@ documentation.md).
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
 Также в корне пакета: `src/index.ts` (публичный barrel API), `src/mastercard.entities.ts`
-(единый список сущностей), `src/host-integrity.service.ts` (старт-самопроверка),
+(единый список сущностей),
 `src/crossborder/mc-paths.ts` (централизованный билдер путей MC — префиксы MC намеренно
 неоднородны: `/send/partners` vs `/send/v1/partners` vs голый `/crossborder` vs база
 address-validation; теперь в одном аудируемом месте).
@@ -279,7 +280,8 @@ address-validation; теперь в одном аудируемом месте).
 - ✅ **Платформенные доработки:** health-пробы (terminus), валидация ENV,
   TypeORM-миграции, структурные логи (pino) + correlation-id.
 - ✅ **Встраиваемый зонтичный модуль:** единый `MastercardModule` + публичный barrel
-  (`src/index.ts`), per-controller cross-cutting связывание, `GatewayConfig`, `HostIntegrityService`.
+  (`src/index.ts`), per-controller cross-cutting связывание, `GatewayConfig`; интеграция —
+  явный контракт (типизированные опции с fail-fast + `MASTERCARD_ENTITIES` + чек-лист README).
 - ✅ **Полное покрытие MC API:** все 15 групп MC API Reference под `/crossborder/*`
   (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
   retrieve-confirmed-quote), payments/retrieve/cancel, address-/

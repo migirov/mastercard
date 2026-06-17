@@ -48,7 +48,9 @@ export class EncryptionService implements OnModuleInit {
   onModuleInit(): void {
     if (this.enabled) {
       this.jwe = this.buildJwe();
-      this.logger.log('Field-level encryption ВКЛЮЧЕНА (работает и на sandbox)');
+      this.logger.log(
+        'Field-level encryption ВКЛЮЧЕНА (работает и на sandbox)',
+      );
     } else {
       this.logger.log('Field-level encryption выключена — plain passthrough');
     }
