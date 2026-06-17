@@ -44,7 +44,7 @@ export class EncryptionService implements OnModuleInit {
 
   /** Строим JweEncryption (файловое I/O) в lifecycle-хуке, а НЕ в конструкторе
    *  (конвенция Nest: конструктор без side-effect'ов; согласовано с
-   *  AuditService/CredentialsService, которые тоже инициализируются в хуках). */
+   *  AuditService/PlatformCredentialsProvider, которые тоже инициализируются в хуках). */
   onModuleInit(): void {
     if (this.enabled) {
       this.jwe = this.buildJwe();

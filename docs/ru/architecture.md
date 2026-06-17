@@ -207,7 +207,7 @@ documentation.md).
 |---|---|
 | `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` поверх Postgres, статусы (ЧИСТЫЙ data-layer — на старте НЕ сеет); `TenantEntity` co-located. Засев тенантов вынесен наружу: `platform` — `DevSeedService` dev-харнесса (`AppModule`), демо — `npm run seed` (`tenant.seed.ts`); хост провижит сам |
-| `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory кэш (LRU 500 + TTL) |
+| `CredentialsModule` | фасад `CredentialsService` → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN in-memory кэш (LRU 500 + TTL + stampede) в `OwnCredentialsCache`; граничные гварды в `utils/credential-sanitize` (issue #14) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (прод) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов, `GET /admin/audit` |

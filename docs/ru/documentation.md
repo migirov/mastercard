@@ -494,7 +494,10 @@ in-memory (per-pod). Остальной код работает только с 
 общие это ключи платформы или собственные ключи партнёра.
 
 Код: [`src/credentials/credentials.types.ts`](../../src/credentials/credentials.types.ts),
-резолвер: [`src/credentials/credentials.service.ts`](../../src/credentials/credentials.service.ts).
+резолвер: [`src/credentials/credentials.service.ts`](../../src/credentials/credentials.service.ts)
+(тонкий фасад — issue #14 — делегирует `PlatformCredentialsProvider` и
+`OwnCredentialsProvider`; OWN-кэш — в `OwnCredentialsCache`, граничные гварды — в
+`utils/credential-sanitize.ts`).
 
 ## Поля
 
@@ -561,7 +564,7 @@ in-memory (per-pod). Остальной код работает только с 
 
 ## Валидация границы
 
-`CredentialsService.validateBundle` требует минимум для подписи: `consumerKey` и
+`OwnCredentialsProvider.validateBundle` требует минимум для подписи: `consumerKey` и
 `signing`. Поля шифрования опциональны (нужны только при `MC_ENCRYPTION_ENABLED`).
 
 ---

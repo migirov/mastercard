@@ -610,3 +610,41 @@ skipMissingProperties:true` — для тел, идущих в Mastercard) и `s
 
 **Статус:** сделано и проверено. Env-валидация — на Zod-схеме; контракт `validateEnv` и поведение
 (fail-fast, passthrough незнакомых ключей, строки без coercion) сохранены 1:1.
+
+## Issue 14 — Split CredentialsService responsibilities
+
+**Требование (дословно).**
+> Split CredentialsService responsibilities
+
+**Проблема.** `CredentialsService` тянул сразу ~7 обязанностей: dispatch PLATFORM/OWN, загрузку+вечный
+кэш платформенных ключей, fetch OWN из SecretStore, OWN-кэш (TTL+LRU+stampede), sanitize
+(`safePartnerId`/`safeSecretRef`), валидацию бандла, нормализацию ключа в PEM. Нарушение SRP.
+
+**Решение (по согласованию — фасад + 2 провайдера + кэш).** Чисто структурный рефактор, поведение 1:1.
+Внешний контракт неизменен: наружу экспортируется только `CredentialsService` (его инжектит лишь
+`CrossBorderService` через `resolve()`; `invalidate()` пока не вызывается).
+
+### Сделано ✅
+- **`CredentialsService`** → тонкий **фасад**: `resolve(tenant)` диспатчит PLATFORM/OWN, `invalidate()`
+  делегирует OWN-провайдеру. Остаётся единственным экспортом модуля.
+- **`PlatformCredentialsProvider`** — платформенные ключи из конфига, вечный кэш, `onModuleInit`-warm
+  (fail-fast на кривом .p12 на старте, а не на первом запросе).
+- **`OwnCredentialsProvider`** — fetch OWN: `safeSecretRef`→SecretStore→`validateBundle`→`safePartnerId`
+  →`toPem`→`McCredentials`; через кэш; `invalidate()`.
+- **`OwnCredentialsCache`** (`services/own-credentials.cache.ts`) — изолированный TTL+LRU(≤500)+stampede
+  кэш с API `getOrCreate(id, factory)`/`invalidate`/`size`; rejected-резолв выселяется (не залипает на TTL).
+- **`utils/credential-sanitize.ts`** — pure-гварды `safePartnerId`/`safeSecretRef` (используют оба
+  провайдера; 422 при невалидном, деталь в лог, наружу — generic).
+- **Спек разбит** на 4 файла (`credentials.service` фасад / `own-credentials.provider` валидация /
+  `own-credentials.cache` механика кэша / `platform-credentials.provider`) — каждая забота тестируется
+  изолированно (кэш — без DI). Комменты-ссылки (`create-tenant.dto`, `vault-secret-store`,
+  `encryption.service`) и доки RU/EN (documentation/architecture/tests-inner/production-questions) обновлены.
+
+### Проверка ✅
+- `tsc` чисто, ESLint чисто (после --fix); **unit 205 / hermetic 18 / live 23**. Оба e2e поднимают
+  `AppModule` → новые провайдеры резолвятся через Nest DI, приложение бутстрапится → разбиение
+  подтверждено end-to-end. `CredentialsService.resolve` (публичный API) не изменился — `CrossBorderService`
+  и его спек не тронуты.
+
+**Статус:** сделано и проверено. `CredentialsService` — тонкий фасад; каждая обязанность в своём классе
+(2 провайдера + кэш) или pure-утиле; поведение и публичный контракт сохранены 1:1.

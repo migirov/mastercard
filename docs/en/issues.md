@@ -612,3 +612,42 @@ reflection/`reflect-metadata` dependency for env validation).
 
 **Status:** done + verified. Env validation runs on a Zod schema; the `validateEnv` contract and
 behavior (fail-fast, passthrough of unknown keys, strings without coercion) are preserved 1:1.
+
+## Issue 14 — Split CredentialsService responsibilities
+
+**Requirement (verbatim).**
+> Split CredentialsService responsibilities
+
+**Problem.** `CredentialsService` carried ~7 responsibilities at once: PLATFORM/OWN dispatch, platform
+key load + forever-cache, OWN fetch from the SecretStore, OWN cache (TTL+LRU+stampede), sanitization
+(`safePartnerId`/`safeSecretRef`), bundle validation, key-material→PEM. An SRP violation.
+
+**Decision (agreed — facade + 2 providers + cache).** A pure structural refactor, behavior 1:1. The
+external contract is unchanged: only `CredentialsService` is exported (injected solely by
+`CrossBorderService` via `resolve()`; `invalidate()` is not yet called anywhere).
+
+### Done ✅
+- **`CredentialsService`** → a thin **facade**: `resolve(tenant)` dispatches PLATFORM/OWN, `invalidate()`
+  delegates to the OWN provider. Remains the module's only export.
+- **`PlatformCredentialsProvider`** — platform keys from config, forever-cache, `onModuleInit` warm
+  (fail-fast on a bad .p12 at boot, not on the first request).
+- **`OwnCredentialsProvider`** — OWN fetch: `safeSecretRef`→SecretStore→`validateBundle`→`safePartnerId`
+  →`toPem`→`McCredentials`; via the cache; `invalidate()`.
+- **`OwnCredentialsCache`** (`services/own-credentials.cache.ts`) — the isolated TTL+LRU(≤500)+stampede
+  cache with a `getOrCreate(id, factory)`/`invalidate`/`size` API; a rejected resolution is evicted
+  (does not stick for the TTL).
+- **`utils/credential-sanitize.ts`** — pure guards `safePartnerId`/`safeSecretRef` (used by both
+  providers; 422 on invalid, detail to the log, generic message out).
+- **Spec split** into 4 files (`credentials.service` facade / `own-credentials.provider` validation /
+  `own-credentials.cache` cache mechanics / `platform-credentials.provider`) — each concern tested in
+  isolation (the cache without DI). Comment refs (`create-tenant.dto`, `vault-secret-store`,
+  `encryption.service`) and docs RU/EN (documentation/architecture/tests-inner/production-questions) updated.
+
+### Verification ✅
+- `tsc` clean, ESLint clean (after --fix); **unit 205 / hermetic 18 / live 23**. Both e2e suites bring
+  up `AppModule` → the new providers resolve via Nest DI and the app bootstraps → the split is confirmed
+  end-to-end. `CredentialsService.resolve` (the public API) is unchanged — `CrossBorderService` and its
+  spec are untouched.
+
+**Status:** done + verified. `CredentialsService` is a thin facade; each responsibility lives in its own
+class (2 providers + cache) or a pure util; behavior and the public contract are preserved 1:1.
