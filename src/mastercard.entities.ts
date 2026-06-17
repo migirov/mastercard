@@ -1,6 +1,6 @@
 import { AuditLogEntity } from './audit/audit-log.entity';
 import { OAuthClientEntity } from './auth/oauth-client.entity';
-import { KvEntity } from './store/kv.entity';
+import { PaymentIdempotencyEntity } from './crossborder/payment-idempotency.entity';
 import { TenantEntity } from './tenants/tenant.entity';
 import { TransactionStatusEntity } from './webhooks/transaction-status.entity';
 
@@ -19,6 +19,6 @@ export const MASTERCARD_ENTITIES = [
   TenantEntity,
   OAuthClientEntity,
   AuditLogEntity,
-  KvEntity,
+  PaymentIdempotencyEntity,
   TransactionStatusEntity,
 ];

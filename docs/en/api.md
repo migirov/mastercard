@@ -179,10 +179,13 @@ Path params `transactionReference`, `proposalId` — both `SafeIdPipe`.
 **Purpose.** Initiate a payment. · **Upstream:** `POST /send/v1/partners/{pid}/crossborder/payment` · **Auth:** tenant · **FLE:** yes · **Code:** `201` (resource creation).
 
 Body — `PaymentRequestDto` (passthrough, `paymentrequest` wrapper, amounts are strings).
-**Idempotency is keyed on `transaction_reference`** (a required body field that MC itself dedupes
-on): a retry with the same `transaction_reference` → the same result without re-calling MC (guards
-against double charges). The key is hashed (`sha256`) for KV safety; the same ref with a DIFFERENT
-body → `422`. There is no separate `Idempotency-Key` header anymore (removed — issue #3).
+**Idempotency is keyed on `transaction_reference`** (a required body field), with the source of
+truth in **Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; no separate KV layer —
+issue #4): a retry with the same `transaction_reference` → the same result without re-calling MC
+(guards against double charges); a request already in progress → `409`; the same ref with a
+DIFFERENT body (fingerprint) → `422`. The key is hashed (`idemKey = txref:sha256(ref)`). There is
+no `Idempotency-Key` header (removed — issue #3). Completed records are permanent (one
+`transaction_reference` = one payment forever).
 
 ### GET /crossborder/payments/:id
 **Purpose.** Payment status by id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** no body. Param `id` — `SafeIdPipe`.
@@ -349,10 +352,12 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
   > receiver’s trust store; submit our cert chain via the **KMP portal**. ⚠️ MC **doesn’t know**
   > our `X-Webhook-Token` — it is injected by the TLS layer after mTLS, or a custom header in the
   > portal’s push config (confirm with MC).
-- **Dedup** by `eventRef` (MC retries up to 3×): repeat → `{"status":"duplicate"}`, else `{"status":"accepted"}`.
-- **Status persistence:** `STATUS_CHG`/`QUOTE_STATUS_CHG` → the `tx_status` table via one
-  `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup AND write are **atomic**). Other types
-  (`CARDFX_PUB`, RFI…) — KV dedup + log.
+- **Dedup** by `eventRef` in **Postgres** (no separate KV layer — issue #4; MC retries up to 3×):
+  repeat → `{"status":"duplicate"}`, else `{"status":"accepted"}`.
+- **Persistence in `tx_status`** via one `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup AND
+  write are **atomic**) — for ALL events: `STATUS_CHG`/`QUOTE_STATUS_CHG` carry status/stage and are
+  read by the merchant; others (`CARDFX_PUB`, RFI…) sit there for dedup+audit (filtered out of the
+  status read).
 - **Notations:** MC sends fields in both camelCase and snake_case — the handler normalizes both.
 - **Tenant attribution:** OWN — by `partnerId` (→ its `tenantId`); PLATFORM/unknown → the shared pool (`tenantId=NULL`).
 - **Merchant delivery:** polling via `GET /crossborder/status-events?ref=…`.

@@ -21,11 +21,12 @@ Reflects the **actually implemented** state of the service. Related documents:
 > admin/oauth, `mcPassthroughPipe` without `transform` for bodies going to MC — plus the
 > `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
 > override the host's error handling. Webhook auth is fail-closed in-service (+ a
-> signature-verifier scaffold), not "trust the ingress". Thin modules
-> (Encryption/Idempotency) are collapsed into providers; health probes moved to the dev harness (not the umbrella). The single
+> signature-verifier scaffold), not "trust the ingress". `EncryptionService` is collapsed
+> into a provider; payment idempotency / webhook dedup live on Postgres (the separate KV
+> layer is gone, issue #4); health probes moved to the dev harness (not the umbrella). The single
 > entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
 > the umbrella for the host `DataSource`); entities are co-located in their modules. A
-> startup `HostIntegrityService` warns if the host omits the `DataSource`/`ScheduleModule`/
+> startup `HostIntegrityService` warns if the host omits the `DataSource` or
 > `webhookToken`. The "standalone" framing in §1 describes the dev-harness run mode.
 
 ## 1. Goal
@@ -76,7 +77,8 @@ dual approval** — from Mastercard and from the platform. Deployment —
    ┌──────────────────┐       ┌────────────┐                     ▼
    │   PostgreSQL     │       │ Vault/KMS  │            api.mastercard.com
    │ tenants/oauth/   │       └────────────┘
-   │ audit/kv_store   │
+   │ audit/tx_status/ │
+   │ payment_idempo   │
    └──────────────────┘
 ```
 
@@ -89,7 +91,8 @@ across pods; everything domain-related is in **PostgreSQL**. Full breakdown in
 | Data | Where |
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
-| payment idempotency, webhook dedup | **PostgreSQL** (`kv_store`, TTL, atomic `setIfAbsent`) |
+| payment idempotency | **PostgreSQL** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, atomic `INSERT ON CONFLICT`) |
+| webhook dedup | **PostgreSQL** (`tx_status`, `UNIQUE(eventRef)`, atomic `INSERT ON CONFLICT`) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
 | credentials cache | **in-memory per-pod** (cache from Vault, TTL) |
 | partner secrets | **Vault/KMS** (via `SecretStore`) |
@@ -200,7 +203,6 @@ owns liveness/readiness).
 | Module / unit | Responsibility |
 |---|---|
 | `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` + `HostIntegrityService` |
-| `StoreModule` | `KvStore` → `PostgresKvStore` (idempotency, webhook dedup) + `KvCleanupService`; `KvEntity` co-located |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses, seeds; `TenantEntity` co-located |
 | `CredentialsModule` | `CredentialsService` (PLATFORM/OWN), in-memory cache (LRU 500 + TTL) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
@@ -208,12 +210,12 @@ owns liveness/readiness).
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |
 | `MastercardClientModule` | the low-level `MastercardClient` (axios + encrypt/sign/decrypt interceptors); `EncryptionService` is a provider here, not its own module |
 | `AuditModule` | `AuditInterceptor` (bound per-controller via `@UseGatewayContract()`) + batched `AuditService` → Postgres; `AuditLogEntity` co-located |
-| `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional), dedup; status events (STATUS_CHG/QUOTE_STATUS_CHG) persist to `tx_status` (atomic dedup+write), tenant attribution (OWN→partnerId / PLATFORM→shared pool), camel/snake normalization |
+| `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional); ALL events persist/dedup in `tx_status` via one atomic `INSERT ON CONFLICT` on `eventRef` (no KV layer); status events (STATUS_CHG/QUOTE_STATUS_CHG) carry status/stage and are read by the merchant, tenant attribution (OWN→partnerId / PLATFORM→shared pool), camel/snake normalization |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); shared by `WebhooksModule` (writes) and `CrossBorderModule` (tenant-scoped reads for polling) |
-| `CrossBorderModule` | business endpoints (all 15 MC API groups) + status polling (`GET /crossborder/status-events`); uses `mc-paths.ts` (centralized MC URL builder) |
+| `CrossBorderModule` | business endpoints (all 15 MC API groups) + status polling (`GET /crossborder/status-events`); uses `mc-paths.ts` (centralized MC URL builder); private `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
 | `HealthController` (dev harness) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered in `AppModule` (harness), NOT the umbrella — root probes would collide with the host; when embedded the host owns probes |
-| `IdempotencyService` | provider (via `KvStore`); collapsed from the old `IdempotencyModule` |
+| `PaymentIdempotencyStore` | private `CrossBorderModule` provider; payment idempotency on Postgres (`payment_idempotency`); replaced the old KV-based `IdempotencyService` (issue #4) |
 | `common/` | shared cross-cutting utilities (see below) |
 
 **`common/` (shared utilities & patterns):**
@@ -245,7 +247,6 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - **ENV validation** — at the dev-harness boundary (`env.validation.ts`, class-validator,
   fail-fast at startup); when embedded the host passes typed `MastercardModuleOptions` and
   `GatewayConfig` enforces the prod gate.
-- **Cron** — `@nestjs/schedule` (`KvCleanupService` cleans expired `kv_store`).
 - **Logs** — `nestjs-pino`: structured JSON + correlation-id (`x-request-id`), secret redaction.
 - **Migrations** — TypeORM CLI (`data-source.ts`, `migration:*`); `synchronize` off in prod.
 
@@ -253,8 +254,9 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 
 - **Tenant isolation:** credentials are resolved strictly from the authenticated
   context; partner A cannot use partner B's keys.
-- **Idempotency-Key** on payments (double-charge protection; backstop — MC
-  `transaction_reference`); the key is validated (length/charset).
+- **Payment idempotency** by `transaction_reference` (double-charge protection), source of
+  truth in Postgres `payment_idempotency` (no separate KV layer/header; backstop — MC's own
+  dedup on the same `transaction_reference`).
 - **Audit trail** on all operations — without bodies or secrets.
 - **OAuth2:** HS256 pinning, constant-time secret hash comparison, `no-store`.
 - **Prod gates:** refuse to start with weak/default secrets (`isWeakSecret()`, shared by
@@ -274,12 +276,12 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - ✅ **Phase 6 — Full operation set** (payment/retrieve/cancel/confirm) + Swagger.
 - ✅ **Migration to PostgreSQL** (Redis/in-memory removed as storage).
 - ✅ **Platform enhancements:** health probes (terminus), ENV validation,
-  TypeORM migrations, cron cleanup of `kv_store`, structured logs (pino) + correlation-id.
+  TypeORM migrations, structured logs (pino) + correlation-id.
 - ✅ **Embeddable umbrella module:** single `MastercardModule` + public-api barrel
   (`src/index.ts`), per-controller cross-cutting binding, `GatewayConfig`, `HostIntegrityService`.
 - ✅ **Full MC API coverage:** all 15 MC API Reference groups under `/crossborder/*`
   (balances, **rates** (Carded/FX Rate Pull, GET), quotes(+confirmations/cancellations/
-  retrieve-confirmed-quote), payments(+Idempotency-Key)/retrieve/cancel, address-/
+  retrieve-confirmed-quote), payments/retrieve/cancel, address-/
   account-validations, bank-lookups, iban-generations, cash-pickup, endpoint-guide,
   RFI requests/documents) + **Push Notifications**: the webhook persists statuses to
   `tx_status`, the merchant reads via `GET /crossborder/status-events`.

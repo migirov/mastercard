@@ -6,7 +6,7 @@
  * MC 401/5xx → 502 (тело скрыто), MC 4xx-объект → единый конверт с `upstream`,
  * MC 4xx-не-объект (HTML) → 502, успех → форма ответа. Плюс input-валидация.
  *
- * Нужен только Postgres (сиды/kv/audit) + dev-.env (dummy-секреты). Запуск:
+ * Нужен только Postgres (сиды/идемпотентность/дедуп/audit) + dev-.env (dummy-секреты). Запуск:
  *   node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
  * Живой sandbox-сьют — отдельно: --config ./test/jest-e2e-live.json.
  */
@@ -204,6 +204,44 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(stubMc.request.mock.calls.at(-1)?.[1].path).toContain(
       '/crossborder/quotes/TX1/proposals/pen_1',
     );
+  });
+
+  it('POST /crossborder/payments — идемпотентность по transaction_reference (Postgres, без KV)', async () => {
+    const ref = `E2EIDEM_${Date.now()}`;
+    const body = { paymentrequest: { transaction_reference: ref } };
+
+    // 1) первый платёж → доходит до MC, результат кэшируется в payment_idempotency
+    stubMc.next = { status: 200, data: { paymentId: 'PAY1' } };
+    const before = stubMc.request.mock.calls.length;
+    const p1 = await http.post('/crossborder/payments', body, {
+      headers: internal,
+    });
+    expect(p1.status).toBe(201);
+    expect(p1.data).toEqual({ paymentId: 'PAY1' });
+    expect(stubMc.request.mock.calls.length).toBe(before + 1);
+
+    // 2) ретрай тем же ref+телом → отдаём КЭШ из Postgres, MC повторно НЕ зовём
+    stubMc.next = { status: 200, data: { paymentId: 'MUST_NOT_LEAK' } };
+    const p2 = await http.post('/crossborder/payments', body, {
+      headers: internal,
+    });
+    expect(p2.status).toBe(201);
+    expect(p2.data).toEqual({ paymentId: 'PAY1' }); // кэш, не новый ответ MC
+    expect(stubMc.request.mock.calls.length).toBe(before + 1); // MC не вызван второй раз
+
+    // 3) тот же ref, ДРУГОЕ тело → 422 (защита от подмены платежа), MC не зовём
+    const p3 = await http.post(
+      '/crossborder/payments',
+      {
+        paymentrequest: {
+          transaction_reference: ref,
+          payment_amount: { amount: '5', currency: 'USD' },
+        },
+      },
+      { headers: internal },
+    );
+    expect(p3.status).toBe(422);
+    expect(stubMc.request.mock.calls.length).toBe(before + 1);
   });
 
   it('Status Change Push: вебхук → персист в tx_status → polling → дедуп (без MC)', async () => {

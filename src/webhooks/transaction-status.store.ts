@@ -38,12 +38,23 @@ const WIDTHS = {
 /** Безопасное окно выдачи статус-истории по одному ref (защита от раздувания ответа). */
 const READ_LIMIT = 200;
 
+/**
+ * Статусные типы событий. `tx_status` теперь хранит ВСЕ вебхуки (дедуп по eventRef),
+ * но в polling статусов мерчанту отдаём ТОЛЬКО статусные — прочие (Carded Rate / RFI)
+ * лежат для дедупа+аудита и наружу через этот путь не идут.
+ */
+const STATUS_EVENT_TYPES = ['STATUS_CHG', 'QUOTE_STATUS_CHG'];
+
 function trunc(value: string | null | undefined, max: number): string | null {
   if (value == null) return null;
   return value.length > max ? value.slice(0, max) : value;
 }
 
-/** Хранилище статус-событий push-уведомлений поверх PostgreSQL. */
+/**
+ * Хранилище push-уведомлений MC поверх PostgreSQL — единый источник истины для
+ * обработки вебхуков (дедуп по eventRef для ВСЕХ событий; статусные дополнительно
+ * несут status/stage и читаются мерчантом). Отдельного KV-слоя дедупа нет.
+ */
 @Injectable()
 export class TransactionStatusStore {
   constructor(
@@ -98,7 +109,12 @@ export class TransactionStatusStore {
   ): Promise<TransactionStatusEntity[]> {
     const qb = this.repo
       .createQueryBuilder('s')
-      .where('s.transactionReference = :ref', { ref: transactionReference });
+      .where('s.transactionReference = :ref', { ref: transactionReference })
+      // Только статусные события: не-статусные (Carded Rate / RFI) тоже лежат в
+      // `tx_status` для дедупа, но в статус-выдачу мерчанту попадать не должны.
+      .andWhere('s.eventType IN (:...statusTypes)', {
+        statusTypes: STATUS_EVENT_TYPES,
+      });
     if (includePool) {
       qb.andWhere('(s.tenantId = :t OR s.tenantId IS NULL)', { t: tenantId });
     } else {

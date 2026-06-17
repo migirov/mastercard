@@ -1,32 +1,19 @@
 import { Test } from '@nestjs/testing';
-import { KV_STORE, KvStore } from '../store/kv.types';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { TransactionStatusStore } from './transaction-status.store';
 import { WebhookHandler } from './webhook.handler';
 
-function mockKv(): jest.Mocked<KvStore> {
-  return {
-    get: jest.fn(),
-    set: jest.fn(),
-    setIfAbsent: jest.fn(),
-    del: jest.fn(),
-  };
-}
-
 describe('WebhookHandler', () => {
-  let kv: jest.Mocked<KvStore>;
   let statusStore: { record: jest.Mock };
   let tenants: { findOwnTenantIdByPartnerId: jest.Mock };
   let handler: WebhookHandler;
 
   beforeEach(async () => {
-    kv = mockKv();
     statusStore = { record: jest.fn(async () => true) };
     tenants = { findOwnTenantIdByPartnerId: jest.fn(async () => null) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         WebhookHandler,
-        { provide: KV_STORE, useValue: kv },
         { provide: TransactionStatusStore, useValue: statusStore },
         { provide: TenantRegistry, useValue: tenants },
       ],
@@ -35,7 +22,7 @@ describe('WebhookHandler', () => {
   });
 
   describe('статусные события → персист с атомарным дедупом', () => {
-    it('STATUS_CHG (свежее) → record + accepted; KV не используется', async () => {
+    it('STATUS_CHG (свежее) → record + accepted', async () => {
       statusStore.record.mockResolvedValue(true);
       const r = await handler.handle({
         eventRef: 'e1',
@@ -46,10 +33,10 @@ describe('WebhookHandler', () => {
       expect(statusStore.record).toHaveBeenCalledWith(
         expect.objectContaining({
           eventRef: 'e1',
+          eventType: 'STATUS_CHG',
           transactionReference: 'TX1',
         }),
       );
-      expect(kv.setIfAbsent).not.toHaveBeenCalled();
     });
 
     it('STATUS_CHG (дубликат: record=false) → duplicate', async () => {
@@ -116,24 +103,25 @@ describe('WebhookHandler', () => {
     });
   });
 
-  describe('не-статусные события → дедуп через KV', () => {
-    it('CARDFX_PUB (snake_case) → KV-дедуп по event_ref, не персистится', async () => {
-      kv.setIfAbsent.mockResolvedValue(true);
+  describe('не-статусные события → атомарный дедуп в Postgres', () => {
+    it('CARDFX_PUB (snake_case) → record по event_ref, tenantId=null', async () => {
+      statusStore.record.mockResolvedValue(true);
       const r = await handler.handle({
         event_ref: 'cf1',
         event_type: 'CARDFX_PUB',
       } as never);
       expect(r).toEqual({ status: 'accepted' });
-      expect(kv.setIfAbsent).toHaveBeenCalledWith(
-        'wh:cf1',
-        '1',
-        expect.any(Number),
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventRef: 'cf1',
+          eventType: 'CARDFX_PUB',
+          tenantId: null,
+        }),
       );
-      expect(statusStore.record).not.toHaveBeenCalled();
     });
 
-    it('duplicate, когда KV-ключ уже был', async () => {
-      kv.setIfAbsent.mockResolvedValue(false);
+    it('duplicate, когда record=false (eventRef уже был)', async () => {
+      statusStore.record.mockResolvedValue(false);
       const r = await handler.handle({
         eventRef: 'x1',
         eventType: 'CARDFX_PUB',
@@ -142,19 +130,17 @@ describe('WebhookHandler', () => {
     });
 
     it('fallback на notificationId, когда нет eventRef', async () => {
-      kv.setIfAbsent.mockResolvedValue(true);
+      statusStore.record.mockResolvedValue(true);
       await handler.handle({ notificationId: 'n1', eventType: 'CARDFX_PUB' });
-      expect(kv.setIfAbsent).toHaveBeenCalledWith(
-        'wh:n1',
-        '1',
-        expect.any(Number),
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ eventRef: 'n1' }),
       );
     });
 
-    it('accepted без дедупа, когда ref вообще нет', async () => {
-      const r = await handler.handle({});
+    it('accepted без дедупа/персиста, когда ref вообще нет', async () => {
+      const r = await handler.handle({ eventType: 'CARDFX_PUB' });
       expect(r).toEqual({ status: 'accepted' });
-      expect(kv.setIfAbsent).not.toHaveBeenCalled();
+      expect(statusStore.record).not.toHaveBeenCalled();
     });
 
     it('пустое/undefined тело → accepted (без 500)', async () => {
@@ -164,6 +150,7 @@ describe('WebhookHandler', () => {
       await expect(handler.handle(null as never)).resolves.toEqual({
         status: 'accepted',
       });
+      expect(statusStore.record).not.toHaveBeenCalled();
     });
   });
 
@@ -173,6 +160,5 @@ describe('WebhookHandler', () => {
     } as never);
     expect(r).toEqual({ status: 'accepted' });
     expect(statusStore.record).not.toHaveBeenCalled();
-    expect(kv.setIfAbsent).not.toHaveBeenCalled();
   });
 });

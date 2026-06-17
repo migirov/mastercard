@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import { TerminusModule } from '@nestjs/terminus';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from './config/env.validation';
@@ -13,7 +12,7 @@ import { MastercardModule } from './mastercard.module';
 /**
  * Dev-харнесс (standalone-запуск, e2e, Swagger). В production-монолите хост
  * импортирует ТОЛЬКО `MastercardModule.forRootAsync(...)`, а инфраструктуру
- * (ConfigModule, БД-соединение, логгер, ScheduleModule, health-пробы) предоставляет
+ * (ConfigModule, БД-соединение, логгер, health-пробы) предоставляет
  * сам. Здесь мы поднимаем эту инфраструктуру локально, чтобы прогонять сервис
  * автономно. `HealthController` (`/health`, `/ready`) — глобальный корневой маршрут
  * уровня приложения, поэтому живёт здесь, а не во встраиваемом `MastercardModule`
@@ -23,7 +22,6 @@ import { MastercardModule } from './mastercard.module';
   imports: [
     // читает .env из корня проекта + валидирует переменные на старте (fail-fast)
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ScheduleModule.forRoot(), // cron-задачи модуля (очистка kv_store)
     TerminusModule, // health-индикаторы для HealthController (харнесс)
     // Структурные JSON-логи + correlation-id (x-request-id) сквозь все логи.
     LoggerModule.forRoot({

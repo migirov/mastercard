@@ -10,7 +10,7 @@ import { stripCrlf } from '../common/sanitize.util';
 import { UpstreamHttpException } from '../common/upstream.exception';
 import { CredentialsService } from '../credentials/credentials.service';
 import { McCredentials } from '../credentials/credentials.types';
-import { IdempotencyService } from '../idempotency/idempotency.service';
+import { PaymentIdempotencyStore } from './payment-idempotency.store';
 import {
   McRequest,
   McResponse,
@@ -58,7 +58,7 @@ export class CrossBorderService {
     private readonly registry: TenantRegistry,
     private readonly credentials: CredentialsService,
     private readonly client: MastercardClient,
-    private readonly idempotency: IdempotencyService,
+    private readonly idempotency: PaymentIdempotencyStore,
     private readonly statusEvents: TransactionStatusStore,
   ) {}
 
@@ -108,10 +108,11 @@ export class CrossBorderService {
     // 30-сек таймаутом MC (≪ LOCK_TTL 120с), иначе медленный Vault может растянуть
     // producer за TTL → второй под перезахватит замок → двойной POST.
     const creds = await this.resolveActive(tenantId);
-    // Идемпотентность по `transaction_reference` — бизнес-ключ платежа: он обязателен
-    // у MC и по нему MC сам дедупит. Ретрай с тем же `transaction_reference` → тот же
-    // результат БЕЗ повторного вызова MC (защита от двойных списаний). Ключ хешируем
-    // (ref — произвольная строка клиента → KV-безопасно для `kv_store.key`).
+    // Идемпотентность по `transaction_reference` — бизнес-ключ платежа и источник
+    // истины: он обязателен у MC и по нему MC сам дедупит. Ретрай с тем же
+    // `transaction_reference` → тот же результат БЕЗ повторного вызова MC (защита от
+    // двойных списаний); состояние держим в Postgres (`payment_idempotency`), не в KV.
+    // Ключ хешируем (ref — произвольная строка клиента → bounded для колонки idemKey).
     // Fingerprint тела: тот же ref с ДРУГИМ телом → 422 (защита от подмены платежа).
     // Нет ref → MC всё равно отвергнет платёж (поле обязательно) → идемпотентности нет.
     const ref = body?.paymentrequest?.transaction_reference;
