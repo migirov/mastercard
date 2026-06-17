@@ -138,7 +138,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
 
   // --- input-валидация (до MC; детерминированно без сети) ---
 
-  it('POST /crossborder/quotes amount=number → 400 (mcPassthroughPipe DTO)', async () => {
+  it('POST /crossborder/quotes amount=number → 400 (Passthrough preset DTO)', async () => {
     const r = await http.post(
       '/crossborder/quotes',
       { quoterequest: { payment_amount: { amount: 105.15, currency: 'USD' } } },

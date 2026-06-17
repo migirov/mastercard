@@ -25,7 +25,10 @@ import { AuditService } from '../../audit/services/audit.service';
 import { ApiErrorResponses } from '../../common/decorators/api-error-responses.decorator';
 import { UseGatewayContract } from '../../common/decorators/gateway-contract.decorator';
 import { SafeIdPipe } from '../../common/pipes/safe-id.pipe';
-import { strictDtoPipe } from '../../common/pipes/validation.pipe';
+import {
+  gatewayValidationPipe,
+  ValidationStrategy,
+} from '../../common/pipes/gateway-validation.pipe';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { effectiveStatus, Tenant } from '../../tenants/tenant.types';
 import { AdminService } from '../services/admin.service';
@@ -39,7 +42,8 @@ import { TenantViewDto } from '../dto/tenant-view.dto';
 @ApiErrorResponses()
 @Controller('admin')
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
-@UsePipes(strictDtoPipe()) // строгая валидация DTO на нашей границе
+// Строгая валидация DTO на нашей границе (общая стратегия шлюза, пресет Strict).
+@UsePipes(gatewayValidationPipe(ValidationStrategy.Strict))
 @UseGatewayContract() // единый error-фильтр + audit (как у прочих контроллеров)
 // ClassSerializerInterceptor (per-controller, не глобально — модуль встраиваемый):
 // чтит class-transformer-декораторы при сериализации (страхует @Exclude на

@@ -108,10 +108,11 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 | `SafeIdPipe` | непустая строка без `/`,`\`,пробелов,`..` (анти path-traversal) | id/ref в пути MC |
 | `UuidParamPipe` | строгий RFC-4122 UUID (v1–5 + variant) | RFI `request_id`/`document_id` |
 | `StringQueryPipe` | опц.; отвергает не-строку (дубль-ключи query) | query-параметры каталогов |
-| `mcPassthroughPipe()` | мягкая: валидирует объявленные поля, НЕ режет неизвестные, НЕ коэрсит типы (суммы MC — строки) | тела к MC |
-| `strictDtoPipe()` | строгая: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth тела |
+| `gatewayValidationPipe(Passthrough)` | мягкая: валидирует объявленные поля, НЕ режет неизвестные, НЕ коэрсит типы (суммы MC — строки) | тела к MC |
+| `gatewayValidationPipe(Strict)` | строгая: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth тела |
 
-Глобального `ValidationPipe` НЕТ — каждый контроллер объявляет свой pipe (чтобы строгая
+Глобального `ValidationPipe` НЕТ — каждый контроллер объявляет нужный пресет одной общей
+стратегии валидации (чтобы строгая
 валидация наших границ не резала passthrough-поля MC). Тела к MC — `helmet`, лимит JSON
 **256 kb** (исключение — RFI upload, см. ниже).
 
@@ -369,7 +370,7 @@ MTF/Prod на сконфигурированном коридоре.
 # Admin API (оператор платформы)
 
 Группа `/admin/*`. Auth — `X-Admin-Token` (`AdminAuthGuard`). Тела — **строгая** валидация
-(`strictDtoPipe`). `secretRef` никогда не отдаётся наружу (`ClassSerializerInterceptor`).
+(`gatewayValidationPipe(Strict)`). `secretRef` никогда не отдаётся наружу (`ClassSerializerInterceptor`).
 Rate-limit 120/мин по IP. Вызовов в Mastercard нет.
 
 | Метод | Путь | Что делает | Код |

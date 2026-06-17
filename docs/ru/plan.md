@@ -144,8 +144,8 @@ partnerId; санитизация `secretRef`; passthrough строкового 
   `/crossborder/`. Проверено: доходят до MC.
 - ✅ Аудит Ф6 (фикс): `assertSafeId` — paymentId не меняет структуру URL.
 - ✅ DTO-валидация: **глобального `ValidationPipe` НЕТ** — каждый контроллер
-  объявляет свой pipe (строгий для admin/oauth, `mcPassthrough` для тел,
-  пробрасываемых в MC). Quote/payment-тела MC pipe не трогает (→201).
+  объявляет пресет одной общей стратегии (`Strict` для admin/oauth, `Passthrough`
+  для тел, пробрасываемых в MC). Quote/payment-тела pipe не трогает (→201).
 
 ### Полное покрытие MC API Reference ✅
 

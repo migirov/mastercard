@@ -17,8 +17,9 @@ Reflects the **actually implemented** state of the service. Related documents:
 > by deep path. Config arrives as options and is distributed via a global `GatewayConfig`
 > (`src/config/gateway-config.ts`) — services do NOT read `process.env`/`ConfigService`.
 > There is no global `ValidationPipe`/`APP_FILTER`/`APP_INTERCEPTOR`: cross-cutting
-> binding is **per-controller** (a controller carries its own pipe — `strictDtoPipe` for
-> admin/oauth, `mcPassthroughPipe` without `transform` for bodies going to MC — plus the
+> binding is **per-controller** (a controller declares the preset it needs of one shared
+> validation strategy — `gatewayValidationPipe(ValidationStrategy.Strict)` for admin/oauth,
+> `…Passthrough` without `transform` for bodies going to MC — plus the
 > `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
 > override the host's error handling. Webhook auth is fail-closed in-service (+ a
 > signature-verifier scaffold), not "trust the ingress". `EncryptionService` is collapsed
@@ -224,16 +225,18 @@ owns liveness/readiness).
   `@UseFilters(GatewayExceptionFilter)` + `@UseInterceptors(AuditInterceptor)`, applied
   **per-controller** (not `APP_*`) so a new controller cannot forget the error
   contract/audit. (`AdminController` keeps its own explicit set with `ClassSerializerInterceptor`.)
-- `mc-passthrough.pipe.ts` — `mcPassthroughPipe()` for bodies passed through to MC verbatim
-  (no `transform`/`whitelist`); lives in `common/` because both crossborder and webhooks use it.
+- `gateway-validation.pipe.ts` — one shared validation strategy: `gatewayValidationPipe(strategy)`
+  with two presets. `Strict` (whitelist + forbid extras + transform) for our boundaries
+  (admin/oauth); `Passthrough` (no `transform`/`whitelist`) for bodies forwarded to MC verbatim.
+  Shared, stateless pipe instances bound per-route via `@UsePipes`. Replaced the two earlier
+  ad-hoc factories `mcPassthroughPipe`/`strictDtoPipe` (issue #12).
 - `secret-strength.ts` — `isWeakSecret()` shared by `main.ts` and the `GatewayConfig` prod gate.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` documenting the unified error shape in Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` rejects non-string query params (objects/arrays).
 - The RFI document upload (`POST /crossborder/rfi/documents`) needs a 2MB body limit (base64
   file). The dev harness applies it as Nest middleware (`AppModule.configure`, ordered before the
   256kb global parser); when embedded the host owns body parsing (issue #11).
-- `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
-  `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
+- `safe-id.pipe.ts`, `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
 Also at the package root: `src/index.ts` (public-api barrel), `src/mastercard.entities.ts`

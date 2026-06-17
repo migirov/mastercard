@@ -254,8 +254,9 @@ warning — the client has the same combo).
    MC passthrough (`QuoteRequestDto`/`PaymentRequestDto`/`ConfirmationRequestDto`,
    validate only critical field formats). The global `ValidationPipe` was REMOVED (an
    embeddable module must not impose one + it double-validated and stripped MC fields).
-   Each controller carries its own pipe: `strictDtoPipe` (admin/oauth) vs
-   `mcPassthroughPipe` (crossborder/webhook, `transform:false` so string amounts survive).
+   Each controller declares a preset of ONE shared strategy `gatewayValidationPipe`:
+   `Strict` (admin/oauth) vs `Passthrough` (crossborder/webhook, `transform:false` so
+   string amounts survive) — unified in issue #12.
    Manual validation (`admin.service`, `typeof body`) removed.
 3. ✅ **Webhook security in-service, not infra.** `WebhookAuthGuard` fail-closed: token
    required everywhere, no `return true` "relying on mTLS". `main.ts` prod gate requires

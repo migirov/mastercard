@@ -14,7 +14,10 @@ import { Throttle } from '@nestjs/throttler';
 import { UseGatewayContract } from '../../common/decorators/gateway-contract.decorator';
 import { parseClientCredentials } from '../../common/utils/oauth-credentials';
 import { OAuthThrottlerGuard } from '../../common/guards/oauth-throttler.guard';
-import { strictDtoPipe } from '../../common/pipes/validation.pipe';
+import {
+  gatewayValidationPipe,
+  ValidationStrategy,
+} from '../../common/pipes/gateway-validation.pipe';
 import { TokenRequestDto } from '../dto/token-request.dto';
 import { TokenResponseDto } from '../dto/token-response.dto';
 import { OAuthService } from '../services/oauth.service';
@@ -23,7 +26,8 @@ import { OAuthService } from '../services/oauth.service';
 @ApiTags('oauth')
 @Controller('oauth')
 @UseGuards(OAuthThrottlerGuard) // лимит по client_id — защита от brute-force секретов
-@UsePipes(strictDtoPipe()) // строгая валидация тела на нашей границе
+// Строгая валидация тела на нашей границе (общая стратегия шлюза, пресет Strict).
+@UsePipes(gatewayValidationPipe(ValidationStrategy.Strict))
 @UseGatewayContract() // error-контракт (RFC 6749 §5.2 для /oauth/token) + audit
 export class OAuthController {
   constructor(private readonly oauth: OAuthService) {}

@@ -528,3 +528,47 @@ README.
 **Статус:** сделано и проверено. RFI-лимит — Nest middleware в корневом модуле; кастомный
 Express-хелпер и его публичные экспорты убраны. При встраивании body-парсингом владеет хост
 (задокументировано), т.к. middleware суб-модуля не опередит глобальный парсер хоста.
+
+## Issue 12 — Replace custom passthrough validation pipe with shared validation strategy
+
+**Требование (дословно).**
+> Replace custom passthrough validation pipe with shared validation strategy
+
+**Проблема.** Валидация была размазана по двум кастомным фактори в `common/pipes/`:
+`mcPassthroughPipe()` (мягкий: `whitelist:false, forbidNonWhitelisted:false, transform:false,
+skipMissingProperties:true` — для тел, идущих в Mastercard) и `strictDtoPipe()` (строгий:
+`whitelist+forbidNonWhitelisted+transform` — для наших границ admin/oauth). Каждый — отдельный
+фабричный хелпер, вызывался на каждом роуте (`mcPassthroughPipe()` создавал НОВЫЙ инстанс на каждый
+из ~11 проходов). «Кастомный passthrough-pipe» как отдельная сущность — то, на что указал тимлид.
+
+**Решение (по согласованию — единая стратегия + пресеты).** Свёл оба в ОДНУ общую стратегию
+валидации с двумя именованными пресетами. Глобальный pipe / `APP_PIPE` сознательно НЕ используем:
+модуль встраиваемый, а `APP_PIPE` из feature-модуля применяется ко всему приложению и протёк бы в
+роуты хост-монолита (или там был бы другой / отсутствовал). Поэтому связывание остаётся per-route
+через `@UsePipes`, но конфигурация — одна.
+
+### Сделано ✅
+- **Новый `src/common/pipes/gateway-validation.pipe.ts`:** `enum ValidationStrategy { Strict,
+  Passthrough }` + `gatewayValidationPipe(strategy)`. Внутри — два ШАРЕННЫХ stateless-инстанса
+  `ValidationPipe` (по одному на пресет), переиспользуются на всех роутах — ровно как единый
+  глобальный pipe, но без навязывания хосту. Опции пресетов байт-в-байт совпадают со старыми
+  фактори → поведение идентично.
+- **Удалены** `common/pipes/mc-passthrough.pipe.ts` и `common/pipes/validation.pipe.ts`.
+- **Контроллеры** (`crossborder` ×10, `webhooks`, `oauth`, `admin`) переведены на
+  `@UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough|Strict))`.
+- **Комментарии/доки:** `main.ts`, `admin.service`, `create-tenant.dto`, 6 crossborder-DTO,
+  webhook-контроллер, тест-нейм + доки RU/EN (architecture, api, memory, plan) + README. Попутно
+  вычистил из architecture протухшие ссылки (`idempotency-key.*` удалён в #3, `validation.pipe.ts` —
+  теперь).
+- **`index.ts` не тронут** — pipe'ы и так были приватными (не breaking для хоста).
+
+### Проверка ✅
+- `tsc` чисто, ESLint чисто; **unit 171 / hermetic 18 / live 23** — без дрейфа счётчиков (поведение
+  сохранено 1:1). Hermetic-тест «quotes amount=number → 400» подтверждает работу пресета Passthrough,
+  admin/oauth-тесты — пресета Strict.
+- Анализ на баги + code review (по 1 проходу): дефектов нет. Шаринг инстансов безопасен (pipe
+  stateless, DTO-metatype приходит per-call из `ArgumentMetadata`); нет циклов/проблем порядка
+  инициализации; публичный API не изменён.
+
+**Статус:** сделано и проверено. «Кастомный passthrough-pipe» заменён одной общей стратегией
+валидации с пресетами `Strict`/`Passthrough`; связывание per-route сохранено ради встраиваемости.

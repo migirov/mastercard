@@ -531,3 +531,46 @@ co-located in the **root** module's `configure`, RFI applied first. (The live 50
 **Status:** done + verified. The RFI body limit is Nest middleware in the root module; the bespoke
 Express helper and its public exports are gone. Embedded hosts own body parsing (documented), since
 a sub-module's middleware cannot pre-empt the host's global parser.
+
+## Issue 12 — Replace custom passthrough validation pipe with shared validation strategy
+
+**Requirement (verbatim).**
+> Replace custom passthrough validation pipe with shared validation strategy
+
+**Problem.** Validation was spread across two custom factories in `common/pipes/`:
+`mcPassthroughPipe()` (soft: `whitelist:false, forbidNonWhitelisted:false, transform:false,
+skipMissingProperties:true` — for bodies forwarded to Mastercard) and `strictDtoPipe()` (strict:
+`whitelist+forbidNonWhitelisted+transform` — for our own boundaries, admin/oauth). Each was a
+separate factory helper, invoked on every route (`mcPassthroughPipe()` allocated a NEW instance on
+each of the ~11 routes). The standalone "custom passthrough pipe" is what the team lead flagged.
+
+**Decision (agreed — single strategy + presets).** Collapsed both into ONE shared validation
+strategy with two named presets. A global pipe / `APP_PIPE` is deliberately NOT used: the module is
+embeddable, and an `APP_PIPE` registered in a feature module applies app-wide and would leak into
+the host monolith's routes (or be missing / different there). So binding stays per-route via
+`@UsePipes`, but the configuration is single-sourced.
+
+### Done ✅
+- **New `src/common/pipes/gateway-validation.pipe.ts`:** `enum ValidationStrategy { Strict,
+  Passthrough }` + `gatewayValidationPipe(strategy)`. Behind it, two SHARED stateless `ValidationPipe`
+  instances (one per preset), reused across every route — exactly like a single global pipe instance
+  would be, but without imposing one on the host. Preset options are byte-identical to the old
+  factories → behavior is unchanged.
+- **Deleted** `common/pipes/mc-passthrough.pipe.ts` and `common/pipes/validation.pipe.ts`.
+- **Controllers** (`crossborder` ×10, `webhooks`, `oauth`, `admin`) now use
+  `@UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough|Strict))`.
+- **Comments/docs:** `main.ts`, `admin.service`, `create-tenant.dto`, 6 crossborder DTOs, the webhook
+  controller, the test name + docs RU/EN (architecture, api, memory, plan) + README. Also cleaned
+  stale references out of architecture (`idempotency-key.*` deleted in #3, `validation.pipe.ts` now).
+- **`index.ts` untouched** — the pipes were never public API (no host-breaking change).
+
+### Verification ✅
+- `tsc` clean, ESLint clean; **unit 171 / hermetic 18 / live 23** — no count drift (behavior preserved
+  1:1). The hermetic test "quotes amount=number → 400" exercises the Passthrough preset; admin/oauth
+  tests exercise the Strict preset.
+- One bug-analysis pass + one code-review pass: no defects. Sharing instances is safe (the pipe is
+  stateless; the DTO metatype arrives per-call via `ArgumentMetadata`); no init-order/cycle issues;
+  public API unchanged.
+
+**Status:** done + verified. The "custom passthrough pipe" is replaced by one shared validation
+strategy with `Strict`/`Passthrough` presets; per-route binding is kept for embeddability.

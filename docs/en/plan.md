@@ -142,8 +142,8 @@ partnerId presence check; `safePartnerId` against path-injection; bundle validat
   `/crossborder/`. Verified: they reach MC.
 - ✅ Phase 6 audit (fix): `assertSafeId` — paymentId cannot change the URL structure.
 - ✅ DTO validation: **there is NO global `ValidationPipe`** — each controller
-  declares its own pipe (strict for admin/oauth, `mcPassthrough` for bodies forwarded
-  to MC). Quote/payment MC bodies are left untouched by the pipe (→201).
+  declares a preset of one shared strategy (`Strict` for admin/oauth, `Passthrough`
+  for bodies forwarded to MC). Quote/payment MC bodies are left untouched by the pipe (→201).
 
 ### Full MC API Reference coverage ✅
 

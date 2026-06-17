@@ -18,8 +18,9 @@
 > раздаётся через глобальный `GatewayConfig` (`src/config/gateway-config.ts`) —
 > сервисы НЕ читают `process.env`/`ConfigService`. Глобального
 > `ValidationPipe`/`APP_FILTER`/`APP_INTERCEPTOR` нет: cross-cutting связывание —
-> **per-controller** (контроллер несёт свой pipe — `strictDtoPipe` для admin/oauth,
-> `mcPassthroughPipe` без `transform` для тел, идущих в MC — плюс композитный декоратор
+> **per-controller** (контроллер объявляет нужный пресет ОДНОЙ общей стратегии валидации —
+> `gatewayValidationPipe(ValidationStrategy.Strict)` для admin/oauth,
+> `…Passthrough` без `transform` для тел, идущих в MC — плюс композитный декоратор
 > `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
 > ошибок хоста. Аутентификация вебхука — fail-closed в сервисе (+ каркас проверки
 > подписи), а не «доверие к ингрессу». `EncryptionService` свёрнут в провайдер;
@@ -225,16 +226,18 @@ documentation.md).
   `@UseFilters(GatewayExceptionFilter)` + `@UseInterceptors(AuditInterceptor)`,
   навешивается **per-controller** (не `APP_*`), чтобы новый контроллер не мог забыть
   error-контракт/аудит. (`AdminController` оставлен со своим явным набором с `ClassSerializerInterceptor`.)
-- `mc-passthrough.pipe.ts` — `mcPassthroughPipe()` для тел, пробрасываемых в MC как есть
-  (без `transform`/`whitelist`); лежит в `common/`, т.к. используется и crossborder, и webhooks.
+- `gateway-validation.pipe.ts` — одна общая стратегия валидации: `gatewayValidationPipe(strategy)`
+  с двумя пресетами. `Strict` (whitelist + forbid extras + transform) — на наших границах
+  (admin/oauth); `Passthrough` (без `transform`/`whitelist`) — для тел, пробрасываемых в MC как
+  есть. Шаренные stateless-инстансы pipe, навешиваются per-route через `@UsePipes`. Заменил
+  два прежних ad-hoc-фактори `mcPassthroughPipe`/`strictDtoPipe` (issue #12).
 - `secret-strength.ts` — `isWeakSecret()`, общий для `main.ts` и прод-гейта `GatewayConfig`.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` документирует единый формат ошибки в Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` отвергает не-строковые query-параметры (объекты/массивы).
 - Загрузка RFI-документа (`POST /crossborder/rfi/documents`) требует лимита тела 2MB (base64-файл).
   Dev-харнесс задаёт его как Nest middleware (`AppModule.configure`, ДО глобального 256kb-парсера);
   при встраивании body-парсингом владеет хост (issue #11).
-- `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
-  `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
+- `safe-id.pipe.ts`, `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
 Также в корне пакета: `src/index.ts` (публичный barrel API), `src/mastercard.entities.ts`
