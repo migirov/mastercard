@@ -18,12 +18,11 @@ export interface CreateTenantInput {
 }
 
 /**
- * Реестр партнёров поверх PostgreSQL (источник истины, общий для всех подов).
- * ЧИСТЫЙ data-layer: НЕ сеет ничего на старте — встраиваемый модуль не должен
- * писать в БД хоста при bootstrap. Засев тенантов вынесен наружу: базовый
- * `platform` — dev-харнесс (`DevSeedService` в `AppModule`), демо — `npm run seed`
- * (`scripts/seed.ts`); хост в проде провижит тенантов через admin-API или seed.
- * См. [tenant.seed.ts].
+ * Partner registry on top of PostgreSQL (the source of truth, shared across all pods).
+ * A PURE data layer: it seeds NOTHING on startup — the embeddable module must not write to
+ * the host DB on bootstrap. Tenant seeding lives outside: the baseline `platform` via the
+ * dev harness (`DevSeedService` in `AppModule`), demo via `npm run seed` (`scripts/seed.ts`);
+ * in prod the host provisions tenants via the admin API or seed. See [tenant.seed.ts].
  */
 @Injectable()
 export class TenantRegistry {

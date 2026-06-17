@@ -20,12 +20,11 @@ import { PaymentIdempotencyStore } from './payment-idempotency.store';
     AuthModule,
     AuditModule,
     TransactionStatusModule,
-    // Идемпотентность платежей — источник истины в Postgres (`payment_idempotency`),
-    // а не в отдельном KV-слое.
+    // Payment idempotency — the source of truth is Postgres (`payment_idempotency`),
+    // not a separate KV layer.
     TypeOrmModule.forFeature([PaymentIdempotencyEntity]),
   ],
-  // PaymentIdempotencyStore — приватный провайдер (единственный потребитель —
-  // CrossBorderService).
+  // PaymentIdempotencyStore — a private provider (the only consumer is CrossBorderService).
   providers: [CrossBorderService, PaymentIdempotencyStore, TenantThrottlerGuard],
   controllers: [CrossBorderController],
   exports: [CrossBorderService],

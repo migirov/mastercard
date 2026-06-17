@@ -2,13 +2,12 @@ import { Repository } from 'typeorm';
 import { TenantEntity } from './tenant.entity';
 import { CredentialMode } from './tenant.types';
 
-/** Сид-запись тенанта (id обязателен; остальное — как в TenantEntity). */
+/** A tenant seed row (id required; the rest as in TenantEntity). */
 export type TenantSeed = Partial<TenantEntity> & { id: string };
 
 /**
- * Базовый PLATFORM-тенант (общие ключи платформы). Нужен для PLATFORM-режима во
- * ВСЕХ средах → засевается на старте приложения (`TenantRegistry.onModuleInit`),
- * не демо-данные. Идемпотентно.
+ * The baseline PLATFORM tenant (the platform's shared keys). Needed for PLATFORM mode in
+ * ALL environments → seeded at app startup (`DevSeedService`), not demo data. Idempotent.
  */
 export const PLATFORM_TENANT: TenantSeed = {
   id: 'platform',
@@ -20,10 +19,10 @@ export const PLATFORM_TENANT: TenantSeed = {
 };
 
 /**
- * Демо-тенанты для локальной разработки и e2e — НЕ для production. Засеваются
- * ТОЛЬКО seed-скриптом (`npm run seed`) или e2e-харнессом, а не bootstrap'ом
- * приложения (чтобы старт не плодил тестовые данные во встраиваемом модуле).
- * `own-*` ссылаются на secretRef'ы локального SecretStore (dev-сертификаты).
+ * Demo tenants for local development and e2e — NOT for production. Seeded ONLY by the seed
+ * script (`npm run seed`) or the e2e harness, not by the app bootstrap (so startup doesn't
+ * breed test data inside the embeddable module). `own-*` reference secretRefs of the local
+ * SecretStore (dev certificates).
  */
 export const DEMO_TENANTS: TenantSeed[] = [
   {
@@ -56,10 +55,10 @@ export const DEMO_TENANTS: TenantSeed[] = [
 ];
 
 /**
- * Идемпотентный засев тенантов: на каждый — `INSERT ... ON CONFLICT DO NOTHING`.
- * Без гонок при одновременном старте нескольких подов (findOne→save ронял бы boot
- * на duplicate key); существующие записи НЕ перезаписываются — admin-правки
- * approval/suspend сохраняются. Возвращает id РЕАЛЬНО вставленных (для лога/тестов).
+ * Idempotent tenant seeding: one `INSERT ... ON CONFLICT DO NOTHING` per tenant. Race-free
+ * when several pods start at once (a findOne→save would crash boot on a duplicate key);
+ * existing rows are NOT overwritten — admin approval/suspend edits survive. Returns the ids
+ * actually inserted (for logging/tests).
  */
 export async function seedTenants(
   repo: Repository<TenantEntity>,

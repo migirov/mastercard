@@ -358,9 +358,11 @@ MTF/Prod на сконфигурированном коридоре.
 - **Нотации:** MC шлёт поля в camelCase и snake_case — хендлер нормализует обе.
 - **Атрибуция тенанту:** OWN — по `partnerId` (→ его `tenantId`); PLATFORM/неизвестный → общий пул (`tenantId=NULL`).
 - **Доставка мерчанту:** polling через `GET /crossborder/status-events?ref=…`.
-- **Зашифрованный push** (`{encrypted_payload:{data}}`): детектируется, ack `200` без обработки
-  (ключ расшифровки есть; осталось протянуть в хендлер + per-tenant seam — актуально MTF/Prod,
-  в sandbox push «Not Applicable»).
+- **Зашифрованный push** (`{encrypted_payload:{data}}`): декрипт ещё не подключён (открытый блокер
+  MTF/Prod: ключ расшифровки + per-tenant seam), но сырой конверт **персистится в `tx_status`
+  (`eventType='ENCRYPTED'`) ДО `200`** (issue #6) — иначе после ack событие терялось бы (MC не
+  ретраит). Дедуп по `enc:sha256(шифротекста)` (или внешнему ref, если есть). Обработка — позже из
+  БД, когда подключим декрипт. В sandbox push «Not Applicable».
 
 ---
 

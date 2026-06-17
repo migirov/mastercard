@@ -45,8 +45,8 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     // как в main.ts: глобального pipe НЕТ — каждый контроллер несёт свой.
     await app.listen(PORT);
 
-    // Демо-тенанты больше НЕ засеваются на старте (issue #5) — ставим их явно для
-    // e2e (базовый `platform` сеет DevSeedService dev-харнесса). own-sandbox — OWN/ACTIVE.
+    // Demo tenants are NO LONGER seeded on startup (issue #5) — we add them explicitly for
+    // e2e (the baseline `platform` is seeded by the dev-harness DevSeedService). own-sandbox — OWN/ACTIVE.
     await seedTenants(
       app.get<Repository<TenantEntity>>(getRepositoryToken(TenantEntity)),
       DEMO_TENANTS,

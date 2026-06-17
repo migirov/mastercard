@@ -44,10 +44,10 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  * Конфиг приходит через `forRootAsync` и раздаётся под-сервисам через глобальный
  * `GatewayConfig` (сервисы не читают `process.env`).
  *
- * Требования к хосту при встраивании: TypeORM-соединение, включающее наши entity
- * (`autoLoadEntities: true` или явный список). Идемпотентность платежей и дедуп
- * вебхуков — на Postgres (`payment_idempotency` / `tx_status`), отдельного KV-слоя
- * (и его cron-очистки) больше нет.
+ * Host requirements when embedding: a TypeORM connection that includes our entities
+ * (`autoLoadEntities: true` or an explicit list). Payment idempotency and webhook dedup live
+ * on Postgres (`payment_idempotency` / `tx_status`); there is no separate KV layer (or its
+ * cron cleanup) anymore.
  */
 @Module({
   imports: [
@@ -72,8 +72,8 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
       useFactory: (opts: MastercardModuleOptions) => new GatewayConfig(opts),
       inject: [MODULE_OPTIONS_TOKEN],
     },
-    // Старт-проверка контракта встраивания (DataSource c entity, webhookToken):
-    // тихие провалы интеграции → явный WARN на старте.
+    // Startup check of the embedding contract (DataSource with entities, webhookToken):
+    // silent integration failures → an explicit WARN at startup.
     HostIntegrityService,
   ],
   exports: [GatewayConfig],

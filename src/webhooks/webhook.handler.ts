@@ -1,15 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { sha256hex } from '../common/crypto.util';
 import { clipForLog } from '../common/sanitize.util';
 import { TenantRegistry } from '../tenants/tenant.registry';
 import { McWebhookEventDto } from './dto/mc-webhook-event.dto';
 import { TransactionStatusStore } from './transaction-status.store';
 
-/** Типы событий, которые несут статус транзакции/котировки → персистим. */
+/** Event types that carry a transaction/quote status → we persist them. */
 const STATUS_EVENT_TYPES = new Set(['STATUS_CHG', 'QUOTE_STATUS_CHG']);
 
-/** Нормализованный срез события (camelCase ⊕ snake_case → единый вид). */
+/**
+ * The first NON-EMPTY (after trim) string ref among the candidates, else undefined.
+ * A `??` chain won't do: a field that arrives as an empty string `''` is NOT passed through
+ * by `??` — and an empty ref would become the dedup key, collapsing ALL such events into a
+ * single row (`UNIQUE(eventRef)`) → lost events.
+ */
+function firstRef(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v === 'string' && v.trim() !== '') return v;
+  }
+  return undefined;
+}
+
+/** A normalized slice of an event (camelCase ⊕ snake_case → a single shape). */
 interface NormalizedEvent {
-  ref: string | null; // eventRef ?? notificationId — ключ дедупа
+  ref: string | null; // eventRef ?? notificationId — the dedup key
   eventType: string | null;
   partnerId: string | null;
   transactionReference: string | null;
@@ -22,13 +36,17 @@ interface NormalizedEvent {
 type Ack = { status: 'accepted' | 'duplicate' };
 
 /**
- * Обработка push-уведомлений Mastercard. Источник истины — PostgreSQL (`tx_status`),
- * отдельного KV-слоя нет: дедуп всех событий — через UNIQUE(eventRef).
- * - Статусные события (STATUS_CHG/QUOTE_STATUS_CHG) → персист в `tx_status` с
- *   status/stage; дедуп И запись атомарны (INSERT ON CONFLICT DO NOTHING).
- * - Прочие события (Carded Rate Push, RFI и т.п.) → тот же атомарный дедуп+аудит
- *   в `tx_status` (без status/stage); бизнес-обработка — по мере необходимости.
- * - MC шлёт поля и в camelCase, и в snake_case → нормализуем обе нотации.
+ * Mastercard push-notification handling. The source of truth is PostgreSQL (`tx_status`),
+ * there is no separate KV layer: all events are deduped via UNIQUE(eventRef).
+ * - Status events (STATUS_CHG/QUOTE_STATUS_CHG) → persisted to `tx_status` with status/stage;
+ *   dedup AND write are atomic (INSERT ON CONFLICT DO NOTHING).
+ * - Other events (Carded Rate Push, RFI, etc.) → the same atomic dedup+audit in `tx_status`
+ *   (without status/stage); business processing as needed.
+ * - Encrypted push (`{encrypted_payload}`) → decryption isn't wired yet (open MTF/Prod
+ *   blocker), but the raw envelope is PERSISTED to `tx_status` (`eventType='ENCRYPTED'`)
+ *   BEFORE the ack — otherwise MC won't retry after 200 and the event is lost; decryption/
+ *   processing happens later.
+ * - MC sends fields in both camelCase and snake_case → we normalize both notations.
  */
 @Injectable()
 export class WebhookHandler {
@@ -40,15 +58,12 @@ export class WebhookHandler {
   ) {}
 
   async handle(event: McWebhookEventDto): Promise<Ack> {
-    // Зашифрованный push (mTLS-канал + JWE-тело). Декрипт ещё НЕ подключён:
-    // нужен Client-ключ расшифровки + per-tenant seam (открытый блокер, MTF/Prod;
-    // в sandbox push «Not Applicable»). Подтверждаем (иначе MC ретраит), но НЕ
-    // обрабатываем — поля под шифром не видны, дедуп по ref невозможен.
+    // Encrypted push (mTLS channel + JWE body). Decryption is NOT wired yet (needs the
+    // client decryption key + a per-tenant seam — open MTF/Prod blocker; in sandbox push is
+    // "Not Applicable"). We do NOT process it (fields are under the cipher) but we PERSIST
+    // the envelope BEFORE the ack — see handleEncrypted.
     if (this.isEncrypted(event)) {
-      this.logger.warn(
-        'Зашифрованный push получен, но декрипт не подключён (Client-ключ/per-tenant, MTF/Prod) — ack без обработки.',
-      );
-      return { status: 'accepted' };
+      return this.handleEncrypted(event);
     }
 
     const n = this.normalize(event);
@@ -59,9 +74,51 @@ export class WebhookHandler {
     return this.handleOther(n);
   }
 
-  /** Статусное событие → атомарный персист с дедупом по eventRef. */
+  /**
+   * Encrypted push: decryption isn't wired, but we PERSIST the raw envelope to `tx_status`
+   * (`eventType='ENCRYPTED'`) BEFORE acking — otherwise MC won't retry after 200 and the
+   * event is lost for good. If the write fails we do NOT swallow it: the exception → 500 →
+   * MC retries (persist-before-ack). Once decryption is wired, these rows are processed from
+   * the DB.
+   *
+   * Dedup key: a top-level ref if MC sends one OUTSIDE the cipher, else the ciphertext hash
+   * (`enc:sha256`). A retry of the identical envelope → dedup; if MC re-encrypts per retry
+   * (different IV/CEK) the hash changes → a possible duplicate, reconciled after decryption.
+   * tenantId=null: attribution is impossible (partnerId is under the cipher); such rows are
+   * filtered out of the merchant status read (findForTenant → status types only).
+   */
+  private async handleEncrypted(event: McWebhookEventDto): Promise<Ack> {
+    const r = (event ?? {}) as unknown as Record<string, any>;
+    const cipher = String(r.encrypted_payload?.data ?? '');
+    // A top-level (outside the cipher) ref, if MC sends one — more stable than the hash
+    // (survives re-encryption per retry); otherwise the ciphertext hash. `firstRef` drops
+    // empties.
+    const ref =
+      firstRef(r.eventRef, r.event_ref, r.notificationId, r.notification_id) ??
+      (cipher ? `enc:${sha256hex(cipher)}` : null);
+
+    const fresh = await this.statusStore.record({
+      eventRef: ref,
+      tenantId: null,
+      transactionReference: null,
+      eventType: 'ENCRYPTED',
+      transactionType: null,
+      status: null,
+      stage: null,
+      payload: r,
+    });
+
+    this.logger.warn(
+      fresh
+        ? 'Encrypted push stored (decryption not wired, MTF/Prod) — acked without processing.'
+        : 'Encrypted push — duplicate (already stored), acked without processing.',
+    );
+    return { status: fresh ? 'accepted' : 'duplicate' };
+  }
+
+  /** Status event → atomic persist with dedup by eventRef. */
   private async handleStatus(n: NormalizedEvent): Promise<Ack> {
-    // Атрибуция тенанту: OWN → по partnerId; PLATFORM/неизвестный → общий пул (null).
+    // Tenant attribution: OWN → by partnerId; PLATFORM/unknown → shared pool (null).
     const tenantId = n.partnerId
       ? await this.tenants.findOwnTenantIdByPartnerId(n.partnerId)
       : null;
@@ -79,26 +136,26 @@ export class WebhookHandler {
 
     if (!fresh) {
       this.logger.log(
-        `Дубликат статус-вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
+        `Duplicate status webhook eventRef=${clipForLog(n.ref)} — ignoring`,
       );
       return { status: 'duplicate' };
     }
     this.logger.log(
-      `Статус сохранён: tx=${clipForLog(n.transactionReference)} type=${clipForLog(n.transactionType)} status=${clipForLog(n.status)}${n.stage ? `/${clipForLog(n.stage)}` : ''}`,
+      `Status stored: tx=${clipForLog(n.transactionReference)} type=${clipForLog(n.transactionType)} status=${clipForLog(n.status)}${n.stage ? `/${clipForLog(n.stage)}` : ''}`,
     );
     return { status: 'accepted' };
   }
 
   /**
-   * Не-статусные события: атомарный дедуп+аудит в Postgres (тот же `tx_status`,
-   * INSERT ON CONFLICT по eventRef) + лог. Без ref дедуп невозможен (NULL'ы в
-   * Postgres различны) → не персистим (иначе плодили бы строки), просто принимаем.
-   * tenantId=null: эти события тенанту не атрибутируются (общий пул); из выдачи
-   * статус-поллинга мерчанта они отфильтрованы (findForTenant → только статусные).
+   * Non-status events: atomic dedup+audit in Postgres (the same `tx_status`, INSERT ON
+   * CONFLICT by eventRef) + log. Without a ref dedup is impossible (NULLs are distinct in
+   * Postgres) → we don't persist (else we'd breed rows), just accept. tenantId=null: these
+   * events aren't attributed to a tenant (shared pool); they're filtered out of the merchant
+   * status poll (findForTenant → status types only).
    */
   private async handleOther(n: NormalizedEvent): Promise<Ack> {
     if (!n.ref) {
-      this.logger.log(`Вебхук eventType=${clipForLog(n.eventType)} (без ref)`);
+      this.logger.log(`Webhook eventType=${clipForLog(n.eventType)} (no ref)`);
       return { status: 'accepted' };
     }
     const fresh = await this.statusStore.record({
@@ -113,15 +170,15 @@ export class WebhookHandler {
     });
     if (!fresh) {
       this.logger.log(
-        `Дубликат вебхука eventRef=${clipForLog(n.ref)} — игнорируем`,
+        `Duplicate webhook eventRef=${clipForLog(n.ref)} — ignoring`,
       );
       return { status: 'duplicate' };
     }
-    this.logger.log(`Вебхук eventType=${clipForLog(n.eventType)}`);
+    this.logger.log(`Webhook eventType=${clipForLog(n.eventType)}`);
     return { status: 'accepted' };
   }
 
-  /** Признак зашифрованного тела MC: `{ encrypted_payload: { data } }`. */
+  /** Detects an encrypted MC body: `{ encrypted_payload: { data } }`. */
   private isEncrypted(event: McWebhookEventDto): boolean {
     const env = event as unknown as {
       encrypted_payload?: { data?: unknown };
@@ -130,23 +187,28 @@ export class WebhookHandler {
   }
 
   /**
-   * Сводит camelCase и snake_case к единому виду и достаёт статус/стадию из
-   * типичных мест (quote.confirmStatus / cancelStatus или верхний уровень).
-   * Поля сверх объявленных в DTO живут на объекте (passthrough, whitelist:false).
+   * Reduces camelCase and snake_case to a single shape and pulls status/stage from the
+   * usual places (quote.confirmStatus / cancelStatus or the top level). Fields beyond those
+   * declared in the DTO live on the object (passthrough, whitelist:false).
    */
   private normalize(event: McWebhookEventDto): NormalizedEvent {
-    // `event ?? {}` — тело может прийти пустым/null (POST без тела) → без этого
-    // обращение к свойствам уронило бы хендлер в 500 (а контракт — всегда 200).
+    // `event ?? {}` — the body may arrive empty/null (POST with no body) → without this,
+    // accessing properties would crash the handler with a 500 (and the contract is always
+    // 200).
     const r = (event ?? {}) as unknown as Record<string, any>;
-    const eventRef = r.eventRef ?? r.event_ref ?? null;
-    const notificationId = r.notificationId ?? r.notification_id ?? null;
     const quote = (r.quote ?? {}) as Record<string, any>;
     const confirm = (quote.confirmStatus ?? quote.cancelStatus ?? {}) as Record<
       string,
       any
     >;
     return {
-      ref: eventRef ?? notificationId,
+      ref:
+        firstRef(
+          r.eventRef,
+          r.event_ref,
+          r.notificationId,
+          r.notification_id,
+        ) ?? null,
       eventType: r.eventType ?? r.event_type ?? null,
       partnerId: r.partnerId ?? r.partner_id ?? null,
       transactionReference:

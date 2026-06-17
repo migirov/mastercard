@@ -77,8 +77,8 @@ import { TenantEntity } from './tenants/tenant.entity';
     }),
     // Dev-БД: TypeORM-соединение (в монолите его даёт хост).
     DatabaseModule,
-    // Репозиторий TenantEntity для DevSeedService (засев базового platform на старте
-    // — только dev-харнесс; во встраиваемом модуле засева на boot нет).
+    // TenantEntity repository for DevSeedService (seeds the baseline platform on startup —
+    // dev harness only; the embeddable module does no seeding on boot).
     TypeOrmModule.forFeature([TenantEntity]),
     // Вся интеграция Mastercard — одним модулем. Конфиг берём из .env через
     // ConfigService (в монолите хост передаёт свой useFactory).
