@@ -5,10 +5,6 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import {
-  RFI_UPLOAD_PATH,
-  rfiUploadBodyParser,
-} from './common/utils/rfi-upload.bodyparser';
 import { isWeakSecret } from './common/utils/secret-strength';
 
 /** В production не даём стартовать со слабыми/дефолтными секретами. */
@@ -64,14 +60,10 @@ async function bootstrap() {
   // Безопасные HTTP-заголовки + скрытие x-powered-by.
   app.use(helmet());
 
-  // RFI-загрузка документа — увеличенный лимит ТОЛЬКО для своего маршрута
-  // (см. RFI_UPLOAD_PATH выше). Должен идти ДО глобального json-парсера.
-  app.use(RFI_UPLOAD_PATH, rfiUploadBodyParser());
-  // Лимит размера тела — защита от крупных payload-ов (DoS).
-  app.useBodyParser('json', { limit: '256kb' });
-  // urlencoded — стандарт для OAuth2 token endpoint (RFC 6749): клиенты шлют
-  // client_credentials как application/x-www-form-urlencoded.
-  app.useBodyParser('urlencoded', { extended: false, limit: '256kb' });
+  // Лимиты размера тела (глобальный json 256kb + urlencoded для OAuth2 token RFC 6749,
+  // и увеличенный 2mb для RFI-upload) задаются как Nest middleware в `AppModule.configure`
+  // (RFI — первым), а НЕ здесь через `app.useBodyParser`: так порядок парсеров явный и
+  // контролируемый (Express берёт первый парсер, ставящий `req._body`).
 
   // ВНИМАНИЕ: глобальный ValidationPipe НЕ ставим — модуль встраиваемый, и каждый
   // контроллер объявляет свой pipe (строгий strictDtoPipe для admin/oauth, мягкий

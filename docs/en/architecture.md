@@ -11,7 +11,7 @@ Reflects the **actually implemented** state of the service. Related documents:
 > `forRoot/forRootAsync`) that the host app (the `b24club-api` monolith or the
 > dev-harness `AppModule` via `main.ts`) imports in one line — every sub-module is a
 > private implementation detail. The host imports the public symbols (`MastercardModule`,
-> `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`, `rfiUploadBodyParser`, `GatewayConfig`,
+> `MASTERCARD_ENTITIES`, `GatewayConfig`,
 > `MastercardModuleOptions`, plus the host-facing contracts `ErrorResponseDto`,
 > `CredentialMode`/`TenantStatus`) **only** from the public-api barrel `src/index.ts`, never
 > by deep path. Config arrives as options and is distributed via a global `GatewayConfig`
@@ -229,8 +229,9 @@ owns liveness/readiness).
 - `secret-strength.ts` — `isWeakSecret()` shared by `main.ts` and the `GatewayConfig` prod gate.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` documenting the unified error shape in Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` rejects non-string query params (objects/arrays).
-- `rfi-upload.bodyparser.ts` — `RFI_UPLOAD_PATH` + `rfiUploadBodyParser()`: a route-scoped
-  2MB JSON parser for the RFI document upload (POST-only); the host must register it when embedded.
+- The RFI document upload (`POST /crossborder/rfi/documents`) needs a 2MB body limit (base64
+  file). The dev harness applies it as Nest middleware (`AppModule.configure`, ordered before the
+  256kb global parser); when embedded the host owns body parsing (issue #11).
 - `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
   `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.

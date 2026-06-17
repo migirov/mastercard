@@ -11,8 +11,8 @@
 > `forRoot/forRootAsync`), который хост-приложение (монолит `b24club-api` или
 > dev-харнесс `AppModule` через `main.ts`) импортирует одной строкой — каждый
 > под-модуль является приватной деталью реализации. Хост импортирует публичные
-> символы (`MastercardModule`, `MASTERCARD_ENTITIES`, `RFI_UPLOAD_PATH`,
-> `rfiUploadBodyParser`, `GatewayConfig`, `MastercardModuleOptions`, а также host-facing
+> символы (`MastercardModule`, `MASTERCARD_ENTITIES`,
+> `GatewayConfig`, `MastercardModuleOptions`, а также host-facing
 > контракты `ErrorResponseDto`, `CredentialMode`/`TenantStatus`) **только** из
 > публичного barrel `src/index.ts`, а не по глубоким путям. Конфиг приходит опциями и
 > раздаётся через глобальный `GatewayConfig` (`src/config/gateway-config.ts`) —
@@ -230,8 +230,9 @@ documentation.md).
 - `secret-strength.ts` — `isWeakSecret()`, общий для `main.ts` и прод-гейта `GatewayConfig`.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` документирует единый формат ошибки в Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` отвергает не-строковые query-параметры (объекты/массивы).
-- `rfi-upload.bodyparser.ts` — `RFI_UPLOAD_PATH` + `rfiUploadBodyParser()`: route-scoped
-  2MB JSON-парсер для загрузки RFI-документа (только POST); хост обязан зарегистрировать его при встраивании.
+- Загрузка RFI-документа (`POST /crossborder/rfi/documents`) требует лимита тела 2MB (base64-файл).
+  Dev-харнесс задаёт его как Nest middleware (`AppModule.configure`, ДО глобального 256kb-парсера);
+  при встраивании body-парсингом владеет хост (issue #11).
 - `idempotency-key.*`, `safe-id.pipe.ts`, `validation.pipe.ts` (`strictDtoPipe`),
   `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
