@@ -65,20 +65,19 @@ hand-maintained array). `MASTERCARD_ENTITIES` remains exported from the package 
 - **`migration:generate` (data-source.ts glob) resolves entities** — confirmed it picks up all
   `*.entity.ts` (not empty), so the glob works on this setup.
 
-### Follow-up surfaced by this change ⚠️ (migrations ≠ entities on indexes)
-Removing `synchronize` exposed a **pre-existing drift**: `migration:generate` shows the
-migrations don't fully match the entity metadata, purely on **indexes**:
-- index **names** differ (migrations use explicit `UQ_tx_status_eventRef` / `IDX_tx_status_*`;
-  entities use `@Index()` → TypeORM hash names);
-- the `tx_status` composite index **column order** differs (`(tenantId, transactionReference)`
-  in the migration vs `(transactionReference, tenantId)` from the entity);
-- the `tenants.createdAt` `@Index()` is **missing** from `InitialSchema` (synchronize used to
-  create it from entity metadata; migrations-only does not).
-Not a correctness bug (e2e 23/23 green), and **not caused** by the glob/config change (entity
-metadata is identical either way) — but for a truly clean migrations-only state, the migrations
-should match the entities (so `migration:generate` says "No changes"). **Proposed:** add one
-alignment migration (or regenerate `InitialSchema`). Pending decision (touches schema/index
-naming — team-lead call).
+### Follow-up surfaced by this change → RESOLVED ✅ (migrations now == entities)
+Removing `synchronize` exposed a **pre-existing drift**: the old migrations didn't fully match
+the entity `@Index()` metadata (index names; the `tx_status` composite column order; and a
+missing `tenants.createdAt` index that `synchronize` used to create).
 
-**Status:** config change **done + fully verified**; the index-drift follow-up is **open**
-(awaiting decision); committed.
+**Resolution (project is not yet deployed anywhere → safe to regenerate):** dropped the dev DB
+to empty, removed the two old migrations (`InitialSchema` + `AddTxStatus`) and **regenerated a
+single clean `InitialSchema`** from the current entities (`migration:generate` against an empty
+DB). It creates all 5 tables with the entity-derived indexes — including the previously-missing
+`tenants("createdAt")` index and the correct `tx_status("transactionReference","tenantId")`
+composite order. Verified: a follow-up `migration:generate` reports **"No changes in database
+schema were found"** → migrations and entities are now in exact sync. `AddTxStatus` is folded
+into `InitialSchema` (no longer a separate migration).
+
+**Status:** config change **done + fully verified**; index drift **resolved** (single clean
+`InitialSchema`, `migration:generate` clean); e2e re-run on the regenerated schema.
