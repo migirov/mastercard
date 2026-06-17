@@ -15,7 +15,10 @@ import {
 } from '@nestjs/swagger';
 import { ApiErrorResponses } from '../../common/decorators/api-error-responses.decorator';
 import { UseGatewayContract } from '../../common/decorators/gateway-contract.decorator';
-import { mcPassthroughPipe } from '../../common/pipes/mc-passthrough.pipe';
+import {
+  gatewayValidationPipe,
+  ValidationStrategy,
+} from '../../common/pipes/gateway-validation.pipe';
 import { McWebhookEventDto } from '../dto/mc-webhook-event.dto';
 import { WebhookAckDto } from '../dto/webhook-ack.dto';
 import { WebhookAuthGuard } from '../guards/webhook-auth.guard';
@@ -23,9 +26,9 @@ import { WebhookHandler } from '../services/webhook.handler';
 
 /**
  * Приём push-уведомлений Mastercard. Всегда отвечаем 200 (по докам — иначе MC
- * ретраит). Тело валидируется passthrough-pipe: MC шлёт много полей сверх
- * объявленных — их нельзя вырезать/отвергать. Зашифрованные payload-ы (опц.)
- * расшифруем в Фазе 4.
+ * ретраит). Тело валидируется пресетом Passthrough общей стратегии валидации: MC
+ * шлёт много полей сверх объявленных — их нельзя вырезать/отвергать. Зашифрованные
+ * payload-ы (опц.) расшифруем в Фазе 4.
  *
  * Throttler стоит ПОСЛЕ WebhookAuthGuard (лимитирует только токен-валидные
  * запросы; невалидный токен → 401 ДО throttler, не тратит бюджет) — backstop
@@ -51,7 +54,7 @@ export class MastercardWebhookController {
   })
   @ApiResponse({ status: 200, type: WebhookAckDto })
   @HttpCode(200)
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   receive(@Body() event: McWebhookEventDto): Promise<WebhookAckDto> {
     return this.handler.handle(event);
   }

@@ -5,7 +5,7 @@ import { IsObject, IsOptional, IsString } from 'class-validator';
  * Тело `POST /crossborder/iban-generations` → MC IBAN Generation API.
  * Генерирует IBAN из реквизитов. Поля комбинируются (см. доку): либо `accountUri`
  * { type, value }, либо `country` + `branchCode` + `accountNo`, либо их сочетание —
- * поэтому все опциональны. Идёт через mcPassthroughPipe; MC проверяет комбинацию.
+ * поэтому все опциональны. Идёт через пресет Passthrough; MC проверяет комбинацию.
  */
 export class IbanGenerationRequestDto {
   @ApiPropertyOptional({

@@ -3,7 +3,7 @@ import { IsObject, IsOptional, IsString } from 'class-validator';
 
 /**
  * Тело `POST /crossborder/account-validations` → MC Account Validation API.
- * Проверка счёта получателя ДО платежа. Идёт через mcPassthroughPipe — валидируем
+ * Проверка счёта получателя ДО платежа. Идёт через пресет Passthrough — валидируем
  * только критичные верхнеуровневые поля, остальное (accountDetails и пр.) MC
  * проверяет сам. `accountUri` обязателен у MC (objet { type, value }).
  */

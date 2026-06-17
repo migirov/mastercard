@@ -10,7 +10,8 @@ import {
 } from 'class-validator';
 import { CredentialMode } from '../../tenants/tenant.types';
 
-/** Тело POST /admin/tenants — валидируется strictDtoPipe на AdminController. */
+/** Тело POST /admin/tenants — валидируется пресетом Strict общей стратегии
+ *  валидации (gatewayValidationPipe) на AdminController. */
 export class CreateTenantDto {
   @ApiProperty({ maxLength: 120 })
   @IsString()

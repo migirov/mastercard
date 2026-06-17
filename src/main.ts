@@ -66,9 +66,10 @@ async function bootstrap() {
   // контролируемый (Express берёт первый парсер, ставящий `req._body`).
 
   // ВНИМАНИЕ: глобальный ValidationPipe НЕ ставим — модуль встраиваемый, и каждый
-  // контроллер объявляет свой pipe (строгий strictDtoPipe для admin/oauth, мягкий
-  // mcPassthroughPipe для тел, идущих в Mastercard). Это исключает «двойную»
-  // валидацию, при которой глобальный строгий pipe резал бы поля MC.
+  // контроллер объявляет нужный пресет ОДНОЙ общей стратегии валидации
+  // (`gatewayValidationPipe(ValidationStrategy.Strict|Passthrough)`): Strict — на
+  // наших границах (admin/oauth), Passthrough — на телах, идущих в Mastercard. Это
+  // исключает «двойную» валидацию, при которой глобальный строгий pipe резал бы поля MC.
 
   // Swagger-доки на /api-docs. По умолчанию ВЫКЛ в production (не палим схему
   // API наружу); включить в проде явно через SWAGGER_ENABLED=true.

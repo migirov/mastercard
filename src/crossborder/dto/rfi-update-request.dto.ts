@@ -4,7 +4,7 @@ import { IsObject } from 'class-validator';
 /**
  * Тело `POST /crossborder/rfi/requests/:requestId` → MC RFI Update Request API.
  * Ответ Customer'а на RFI-запрос. Обёртка `updateRequest` (sender/recipient/
- * paymentAndDocs/документы — зависит от запрошенного). Идёт через mcPassthroughPipe —
+ * paymentAndDocs/документы — зависит от запрошенного). Идёт через пресет Passthrough —
  * валидируем только наличие/тип обёртки, структуру MC проверяет сам.
  */
 export class RfiUpdateRequestDto {

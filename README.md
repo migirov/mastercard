@@ -184,8 +184,9 @@ warn about these; if an item is omitted, the affected feature fails as noted.
    break DI across sub-modules.
 
 > **Convention (module code):** there is no global `ValidationPipe` — every
-> controller declares its own pipe (`strictDtoPipe` for our boundaries,
-> `mcPassthroughPipe` for bodies forwarded to Mastercard). Any new controller MUST
+> controller declares the preset it needs of one shared validation strategy
+> (`gatewayValidationPipe(ValidationStrategy.Strict)` for our boundaries,
+> `…Passthrough` for bodies forwarded to Mastercard). Any new controller MUST
 > declare a pipe explicitly; without one its input is unvalidated (per-route binding
 > is fail-open, unlike a global pipe).
 

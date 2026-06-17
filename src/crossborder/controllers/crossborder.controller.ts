@@ -36,7 +36,10 @@ import { AddressValidationRequestDto } from '../dto/address-validation-request.d
 import { BankLookupRequestDto } from '../dto/bank-lookup-request.dto';
 import { ConfirmationRequestDto } from '../dto/confirmation-request.dto';
 import { IbanGenerationRequestDto } from '../dto/iban-generation-request.dto';
-import { mcPassthroughPipe } from '../../common/pipes/mc-passthrough.pipe';
+import {
+  gatewayValidationPipe,
+  ValidationStrategy,
+} from '../../common/pipes/gateway-validation.pipe';
 import { PaymentRequestDto } from '../dto/payment-request.dto';
 import { QuoteRequestDto } from '../dto/quote-request.dto';
 import { RfiDocumentUploadRequestDto } from '../dto/rfi-document-upload-request.dto';
@@ -96,7 +99,7 @@ export class CrossBorderController {
     status: 400,
     description: 'Невалидный формат критичных полей.',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   quote(@CurrentTenant() ctx: TenantContext, @Body() body: QuoteRequestDto) {
     return this.svc.createQuote(ctx.tenantId, body);
   }
@@ -106,7 +109,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'Валидация адреса получателя до платежа (MC Address Validation).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   validateAddress(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: AddressValidationRequestDto,
@@ -119,7 +122,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'Валидация счёта получателя до платежа (MC Account Validation).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   validateAccount(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: AccountValidationRequestDto,
@@ -132,7 +135,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'Поиск реквизитов банка получателя (MC Bank Information Lookup).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   lookupBank(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: BankLookupRequestDto,
@@ -145,7 +148,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'Генерация IBAN из реквизитов счёта (MC IBAN Generation).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   generateIban(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: IbanGenerationRequestDto,
@@ -267,7 +270,7 @@ export class CrossBorderController {
     format: 'uuid',
     description: 'RFI request_id — валидный UUID (RFC-4122).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   updateRfi(
     @CurrentTenant() ctx: TenantContext,
     @Param('requestId', UuidParamPipe) requestId: string,
@@ -280,7 +283,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'RFI: загрузить документ <1MB (MC Upload Document).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   uploadRfiDocument(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: RfiDocumentUploadRequestDto,
@@ -307,7 +310,7 @@ export class CrossBorderController {
   @ApiOperation({
     summary: 'Подтверждение котировки (transactionReference + proposalId).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   confirmQuote(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: ConfirmationRequestDto,
@@ -321,7 +324,7 @@ export class CrossBorderController {
     summary:
       'Отмена подтверждённой котировки (transactionReference + proposalId).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   cancelConfirmedQuote(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: ConfirmationRequestDto,
@@ -352,7 +355,7 @@ export class CrossBorderController {
     summary:
       'Инициировать платёж. Идемпотентность — по transaction_reference (ретрай с тем же ref → тот же результат без повторного вызова MC).',
   })
-  @UsePipes(mcPassthroughPipe())
+  @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   payment(
     @CurrentTenant() ctx: TenantContext,
     @Body() body: PaymentRequestDto,

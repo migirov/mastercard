@@ -255,8 +255,9 @@ class-validator/mapped-types — есть и у клиента).
    на MC-passthrough (`QuoteRequestDto`/`PaymentRequestDto`/`ConfirmationRequestDto`,
    валидируют только формат критичных полей). Глобальный `ValidationPipe` УБРАН
    (модуль не навязывает его хосту + он давал двойную валидацию и резал поля MC).
-   Каждый контроллер несёт свой pipe: `strictDtoPipe` (admin/oauth) vs
-   `mcPassthroughPipe` (crossborder/webhook, `transform:false` — суммы-строки целы).
+   Каждый контроллер объявляет пресет ОДНОЙ общей стратегии `gatewayValidationPipe`:
+   `Strict` (admin/oauth) vs `Passthrough` (crossborder/webhook, `transform:false` —
+   суммы-строки целы) — объединено в issue #12.
    Ручная валидация (`admin.service`, `typeof body`) удалена.
 3. ✅ **Безопасность вебхука — в сервисе, не на инфре.** `WebhookAuthGuard`
    fail-closed: токен обязателен ВЕЗДЕ, нет `return true` «в расчёте на mTLS». `main.ts`

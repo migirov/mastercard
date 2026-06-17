@@ -108,8 +108,8 @@ JWE (RSA-OAEP-256 + A256GCM), implemented as an **axios interceptor inside `Mast
 | `SafeIdPipe` | non-empty string with no `/`,`\`,whitespace,`..` (anti path-traversal) | id/ref in MC path |
 | `UuidParamPipe` | strict RFC-4122 UUID (v1–5 + variant) | RFI `request_id`/`document_id` |
 | `StringQueryPipe` | optional; rejects non-string (duplicate query keys) | catalog query params |
-| `mcPassthroughPipe()` | soft: validates declared fields, does NOT strip unknown, does NOT coerce types (MC amounts are strings) | MC-bound bodies |
-| `strictDtoPipe()` | strict: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth bodies |
+| `gatewayValidationPipe(Passthrough)` | soft: validates declared fields, does NOT strip unknown, does NOT coerce types (MC amounts are strings) | MC-bound bodies |
+| `gatewayValidationPipe(Strict)` | strict: `whitelist`+`forbidNonWhitelisted`+`transform` | admin/oauth bodies |
 
 There is NO global `ValidationPipe` — each controller declares its own (so strict validation
 of our boundaries doesn’t strip MC passthrough fields). `helmet`; JSON limit **256 kb**
@@ -371,7 +371,7 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 # Admin API (platform operator)
 
 Group `/admin/*`. Auth — `X-Admin-Token` (`AdminAuthGuard`). Bodies — **strict** validation
-(`strictDtoPipe`). `secretRef` is never returned (`ClassSerializerInterceptor`). Rate-limit
+(`gatewayValidationPipe(Strict)`). `secretRef` is never returned (`ClassSerializerInterceptor`). Rate-limit
 120/min by IP. No calls to Mastercard.
 
 | Method | Path | What it does | Code |

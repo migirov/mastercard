@@ -4,7 +4,7 @@ import { IsObject } from 'class-validator';
 /**
  * Тело `POST /crossborder/bank-lookups` → MC Bank Information Lookup API.
  * Поиск реквизитов банка получателя для платежа. Обёртка `bank`
- * ({ name?, branchName?, country, bic?, address? }). Идёт через mcPassthroughPipe —
+ * ({ name?, branchName?, country, bic?, address? }). Идёт через пресет Passthrough —
  * валидируем только наличие/тип обёртки, остальное MC проверяет сам.
  */
 export class BankLookupRequestDto {

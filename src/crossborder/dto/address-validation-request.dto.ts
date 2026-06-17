@@ -4,7 +4,7 @@ import { IsString } from 'class-validator';
 /**
  * Тело `POST /crossborder/address-validations` → MC Address Validation Service.
  * Плоское тело (без обёртки): `country` + `address` — оба обязательны у MC.
- * Идёт через mcPassthroughPipe (валидируем только формат критичных полей; всё
+ * Идёт через пресет Passthrough (валидируем только формат критичных полей; всё
  * прочее MC проверяет сам). Адрес валидируется ДО платежа, чтобы он не отклонился
  * из-за неверного адреса получателя.
  */
