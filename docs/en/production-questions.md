@@ -103,8 +103,15 @@ for interceptor control.
 - Observability: **logs are ready** (structured JSON pino + correlation-id);
   remaining are **metrics/tracing** (Prometheus `/metrics` or OpenTelemetry) + alerts.
 - **Health probes are ready** (`/health`, `/ready`) — wire liveness/readiness in the k8s manifest.
-- ~~Cleanup of expired `kv_store`~~ — **done**: `KvCleanupService` (`@Cron` hourly,
-  `@nestjs/schedule`) removes expired entries.
+- **DB retention (open item, infra).** After issue #4 the TTL'd KV layer is gone — payment
+  idempotency (`payment_idempotency`) and webhook dedup/persistence (`tx_status`) live in Postgres
+  with **no app-level TTL** (the cron cleanup was removed per the team lead). Implications: (1) both
+  tables grow unbounded — especially `tx_status` from frequent non-status pushes (Carded Rate); (2)
+  `payment_idempotency.result` stores the full MC response (possibly PII) permanently — the KV layer
+  used to expire it after 24h. **Needs a host/infra decision:** a retention policy (partition by
+  `receivedAt` / periodic prune of old rows), particularly for data minimization (PII/PCI). Payment
+  idempotency is practically only needed within the retry window (minutes–a day), so pruning old
+  `done` rows is safe. Question for the client: required retention window and mechanism.
 - ~~Expand Swagger annotations~~ — **done** during the code-quality review.
 
 ---

@@ -1,4 +1,4 @@
-import { Column, Entity, Index, PrimaryGeneratedColumn, Unique } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, Unique } from 'typeorm';
 
 /**
  * Идемпотентность платежей поверх PostgreSQL — источник истины по
@@ -50,8 +50,10 @@ export class PaymentIdempotencyEntity {
    * Момент захвата/перезахвата слота. Для in-progress (`done=false`) играет роль
    * короткого замка: запись старше LOCK_TTL считается «протухшей» (процесс упал
    * между захватом и записью результата) и перезахватывается следующим retry.
+   * Индекса НЕТ намеренно: `lockedAt` проверяется только в `acquire` как фильтр уже
+   * найденной по UNIQUE(tenantId, idemKey) строки (не индекс-скан), а фоновой
+   * очистки по `lockedAt` нет — индекс был бы мёртвым оверхедом на запись.
    */
-  @Index()
   @Column({ type: 'timestamptz', default: () => 'now()' })
   lockedAt!: Date;
 }
