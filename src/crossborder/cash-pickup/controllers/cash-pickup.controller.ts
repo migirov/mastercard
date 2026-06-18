@@ -3,10 +3,10 @@ import { ApiOperation } from '@nestjs/swagger';
 import {
   CurrentTenant,
   TenantContext,
-} from '../../auth/decorators/current-tenant.decorator';
-import { StringQueryPipe } from '../../common/pipes/string-query.pipe';
-import { CrossBorderArea } from '../decorators/cross-border-area.decorator';
-import { CashPickupService } from './cash-pickup.service';
+} from '../../../auth/decorators/current-tenant.decorator';
+import { StringQueryPipe } from '../../../common/pipes/string-query.pipe';
+import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
+import { CashPickupService } from '../services/cash-pickup.service';
 
 @Controller('crossborder')
 @CrossBorderArea()

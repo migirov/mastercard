@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsOptional, IsString, ValidateNested } from 'class-validator';
-import { McAmountDto } from './mc-amount.dto';
+import { McAmountDto } from '../../dto/mc-amount.dto';
 
 /**
  * Внутренний объект `quoterequest` (Mastercard Quotes API). Поля опциональны:

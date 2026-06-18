@@ -4,8 +4,8 @@ import {
   CashPickupCitiesQuery,
   CashPickupProvidersQuery,
   CashPickupBranchesQuery,
-} from '../mc-paths';
-import { CrossBorderGateway } from '../gateway/cross-border.gateway';
+} from '../../mc-paths';
+import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
 
 /**
  * Cash Pickup location catalogs (countries / cities / providers / branches).
