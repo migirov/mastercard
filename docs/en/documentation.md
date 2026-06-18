@@ -514,10 +514,12 @@ guards in `utils/credential-sanitize.ts`).
   `consumerKey`, the shared `partnerId`. Cache without TTL (rotation via restart).
   Warmed at startup in `onModuleInit` (fail-fast).
 - **`OWN`** → from a [MerchantSecretBundle](#merchantsecretbundle--keymaterial) by the
-  tenant's `secretRef`; cache **with TTL** (`MC_CREDS_CACHE_TTL_MS`, default 10 min) +
-  an **LRU cap (500 entries)** so many tenants cannot grow it unbounded + stampede dedup
-  (concurrent requests await one promise) + `invalidate()` for rotation. (P12→PEM
-  conversions are memoized separately in an LRU `pemCache`, cap 256.)
+  tenant's `secretRef`; cached via **cache-manager** (in-memory store, issue #15): **TTL**
+  (`MC_CREDS_CACHE_TTL_MS`, default 10 min) + an **LRU cap (500 entries)** so many tenants
+  cannot grow it unbounded + `invalidate()` for rotation; a rejected resolve is not cached.
+  cache-manager v5 does not coalesce concurrent misses, so the former in-flight stampede
+  dedup was dropped (concurrent cold resolves of one tenant may each hit the store). (P12→PEM
+  conversions are memoized separately in a synchronous LRU `pemCache`, cap 256.)
 
 > ⚠️ **Known limitation:** the encryption fields (`encryptionCertPem` etc.) are
 > resolved per-tenant, but the interceptor encrypts with the **platform** key

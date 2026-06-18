@@ -586,6 +586,10 @@ skipMissingProperties:true` — для тел, идущих в Mastercard) и `s
 ### Сделано ✅
 - **Добавлен `zod@^3.23.8`** в `dependencies` (`class-validator`/`class-transformer` НЕ трогал —
   на них держатся DTO и `gatewayValidationPipe`; меняется только механизм env-валидации).
+  **(Позже выровнен на `zod@^4.4.3`** — хост `b24club-api` использует zod v4; мой базовый API
+  (`z.object`/`.min`/`.enum`/`.optional`/`.regex`/`safeParse`/`error.issues`) стабилен между v3↔v4,
+  `env.validation.spec` 21/21 и e2e зелёные под v4. zod v4 `"type":"module"`, но ships CJS-`require`
+  (хост сам на CJS-билде с zod v4 — доказательство совместимости).)
 - **`env.validation.ts` переписан на Zod:** схема `z.object({...})` 1:1 повторяет прежние правила —
   обязательные строки (`z.string().min(1)`), `MC_JWT_SECRET` → `min(16)`, опциональные
   enum'ы (`z.enum(['true','false'])`, `z.enum(['local','vault'])`), `DB_POOL_MAX` → строка
@@ -648,3 +652,51 @@ skipMissingProperties:true` — для тел, идущих в Mastercard) и `s
 
 **Статус:** сделано и проверено. `CredentialsService` — тонкий фасад; каждая обязанность в своём классе
 (2 провайдера + кэш) или pure-утиле; поведение и публичный контракт сохранены 1:1.
+
+## Issue 15 — Replace custom in-memory LRU cache with cache-manager
+
+**Требование (дословно).**
+> Replace custom in-memory LRU cache with cache-manager
+
+**Контекст / ограничение (выяснено до правок).** Кастомный `OwnCredentialsCache` (из #14) делал
+TTL + LRU(500) + **stampede-дедуп** + evict-on-reject. Ключевой факт: **cache-manager v6/v7 —
+ESM-only** (`"type":"module"`, как и keyv v5) → не подключается в нашем **CommonJS**-билде (NestJS 10,
+ts-jest, `module:commonjs`). Совместима только **cache-manager v5** (CJS), а её `wrap` **НЕ** коалесит
+конкурентные промахи (stampede-coalescing появился в v6). `pemCache` в `p12.util` вне scope — он
+обязан быть синхронным (cache-manager async, `loadPrivateKeyFromP12` зовётся из sync-путей).
+
+**Решение (выбор юзера — «cache-manager v5, дроп stampede»).** Заменил `OwnCredentialsCache` на
+cache-manager v5; смоук-тестом подтвердил поведение стора (CJS require, `wrap` кэширует на hit, `del`
+рефетчит, LRU `max` вытесняет, TTL в мс истекает, reject не кэшируется).
+
+### Сделано ✅
+- **Добавлен `cache-manager@^5.7.6`** (CJS). `OwnCredentialsProvider` теперь держит
+  `caching('memory', { max: 500, ttl: credsCacheTtlMs })` (ленивая async-инициализация, мемоизирована)
+  и резолвит через `cache.wrap(tenant.id, () => this.fetch(tenant))`; `invalidate()` → `cache.del(id)`
+  (fire-and-forget, не бросает наружу). TTL + LRU(500) + evict-on-reject сохранены.
+- **Удалены** `own-credentials.cache.ts` и `own-credentials.cache.spec.ts` (механику кэша держит
+  библиотека). `fetch`/`validateBundle`/`toPem`/sanitize — без изменений. Публичный контракт
+  (`CredentialsService.resolve`/`invalidate`) не тронут; CredentialsModule без изменений (cache-manager
+  используется напрямую, БЕЗ `@nestjs/cache-manager` CacheModule — не навязываем хосту глобальный модуль).
+- **Дропнут stampede-дедуп** (в v5 его нет): параллельные холодные resolve одного тенанта могут уйти
+  в SecretStore N раз (корректно, чуть менее эффективно на cold-burst). Тесты кэша переписаны на уровень
+  провайдера: hit → один fetch, `invalidate` → рефетч, отклонённый resolve не кэшируется.
+- Доки RU/EN (architecture/documentation/tests-inner) обновлены.
+
+### Проверка ✅
+- Смоук-тест cache-manager v5 (CJS): hit-дедуп=1, del→2, LRU max=2 вытесняет, TTL 80мс истекает, reject
+  не кэшируется. `tsc` чисто, ESLint чисто; **unit 202 / hermetic 18 / live 23** (оба e2e реально
+  бутстрапят `OwnCredentialsProvider` с cache-manager через Nest DI).
+- **4 аудита на баги по 1 агенту** (faithfulness / concurrency-async / security-DI-deps / zod-v4): 3 чисто,
+  **1 MED исправлен** — при отклонённой инициализации `caching()` rejected-промис мемоизировался в
+  `this.cache` и «отравлял» все будущие `get()` навсегда; фикс — self-reset слота в `cacheStore()` (на
+  `init.catch` чистим `this.cache`, если он ещё тот же; rejection не маскируется). Re-проверка после фикса
+  зелёная.
+- **Совместимость с хостом `b24club-api`** (проверена по его package.json): cache-manager pin выровнен
+  `^5.7.6`→**`^5.4.0`** (хост на `^5.4.0` + `@nestjs/cache-manager ^2.2.2` → тоже v5; не задираем floor).
+  Попутно **zod выровнен `^3.23.8`→`^4.4.3`** (хост на zod v4): мой env-API стабилен v3↔v4, `env.validation.spec`
+  21/21 и e2e зелёные под v4 (zod v4 `"type":"module"`, но ships CJS-`require` — хост сам на CJS+zod4).
+
+**Статус:** сделано и проверено. Кастомный LRU заменён на cache-manager v5 (forced — v6/v7 ESM-несовместимы
+с CJS-билдом); stampede-coalescing сознательно убран (в v5 отсутствует), что задокументировано. Версии
+cache-manager/zod выровнены под хост.
