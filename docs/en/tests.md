@@ -116,7 +116,7 @@ just "not 404/500".
 **MC response unwrapping** (common to all calls): 2xx → data; business 4xx with an
 object body (`400/404/409/422/429`) → forward MC body; non-object 4xx body →
 hidden, `502`; `401/403`/`5xx`/network/decrypt failure → `502` without leaking
-details. (Pinned by `crossborder.service.spec` — see [tests-inner.md](./tests-inner.md).)
+details. (Pinned by `cross-border.gateway.spec` — see [tests-inner.md](./tests-inner.md).)
 
 ---
 

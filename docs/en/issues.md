@@ -703,3 +703,50 @@ re-fetches, LRU `max` evicts, TTL in ms expires, a rejection is not cached).
 **Status:** done + verified. The custom LRU is replaced by cache-manager v5 (forced — v6/v7 are
 ESM-incompatible with the CJS build); stampede coalescing is intentionally dropped (absent in v5),
 documented.
+
+## Issue 16 — Split CrossBorder module by API area
+
+**Requirement (verbatim).**
+> Split CrossBorder module by API area
+
+**Problem.** `CrossBorderModule` was one fat controller (421 lines, ~25 endpoints) + one service
+(511 lines) spanning 6 API areas. The service was thin per-area methods over a shared engine
+(run/call/resolveActive/partner/qs/headers). The only DI consumer was the controller (the
+`CrossBorderService` export was vestigial — nothing injected it cross-module).
+
+**Decision (user's choice of 3 — "controllers + services + engine", full SRP).** Behavior 1:1; paths,
+headers, gating, idempotency and status-events unchanged.
+
+### Done ✅
+- **`gateway/cross-border.gateway.ts`** — `CrossBorderGateway`: the shared engine (the former private
+  `run`/`call`/`resolveActive`/`partner`/`qs`/`mcRefHeaders`/`catalogHeaders`, now public; deps
+  TenantRegistry+CredentialsService+MastercardClient).
+- **6 areas**, each `<area>/<area>.controller.ts` + `<area>.service.ts` (+spec): `accounts`
+  (balances/rates), `quotes` (create/confirm/cancel/retrieve), `payments` (create+idempotency/get/byRef/
+  cancel/status-events; injects gateway+PaymentIdempotencyStore+TransactionStatusStore), `validations`
+  (address/account/bank/iban/endpoint-guide — all on mcRefHeaders), `cash-pickup` (countries/cities/
+  providers/branches), `rfi` (retrieve/update/upload/download). Services are thin and delegate to the engine.
+- **`decorators/cross-border-area.decorator.ts`** — composite `@CrossBorderArea()` (TenantAuth+
+  TenantThrottler guards, ApiTags/ApiBearerAuth/ApiSecurity/ApiHeader/ApiErrorResponses/502,
+  UseGatewayContract) — one source of the cross-cutting set for all 6 controllers (like `@UseGatewayContract`).
+  Each controller: `@Controller('crossborder') @CrossBorderArea()` (shared prefix; routes do not collide).
+- `payment-idempotency.store.{ts,spec}` moved `services/`→`payments/`. Deleted the old
+  `crossborder.{controller,service}.ts`+spec; the empty `controllers/`/`services/` are gone.
+  `CrossBorderModule` registers the gateway + 6 services + 6 controllers + PaymentIdempotencyStore +
+  TenantThrottlerGuard; the **export is dropped** (vestigial). The 287-line spec is split into a gateway
+  spec (call dispatch + gating) + 5 area specs. Docs RU/EN (architecture diagram/table/flow, documentation,
+  tests-inner, tests) updated.
+
+### Verification ✅
+- `tsc` clean, ESLint clean (after --fix); **unit 203 / hermetic 18 / live 23** (both e2e bootstrap
+  the 6 controllers under a single `@Controller('crossborder')` with no route collisions + the gateway via
+  Nest DI → the split is confirmed end-to-end).
+- **4 bug audits, one agent each** (faithfulness / routing-DI / security / spec-coverage): 3 clean,
+  **1 HIGH fixed in a spec** — the `retrieveConfirmedQuote` test used a ref with no special chars
+  (`40C123`), so the "both segments encoded" claim passed VACUOUSLY for the ref (true of the original test
+  too); ref→`'40C 123'` (a space) now actually proves `encodeURIComponent` on BOTH segments (prod encodes
+  both — `mc-paths`). Re-verified green.
+
+**Status:** done + verified. The fat CrossBorder is split into 6 areas (controller+service) over a shared
+`CrossBorderGateway`; behavior and routes are 1:1, and the public contract (nothing injected the service)
+is intact.

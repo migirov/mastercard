@@ -66,7 +66,7 @@ dual approval** — from Mastercard and from the platform. Deployment —
                 └───────────────────────┬───────────────────────┘
                                         ▼
                 ┌───────────────────────────────────────────────┐
-                │       CrossBorderService (quote/payment/...)   │
+                │       CrossBorder areas → CrossBorderGateway   │
                 │              returns a "clean" object          │
                 └───────────────────────┬───────────────────────┘
                                         ▼
@@ -175,7 +175,7 @@ if needed (downsides — in documentation.md).
 1. Inbound → `TenantAuthGuard`: external (Bearer JWT → `tid`) **or** internal
    (`X-Internal-Token` + `X-Tenant-Id`). Sets `req.tenantContext`.
 2. `TenantThrottlerGuard`: rate-limit by `tenantId` (fail-closed, no IP fallback).
-3. `CrossBorderService`: checks `isActive(tenant)` (otherwise `403`).
+3. `CrossBorderGateway.resolveActive`: checks `isActive(tenant)` (otherwise `403`).
 4. `CredentialsService.resolve(tenant)` → `McCredentials` (Vault, via cache).
 5. Build the path with `partnerId` + clean body → `MastercardClient.request(creds, …)`.
 6. Interceptor: encrypt → sign → send; response — decrypt.
@@ -214,7 +214,7 @@ owns liveness/readiness).
 | `AuditModule` | `AuditInterceptor` (bound per-controller via `@UseGatewayContract()`) + batched `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional); ALL events persist/dedup in `tx_status` via one atomic `INSERT ON CONFLICT` on `eventRef` (no KV layer); status events (STATUS_CHG/QUOTE_STATUS_CHG) carry status/stage and are read by the merchant, tenant attribution (OWN→partnerId / PLATFORM→shared pool), camel/snake normalization |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); shared by `WebhooksModule` (writes) and `CrossBorderModule` (tenant-scoped reads for polling) |
-| `CrossBorderModule` | business endpoints (all 15 MC API groups) + status polling (`GET /crossborder/status-events`); uses `mc-paths.ts` (centralized MC URL builder); private `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
+| `CrossBorderModule` | business endpoints (all 15 MC API groups) **split by API area** (issue #16): one controller+service per area (accounts/quotes/payments/validations/cash-pickup/rfi) over a shared `CrossBorderGateway` (gating + MC call/unwrap + URL/header helpers); status polling (`GET /crossborder/status-events`); `mc-paths.ts` (centralized MC URL builder); private `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
 | `HealthController` (dev harness) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered in `AppModule` (harness), NOT the umbrella — root probes would collide with the host; when embedded the host owns probes |
 | `PaymentIdempotencyStore` | private `CrossBorderModule` provider; payment idempotency on Postgres (`payment_idempotency`); replaced the old KV-based `IdempotencyService` (issue #4) |

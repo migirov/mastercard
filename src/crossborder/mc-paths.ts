@@ -12,7 +12,7 @@
  *     partner-id идёт ЗАГОЛОВКОМ): cash-pickup, endpoint-guide;
  *   - `/send/address-validation-service/...`      (собственная база address-validation).
  *
- * `partner` ОЖИДАЕТСЯ уже URL-encoded (см. CrossBorderService.partner()); id/ref в
+ * `partner` ОЖИДАЕТСЯ уже URL-encoded (см. CrossBorderGateway.partner()); id/ref в
  * сегментах пути кодируются здесь (encodeURIComponent). `qs` — готовая query-строка.
  */
 export const mcPath = {
