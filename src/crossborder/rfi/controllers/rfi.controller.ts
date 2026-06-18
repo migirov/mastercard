@@ -11,16 +11,16 @@ import { ApiOperation, ApiParam } from '@nestjs/swagger';
 import {
   CurrentTenant,
   TenantContext,
-} from '../../auth/decorators/current-tenant.decorator';
+} from '../../../auth/decorators/current-tenant.decorator';
 import {
   gatewayValidationPipe,
   ValidationStrategy,
-} from '../../common/pipes/gateway-validation.pipe';
-import { UuidParamPipe } from '../../common/pipes/uuid-param.pipe';
-import { CrossBorderArea } from '../decorators/cross-border-area.decorator';
+} from '../../../common/pipes/gateway-validation.pipe';
+import { UuidParamPipe } from '../../../common/pipes/uuid-param.pipe';
+import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
 import { RfiDocumentUploadRequestDto } from '../dto/rfi-document-upload-request.dto';
 import { RfiUpdateRequestDto } from '../dto/rfi-update-request.dto';
-import { RfiService } from './rfi.service';
+import { RfiService } from '../services/rfi.service';
 
 @Controller('crossborder')
 @CrossBorderArea()

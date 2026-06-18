@@ -8,20 +8,20 @@ import { TenantModule } from '../tenants/tenant.module';
 import { TenantThrottlerGuard } from '../common/guards/tenant-throttler.guard';
 import { TransactionStatusModule } from '../webhooks/transaction-status.module';
 import { CrossBorderGateway } from './gateway/cross-border.gateway';
-import { AccountsController } from './accounts/accounts.controller';
-import { AccountsService } from './accounts/accounts.service';
-import { QuotesController } from './quotes/quotes.controller';
-import { QuotesService } from './quotes/quotes.service';
-import { PaymentsController } from './payments/payments.controller';
-import { PaymentsService } from './payments/payments.service';
-import { ValidationsController } from './validations/validations.controller';
-import { ValidationsService } from './validations/validations.service';
-import { CashPickupController } from './cash-pickup/cash-pickup.controller';
-import { CashPickupService } from './cash-pickup/cash-pickup.service';
-import { RfiController } from './rfi/rfi.controller';
-import { RfiService } from './rfi/rfi.service';
-import { PaymentIdempotencyEntity } from './entities/payment-idempotency.entity';
-import { PaymentIdempotencyStore } from './payments/payment-idempotency.store';
+import { AccountsController } from './accounts/controllers/accounts.controller';
+import { AccountsService } from './accounts/services/accounts.service';
+import { QuotesController } from './quotes/controllers/quotes.controller';
+import { QuotesService } from './quotes/services/quotes.service';
+import { PaymentsController } from './payments/controllers/payments.controller';
+import { PaymentsService } from './payments/services/payments.service';
+import { ValidationsController } from './validations/controllers/validations.controller';
+import { ValidationsService } from './validations/services/validations.service';
+import { CashPickupController } from './cash-pickup/controllers/cash-pickup.controller';
+import { CashPickupService } from './cash-pickup/services/cash-pickup.service';
+import { RfiController } from './rfi/controllers/rfi.controller';
+import { RfiService } from './rfi/services/rfi.service';
+import { PaymentIdempotencyEntity } from './payments/entities/payment-idempotency.entity';
+import { PaymentIdempotencyStore } from './payments/services/payment-idempotency.store';
 
 /**
  * Cross-Border API. Split by API area (issue #16): one controller + service per

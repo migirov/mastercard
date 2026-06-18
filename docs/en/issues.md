@@ -762,3 +762,16 @@ headers, gating, idempotency and status-events unchanged.
 **Status:** done + verified. The fat CrossBorder is split into 6 areas (controller+service) over a shared
 `CrossBorderGateway`; behavior and routes are 1:1, and the public contract (nothing injected the service)
 is intact.
+
+### Follow-up (2026-06-18) — by-type within each area
+The user wanted each area self-contained with internal `controllers/`/`services/`/`dto/` (the #9 by-type
+convention used by other modules), with area DTOs INSIDE the area rather than in the shared `dto/`. Done:
+31 files `git mv` into `<area>/{controllers,services,dto,entities}/`; the 10 area-specific DTOs moved out of
+the shared `crossborder/dto/` into their areas; `payment-idempotency` store→`payments/services/`, entity→
+`payments/entities/`. Cross-area shared things stayed at the root: `gateway/` (engine), `decorators/`
+(`@CrossBorderArea`), and `dto/mc-amount.dto` (used by both quotes and payments — can't live inside one area
+without cross-coupling). Imports recomputed with tsc as ground truth; the only non-moved edits were
+`crossborder.module.ts` (paths for 6 controllers/6 services/store/entity) and `mastercard.entities.ts`
+(`PaymentIdempotencyEntity` path). The empty `crossborder/entities/` was removed. Verified: `tsc` clean,
+ESLint clean, **hermetic e2e 18/18** (6 controllers boot via DI on the new paths), unit 202. Note: some
+`controllers/` folders are now single-file — a deliberate user choice for uniformity with #9.

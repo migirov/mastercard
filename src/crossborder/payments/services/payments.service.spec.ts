@@ -1,14 +1,14 @@
-import { CredentialsService } from '../../credentials/services/credentials.service';
-import { McCredentials } from '../../credentials/credentials.types';
+import { CredentialsService } from '../../../credentials/services/credentials.service';
+import { McCredentials } from '../../../credentials/credentials.types';
 import {
   McRequest,
   MastercardClient,
-} from '../../mastercard/services/mastercard-client.service';
-import { TenantRegistry } from '../../tenants/services/tenant.registry';
-import { Tenant } from '../../tenants/tenant.types';
-import { sha256hex } from '../../common/utils/crypto.util';
-import { TransactionStatusStore } from '../../webhooks/services/transaction-status.store';
-import { CrossBorderGateway } from '../gateway/cross-border.gateway';
+} from '../../../mastercard/services/mastercard-client.service';
+import { TenantRegistry } from '../../../tenants/services/tenant.registry';
+import { Tenant } from '../../../tenants/tenant.types';
+import { sha256hex } from '../../../common/utils/crypto.util';
+import { TransactionStatusStore } from '../../../webhooks/services/transaction-status.store';
+import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
 import { PaymentIdempotencyStore } from './payment-idempotency.store';
 import { PaymentsService } from './payments.service';
 

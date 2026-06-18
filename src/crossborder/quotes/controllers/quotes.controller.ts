@@ -11,16 +11,16 @@ import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import {
   CurrentTenant,
   TenantContext,
-} from '../../auth/decorators/current-tenant.decorator';
+} from '../../../auth/decorators/current-tenant.decorator';
 import {
   gatewayValidationPipe,
   ValidationStrategy,
-} from '../../common/pipes/gateway-validation.pipe';
-import { SafeIdPipe } from '../../common/pipes/safe-id.pipe';
-import { CrossBorderArea } from '../decorators/cross-border-area.decorator';
+} from '../../../common/pipes/gateway-validation.pipe';
+import { SafeIdPipe } from '../../../common/pipes/safe-id.pipe';
+import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
 import { ConfirmationRequestDto } from '../dto/confirmation-request.dto';
 import { QuoteRequestDto } from '../dto/quote-request.dto';
-import { QuotesService } from './quotes.service';
+import { QuotesService } from '../services/quotes.service';
 
 @Controller('crossborder')
 @CrossBorderArea()

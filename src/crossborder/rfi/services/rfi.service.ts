@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { mcPath } from '../mc-paths';
-import { CrossBorderGateway } from '../gateway/cross-border.gateway';
+import { mcPath } from '../../mc-paths';
+import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
 import { RfiDocumentUploadRequestDto } from '../dto/rfi-document-upload-request.dto';
 import { RfiUpdateRequestDto } from '../dto/rfi-update-request.dto';
 

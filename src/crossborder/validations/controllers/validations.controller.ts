@@ -11,18 +11,18 @@ import { ApiOperation } from '@nestjs/swagger';
 import {
   CurrentTenant,
   TenantContext,
-} from '../../auth/decorators/current-tenant.decorator';
+} from '../../../auth/decorators/current-tenant.decorator';
 import {
   gatewayValidationPipe,
   ValidationStrategy,
-} from '../../common/pipes/gateway-validation.pipe';
-import { StringQueryPipe } from '../../common/pipes/string-query.pipe';
-import { CrossBorderArea } from '../decorators/cross-border-area.decorator';
+} from '../../../common/pipes/gateway-validation.pipe';
+import { StringQueryPipe } from '../../../common/pipes/string-query.pipe';
+import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
 import { AccountValidationRequestDto } from '../dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from '../dto/address-validation-request.dto';
 import { BankLookupRequestDto } from '../dto/bank-lookup-request.dto';
 import { IbanGenerationRequestDto } from '../dto/iban-generation-request.dto';
-import { ValidationsService } from './validations.service';
+import { ValidationsService } from '../services/validations.service';
 
 @Controller('crossborder')
 @CrossBorderArea()
