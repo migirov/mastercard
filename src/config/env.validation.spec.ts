@@ -61,7 +61,6 @@ describe('validateEnv (zod)', () => {
       ...validEnv(),
       MC_ENCRYPTION_ENABLED: 'true',
       MC_SECRET_STORE: 'vault',
-      DB_SYNC: 'false',
       DB_POOL_MAX: '10',
       MC_WEBHOOK_TOKEN: 'wh',
     };
@@ -78,7 +77,6 @@ describe('validateEnv (zod)', () => {
   it.each([
     ['MC_SECRET_STORE', 'redis'],
     ['MC_ENCRYPTION_ENABLED', 'yes'],
-    ['DB_SYNC', '1'],
     ['DB_POOL_MAX', 'lots'],
     ['DB_POOL_MAX', '-5'], // sign / float rejected (must be a positive integer)
     ['DB_POOL_MAX', '3.5'],
