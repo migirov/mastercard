@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { mcPath } from '../../mc-paths';
-import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
+import { mcPath } from '../../common/mc-paths';
+import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 
 /** Cross-Border account info: balances and FX (Carded) rate pull. */
 @Injectable()

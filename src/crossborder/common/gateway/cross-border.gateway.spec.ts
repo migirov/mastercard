@@ -1,13 +1,13 @@
 import { BadGatewayException, ForbiddenException } from '@nestjs/common';
-import { CredentialsService } from '../../credentials/services/credentials.service';
-import { McCredentials } from '../../credentials/credentials.types';
+import { CredentialsService } from '../../../credentials/services/credentials.service';
+import { McCredentials } from '../../../credentials/credentials.types';
 import {
   McRequest,
   MastercardClient,
-} from '../../mastercard/services/mastercard-client.service';
-import { TenantRegistry } from '../../tenants/services/tenant.registry';
-import { Tenant } from '../../tenants/tenant.types';
-import { UpstreamHttpException } from '../../common/utils/upstream.exception';
+} from '../../../mastercard/services/mastercard-client.service';
+import { TenantRegistry } from '../../../tenants/services/tenant.registry';
+import { Tenant } from '../../../tenants/tenant.types';
+import { UpstreamHttpException } from '../../../common/utils/upstream.exception';
 import { CrossBorderGateway } from './cross-border.gateway';
 
 const creds = {

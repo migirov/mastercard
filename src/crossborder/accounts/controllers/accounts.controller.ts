@@ -4,7 +4,7 @@ import {
   CurrentTenant,
   TenantContext,
 } from '../../../auth/decorators/current-tenant.decorator';
-import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
+import { CrossBorderArea } from '../../common/decorators/cross-border-area.decorator';
 import { AccountsService } from '../services/accounts.service';
 
 @Controller('crossborder')

@@ -17,7 +17,7 @@ import {
   ValidationStrategy,
 } from '../../../common/pipes/gateway-validation.pipe';
 import { StringQueryPipe } from '../../../common/pipes/string-query.pipe';
-import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
+import { CrossBorderArea } from '../../common/decorators/cross-border-area.decorator';
 import { AccountValidationRequestDto } from '../dto/account-validation-request.dto';
 import { AddressValidationRequestDto } from '../dto/address-validation-request.dto';
 import { BankLookupRequestDto } from '../dto/bank-lookup-request.dto';

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { mcPath } from '../../mc-paths';
-import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
+import { mcPath } from '../../common/mc-paths';
+import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 import { ConfirmationRequestDto } from '../dto/confirmation-request.dto';
 import { QuoteRequestDto } from '../dto/quote-request.dto';
 

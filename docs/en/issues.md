@@ -775,3 +775,9 @@ without cross-coupling). Imports recomputed with tsc as ground truth; the only n
 (`PaymentIdempotencyEntity` path). The empty `crossborder/entities/` was removed. Verified: `tsc` clean,
 ESLint clean, **hermetic e2e 18/18** (6 controllers boot via DI on the new paths), unit 202. Note: some
 `controllers/` folders are now single-file — a deliberate user choice for uniformity with #9.
+
+**Then (same day):** the cross-area shared parts were grouped under `crossborder/common/{dto,gateway,decorators}/`
++ `common/mc-paths.ts` (everything used by more than one area in one place). The dead pre-#16 leftovers
+(`controllers/`, `services/`) and the now-vacated `dto/`/`gateway/`/`decorators/` (only gitignored
+`.agentic-security` inside) were removed. The `crossborder/` root is now: 6 areas + `common/` +
+`crossborder.module.ts`. tsc/ESLint clean, hermetic 18/18, unit 202.
