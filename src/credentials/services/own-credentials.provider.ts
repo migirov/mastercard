@@ -4,6 +4,7 @@ import {
   Logger,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { caching, MemoryCache } from 'cache-manager';
 import { GatewayConfig } from '../../config/gateway-config';
 import {
   loadPrivateKeyFromP12,
@@ -18,32 +19,64 @@ import {
 } from '../../secrets/secret-store.types';
 import { McCredentials } from '../credentials.types';
 import { safePartnerId, safeSecretRef } from '../utils/credential-sanitize';
-import { OwnCredentialsCache } from './own-credentials.cache';
+
+/**
+ * Hard ceiling on OWN cache entries (LRU): a large set of OWN partners (or a
+ * future bulk onboarding) must not grow the per-pod cache unboundedly while
+ * holding full key material. On overflow the store evicts least-recently-used.
+ */
+const OWN_CACHE_MAX = 500;
 
 /**
  * OWN credentials: a merchant's own keys from the SecretStore (Vault/KMS),
- * fetched, validated and normalised to PEM, then cached (TTL + LRU + stampede,
- * see OwnCredentialsCache). Split out of CredentialsService (issue #14).
+ * fetched, validated and normalised to PEM, then cached. Caching is delegated to
+ * cache-manager (in-memory store: TTL + LRU(500)); a rejected resolve is NOT
+ * cached, so a transient failure does not stick. Issue #15 replaced the bespoke
+ * OwnCredentialsCache with cache-manager.
+ *
+ * NB: cache-manager v5 `wrap` does not coalesce concurrent misses, so the former
+ * in-flight stampede dedup is intentionally dropped — concurrent cold resolves of
+ * one tenant may each hit the SecretStore (correct, just not coalesced).
  */
 @Injectable()
 export class OwnCredentialsProvider {
   private readonly logger = new Logger(OwnCredentialsProvider.name);
-  private readonly cache: OwnCredentialsCache;
+  private readonly ttlMs: number;
+  // cache-manager's memory store is created asynchronously → lazy single init.
+  private cache?: Promise<MemoryCache>;
 
   constructor(
     config: GatewayConfig,
     @Inject(SECRET_STORE) private readonly secrets: SecretStore,
   ) {
-    this.cache = new OwnCredentialsCache(config.credsCacheTtlMs);
+    this.ttlMs = config.credsCacheTtlMs;
   }
 
-  get(tenant: Tenant): Promise<McCredentials> {
-    return this.cache.getOrCreate(tenant.id, () => this.fetch(tenant));
+  async get(tenant: Tenant): Promise<McCredentials> {
+    const cache = await this.cacheStore();
+    return cache.wrap(tenant.id, () => this.fetch(tenant));
   }
 
   /** Drop a merchant's cached credentials (for key rotation). */
   invalidate(tenantId: string): void {
-    this.cache.invalidate(tenantId);
+    // Fire-and-forget: the store delete is async and must not throw to callers.
+    void this.cacheStore()
+      .then((c) => c.del(tenantId))
+      .catch(() => undefined);
+  }
+
+  private cacheStore(): Promise<MemoryCache> {
+    if (!this.cache) {
+      const init = caching('memory', { max: OWN_CACHE_MAX, ttl: this.ttlMs });
+      // If store init ever fails, clear the slot so the NEXT call retries rather
+      // than permanently awaiting a poisoned (rejected) promise. (Does not mask
+      // the rejection — the awaiting caller still sees it.)
+      init.catch(() => {
+        if (this.cache === init) this.cache = undefined;
+      });
+      this.cache = init;
+    }
+    return this.cache;
   }
 
   private async fetch(tenant: Tenant): Promise<McCredentials> {

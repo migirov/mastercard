@@ -206,7 +206,7 @@ owns liveness/readiness).
 |---|---|
 | `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses (PURE data-layer — seeds nothing on boot); `TenantEntity` co-located. Seeding lives outside: `platform` via the dev harness `DevSeedService` (`AppModule`), demo via `npm run seed` (`tenant.seed.ts`); the host provisions its own |
-| `CredentialsModule` | `CredentialsService` facade → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN in-memory cache (LRU 500 + TTL + stampede) in `OwnCredentialsCache`; boundary guards in `utils/credential-sanitize` (issue #14) |
+| `CredentialsModule` | `CredentialsService` facade → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN cache via cache-manager v5 (in-memory, LRU 500 + TTL; issue #15 — no stampede coalescing in v5); boundary guards in `utils/credential-sanitize` (issue #14) |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |

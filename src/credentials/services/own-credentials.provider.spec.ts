@@ -52,6 +52,40 @@ describe('OwnCredentialsProvider — fetch & boundary validation', () => {
     expect(creds.partnerId).toBe('OVERRIDE_1');
   });
 
+  // Caching is delegated to cache-manager; these two tests cover OUR wiring of it
+  // (wrap on get, del on invalidate) rather than the library's TTL/LRU internals.
+  it('caches a resolved tenant: a second get → one SecretStore fetch', async () => {
+    const fetchSecrets = jest.fn(async () => bundle);
+    const { provider } = make(fetchSecrets);
+    await provider.get(ownTenant('acme'));
+    await provider.get(ownTenant('acme'));
+    expect(fetchSecrets).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidate forces a re-fetch on the next get', async () => {
+    const fetchSecrets = jest.fn(async () => bundle);
+    const { provider } = make(fetchSecrets);
+    const t = ownTenant('acme');
+    await provider.get(t);
+    provider.invalidate(t.id);
+    await new Promise((r) => setImmediate(r)); // let the async del settle
+    await provider.get(t);
+    expect(fetchSecrets).toHaveBeenCalledTimes(2);
+  });
+
+  it('a rejected resolve is not cached (next get re-fetches)', async () => {
+    const fetchSecrets = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('vault down'))
+      .mockResolvedValue(bundle);
+    const { provider } = make(fetchSecrets as never);
+    await expect(provider.get(ownTenant('acme'))).rejects.toThrow();
+    await expect(provider.get(ownTenant('acme'))).resolves.toMatchObject({
+      consumerKey: 'ck',
+    });
+    expect(fetchSecrets).toHaveBeenCalledTimes(2);
+  });
+
   it('partnerId outside the allowlist → rejected', async () => {
     const { provider } = make();
     await expect(
