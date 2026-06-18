@@ -67,8 +67,8 @@ integration — in [`src/mastercard/services/mastercard-client.service.ts`](../.
   encryption`), toggle `MC_ENCRYPTION_ENABLED` (off=plain, on=JWE; FLE works in all
   environments, sandbox included — proven 2026-06-16).
 - Called **transparently from the axios interceptor** of `MastercardClient`, **not**
-  from business logic. `CrossBorderService` returns a clean object and knows nothing
-  about crypto.
+  from business logic. The Cross-Border area services return a clean object and know
+  nothing about crypto.
 
 > Important: "interceptor" here is the **axios interceptor** at the **us ↔ Mastercard**
 > boundary (outbound call), NOT a NestJS controller interceptor (the merchant ↔ us
@@ -241,7 +241,7 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 ```
 
 **Gating:** transactional operations (quote/payment/…) are allowed only when
-`isActive(tenant) === true` (checked in `CrossBorderService`).
+`isActive(tenant) === true` (checked in `CrossBorderGateway.resolveActive`).
 
 ## Lifecycle
 

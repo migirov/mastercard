@@ -7,11 +7,28 @@ import { MastercardClientModule } from '../mastercard/mastercard-client.module';
 import { TenantModule } from '../tenants/tenant.module';
 import { TenantThrottlerGuard } from '../common/guards/tenant-throttler.guard';
 import { TransactionStatusModule } from '../webhooks/transaction-status.module';
-import { CrossBorderService } from './services/crossborder.service';
-import { CrossBorderController } from './controllers/crossborder.controller';
+import { CrossBorderGateway } from './gateway/cross-border.gateway';
+import { AccountsController } from './accounts/accounts.controller';
+import { AccountsService } from './accounts/accounts.service';
+import { QuotesController } from './quotes/quotes.controller';
+import { QuotesService } from './quotes/quotes.service';
+import { PaymentsController } from './payments/payments.controller';
+import { PaymentsService } from './payments/payments.service';
+import { ValidationsController } from './validations/validations.controller';
+import { ValidationsService } from './validations/validations.service';
+import { CashPickupController } from './cash-pickup/cash-pickup.controller';
+import { CashPickupService } from './cash-pickup/cash-pickup.service';
+import { RfiController } from './rfi/rfi.controller';
+import { RfiService } from './rfi/rfi.service';
 import { PaymentIdempotencyEntity } from './entities/payment-idempotency.entity';
-import { PaymentIdempotencyStore } from './services/payment-idempotency.store';
+import { PaymentIdempotencyStore } from './payments/payment-idempotency.store';
 
+/**
+ * Cross-Border API. Split by API area (issue #16): one controller + service per
+ * area (accounts/quotes/payments/validations/cash-pickup/rfi), all over a shared
+ * `CrossBorderGateway` engine (tenant gating, the MC call + response unwrapping,
+ * URL/header helpers). Nothing is exported — the areas are the module's surface.
+ */
 @Module({
   imports: [
     TenantModule,
@@ -24,13 +41,25 @@ import { PaymentIdempotencyStore } from './services/payment-idempotency.store';
     // not a separate KV layer.
     TypeOrmModule.forFeature([PaymentIdempotencyEntity]),
   ],
-  // PaymentIdempotencyStore — a private provider (the only consumer is CrossBorderService).
+  // PaymentIdempotencyStore — a private provider (the only consumer is PaymentsService).
   providers: [
-    CrossBorderService,
+    CrossBorderGateway,
+    AccountsService,
+    QuotesService,
+    PaymentsService,
+    ValidationsService,
+    CashPickupService,
+    RfiService,
     PaymentIdempotencyStore,
     TenantThrottlerGuard,
   ],
-  controllers: [CrossBorderController],
-  exports: [CrossBorderService],
+  controllers: [
+    AccountsController,
+    QuotesController,
+    PaymentsController,
+    ValidationsController,
+    CashPickupController,
+    RfiController,
+  ],
 })
 export class CrossBorderModule {}

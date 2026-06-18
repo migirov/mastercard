@@ -67,7 +67,7 @@
                 └───────────────────────┬───────────────────────┘
                                         ▼
                 ┌───────────────────────────────────────────────┐
-                │       CrossBorderService (quote/payment/...)    │
+                │       CrossBorder areas → CrossBorderGateway    │
                 │              отдаёт «чистый» объект             │
                 └───────────────────────┬───────────────────────┘
                                         ▼
@@ -177,7 +177,7 @@ documentation.md).
 1. Inbound → `TenantAuthGuard`: внешний (Bearer JWT → `tid`) **или** внутренний
    (`X-Internal-Token` + `X-Tenant-Id`). Ставит `req.tenantContext`.
 2. `TenantThrottlerGuard`: rate-limit по `tenantId` (fail-closed, без IP-фолбэка).
-3. `CrossBorderService`: проверяет `isActive(tenant)` (иначе `403`).
+3. `CrossBorderGateway.resolveActive`: проверяет `isActive(tenant)` (иначе `403`).
 4. `CredentialsService.resolve(tenant)` → `McCredentials` (Vault, через кэш).
 5. Строится путь с `partnerId` + чистое тело → `MastercardClient.request(creds, …)`.
 6. Интерцептор: encrypt → sign → отправка; ответ — decrypt.
@@ -215,7 +215,7 @@ documentation.md).
 | `AuditModule` | `AuditInterceptor` (навешивается per-controller через `@UseGatewayContract()`) + батчевый `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой); ВСЕ события персистятся/дедупятся в `tx_status` одним атомарным `INSERT ON CONFLICT` по `eventRef` (KV-слоя нет); статусные (STATUS_CHG/QUOTE_STATUS_CHG) несут status/stage и читаются мерчантом, атрибуция тенанту (OWN→partnerId / PLATFORM→общий пул), нормализация camel/snake |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); общий для `WebhooksModule` (запись) и `CrossBorderModule` (tenant-scoped чтение для polling) |
-| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) + polling статусов (`GET /crossborder/status-events`); использует `mc-paths.ts` (централизованный билдер URL MC); приватный `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
+| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) **разбиты по API-областям** (issue #16): по одному контроллеру+сервису на область (accounts/quotes/payments/validations/cash-pickup/rfi) над общим `CrossBorderGateway` (гейтинг + вызов MC/разворот + URL/header-хелперы); polling статусов (`GET /crossborder/status-events`); `mc-paths.ts` (централизованный билдер URL MC); приватный `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
 | `HealthController` (dev-харнесс) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется в `AppModule` (харнесс), НЕ в зонтичном модуле — корневые пробы конфликтовали бы с хостом; при встраивании пробы даёт хост |
 | `PaymentIdempotencyStore` | приватный провайдер `CrossBorderModule`; идемпотентность платежей на Postgres (`payment_idempotency`); заменил прежний KV-based `IdempotencyService` (issue #4) |
