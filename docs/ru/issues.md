@@ -771,3 +771,9 @@ store/entity) и `mastercard.entities.ts` (путь `PaymentIdempotencyEntity`).
 удалён. Проверка: `tsc` чисто, ESLint чисто, **hermetic e2e 18/18** (6 контроллеров бутстрапятся через DI
 по новым путям), unit 202. Замечание: часть `controllers/` теперь однофайловые — осознанный выбор юзера ради
 единообразия с #9.
+
+**Затем (тот же день):** общие крос-область части собраны в `crossborder/common/{dto,gateway,decorators}/` +
+`common/mc-paths.ts` (всё, что нужно нескольким областям — в одном месте). Удалены мёртвые остатки до-#16
+(`controllers/`, `services/`) и опустевшие после переноса `dto/`/`gateway/`/`decorators/` (внутри был только
+gitignored `.agentic-security`). Корень `crossborder/` теперь = 6 областей + `common/` + `crossborder.module.ts`.
+tsc/ESLint чисто, hermetic 18/18, unit 202.

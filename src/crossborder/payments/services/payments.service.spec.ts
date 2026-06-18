@@ -8,7 +8,7 @@ import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { Tenant } from '../../../tenants/tenant.types';
 import { sha256hex } from '../../../common/utils/crypto.util';
 import { TransactionStatusStore } from '../../../webhooks/services/transaction-status.store';
-import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
+import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 import { PaymentIdempotencyStore } from './payment-idempotency.store';
 import { PaymentsService } from './payments.service';
 

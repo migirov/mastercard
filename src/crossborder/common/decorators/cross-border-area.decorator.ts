@@ -6,11 +6,11 @@ import {
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { TenantAuthGuard } from '../../auth/guards/tenant-auth.guard';
-import { ApiErrorResponses } from '../../common/decorators/api-error-responses.decorator';
-import { ErrorResponseDto } from '../../common/dto/error-response.dto';
-import { UseGatewayContract } from '../../common/decorators/gateway-contract.decorator';
-import { TenantThrottlerGuard } from '../../common/guards/tenant-throttler.guard';
+import { TenantAuthGuard } from '../../../auth/guards/tenant-auth.guard';
+import { ApiErrorResponses } from '../../../common/decorators/api-error-responses.decorator';
+import { ErrorResponseDto } from '../../../common/dto/error-response.dto';
+import { UseGatewayContract } from '../../../common/decorators/gateway-contract.decorator';
+import { TenantThrottlerGuard } from '../../../common/guards/tenant-throttler.guard';
 
 /**
  * Shared cross-cutting decorator for every Cross-Border area controller (issue

@@ -17,7 +17,7 @@ import {
   ValidationStrategy,
 } from '../../../common/pipes/gateway-validation.pipe';
 import { SafeIdPipe } from '../../../common/pipes/safe-id.pipe';
-import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
+import { CrossBorderArea } from '../../common/decorators/cross-border-area.decorator';
 import { ConfirmationRequestDto } from '../dto/confirmation-request.dto';
 import { QuoteRequestDto } from '../dto/quote-request.dto';
 import { QuotesService } from '../services/quotes.service';

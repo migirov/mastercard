@@ -5,7 +5,7 @@ import {
   TenantContext,
 } from '../../../auth/decorators/current-tenant.decorator';
 import { StringQueryPipe } from '../../../common/pipes/string-query.pipe';
-import { CrossBorderArea } from '../../decorators/cross-border-area.decorator';
+import { CrossBorderArea } from '../../common/decorators/cross-border-area.decorator';
 import { CashPickupService } from '../services/cash-pickup.service';
 
 @Controller('crossborder')

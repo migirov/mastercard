@@ -6,7 +6,7 @@ import {
 } from '../../../mastercard/services/mastercard-client.service';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { Tenant } from '../../../tenants/tenant.types';
-import { CrossBorderGateway } from '../../gateway/cross-border.gateway';
+import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 import { AccountsService } from './accounts.service';
 
 const PID = 'SANDBOX_1234567';

@@ -7,7 +7,7 @@ import { MastercardClientModule } from '../mastercard/mastercard-client.module';
 import { TenantModule } from '../tenants/tenant.module';
 import { TenantThrottlerGuard } from '../common/guards/tenant-throttler.guard';
 import { TransactionStatusModule } from '../webhooks/transaction-status.module';
-import { CrossBorderGateway } from './gateway/cross-border.gateway';
+import { CrossBorderGateway } from './common/gateway/cross-border.gateway';
 import { AccountsController } from './accounts/controllers/accounts.controller';
 import { AccountsService } from './accounts/services/accounts.service';
 import { QuotesController } from './quotes/controllers/quotes.controller';
