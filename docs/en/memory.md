@@ -142,7 +142,7 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && <command> &
 ```bash
 cd ~/valeri/mastercard
 docker compose up -d        # Postgres 16 (docker-compose.yml)
-npx ts-node src/main.ts     # schema from migrations (migrationsRun) + platform (DevSeedService)
+npx ts-node src/harness/main.ts     # schema from migrations (migrationsRun) + platform (DevSeedService)
 npm run seed                # demo tenants (acme/own-sandbox/own-demo) — for dev/e2e
 ```
 The registry seeds nothing (pure data-layer). The baseline `platform` is seeded by the
@@ -215,7 +215,7 @@ warning — the client has the same combo).
   `@nestjs/schedule` `KvCleanupService` (cron cleans kv_store); `nestjs-pino`
   structured JSON logs + correlation-id `x-request-id` + secret redaction. New env:
   `LOG_LEVEL`, `DB_MIGRATIONS_RUN`. To capture pino stdout cleanly run the server with
-  `node -r ts-node/register src/main.ts` (the cmd-detach redirect does not capture pino's stdout).
+  `node -r ts-node/register src/harness/main.ts` (the cmd-detach redirect does not capture pino's stdout).
 
 ---
 

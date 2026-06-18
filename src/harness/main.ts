@@ -5,7 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { isWeakSecret } from './common/utils/secret-strength';
+import { isWeakSecret } from '../common/utils/secret-strength';
 
 /** В production не даём стартовать со слабыми/дефолтными секретами. */
 function assertProdSecrets(): void {

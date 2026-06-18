@@ -5,7 +5,7 @@
  * Запуск: npx ts-node scripts/boot-check.ts
  */
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../src/harness/app.module';
 
 async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: false });

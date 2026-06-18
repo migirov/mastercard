@@ -15,7 +15,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios, { AxiosInstance } from 'axios';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../src/harness/app.module';
 import { CredentialsService } from '../src/credentials/services/credentials.service';
 import { MastercardClient } from '../src/mastercard/services/mastercard-client.service';
 import { TenantEntity } from '../src/tenants/entities/tenant.entity';

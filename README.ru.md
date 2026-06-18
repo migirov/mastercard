@@ -86,7 +86,7 @@ docker compose up -d            # Postgres 16, см. docker-compose.yml
 # 3) положить ключи в certs/ и заполнить .env (см. выше)
 
 # 4) запустить сервис (dev)
-npx ts-node src/main.ts         # http://localhost:3000, схема из миграций + сид platform
+npx ts-node src/harness/main.ts # http://localhost:3000, схема из миграций + сид platform
 ```
 
 Smoke-тест: `npm run ping` (балансы через тестового тенанта). Swagger: `/api-docs`.
@@ -139,7 +139,8 @@ src/
   health/         health/readiness-пробы (@nestjs/terminus) — контроллер в
                   dev-харнессе (AppModule), не в эмбеддабл-модуле
   common/         p12/crypto utils, throttler-гарды, validation-пайпы
-  app.module.ts / main.ts   dev-харнесс (автономный запуск, e2e, Swagger)
+  harness/        dev-харнесс — app.module.ts + main.ts + dev-seed.service.ts
+                  (автономный запуск, e2e, Swagger); не часть эмбеддабл-поверхности
 docs/             документация (см. таблицу выше)
 certs/            криптоматериал Mastercard (НЕ в репозитории)
 ```

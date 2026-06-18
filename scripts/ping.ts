@@ -6,7 +6,7 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { HttpException, Logger } from '@nestjs/common';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../src/harness/app.module';
 import { CrossBorderService } from '../src/crossborder/services/crossborder.service';
 
 async function main() {

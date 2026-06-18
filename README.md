@@ -86,7 +86,7 @@ docker compose up -d            # Postgres 16, see docker-compose.yml
 # 3) put the keys in certs/ and fill in .env (see above)
 
 # 4) run the service (dev)
-npx ts-node src/main.ts         # http://localhost:3000, schema from migrations + platform seed
+npx ts-node src/harness/main.ts # http://localhost:3000, schema from migrations + platform seed
 ```
 
 Smoke test: `npm run ping` (balances through a test tenant). Swagger: `/api-docs`.
@@ -139,7 +139,8 @@ src/
   health/         health/readiness probes (@nestjs/terminus) — controller in the dev
                   harness (AppModule), not the embedded module
   common/         p12/crypto utils, throttler guards, validation pipes
-  app.module.ts / main.ts   dev harness (standalone run, e2e, Swagger)
+  harness/        dev harness — app.module.ts + main.ts + dev-seed.service.ts
+                  (standalone run, e2e, Swagger); not part of the embeddable surface
 docs/             documentation (see the table above)
 certs/            Mastercard crypto material (NOT in the repo)
 ```
