@@ -145,7 +145,7 @@ cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && <коман
 ```bash
 cd ~/valeri/mastercard
 docker compose up -d        # Postgres 16 (docker-compose.yml)
-npx ts-node src/main.ts     # схема из миграций (migrationsRun) + platform (DevSeedService)
+npx ts-node src/harness/main.ts     # схема из миграций (migrationsRun) + platform (DevSeedService)
 npm run seed                # демо-тенанты (acme/own-sandbox/own-demo) — для dev/e2e
 ```
 Registry сам НЕ сеет (чистый data-layer). Базовый `platform` сеет `DevSeedService`
@@ -216,7 +216,7 @@ class-validator/mapped-types — есть и у клиента).
   `@nestjs/schedule` `KvCleanupService` (cron чистит kv_store); `nestjs-pino`
   структурные JSON-логи + correlation-id `x-request-id` + redact секретов. Новые
   env: `LOG_LEVEL`, `DB_MIGRATIONS_RUN`. Запуск сервера для чистого захвата
-  pino-stdout: `node -r ts-node/register src/main.ts` (cmd-детач stdout pino не ловит).
+  pino-stdout: `node -r ts-node/register src/harness/main.ts` (cmd-детач stdout pino не ловит).
 
 ---
 

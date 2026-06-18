@@ -263,7 +263,7 @@ env-ветка зашиты в data-layer-сервис.
   перезаписываются → admin-правки approval/suspend сохраняются; возвращает реально вставленные).
 - **`src/dev-seed.service.ts` (`DevSeedService`)** — провайдер ТОЛЬКО dev-харнесса (в `AppModule`,
   НЕ во встраиваемом `MastercardModule`): на `onApplicationBootstrap` сеет базовый `platform`
-  (zero-config для `ts-node src/main.ts`/`ping`/e2e). Хост его не получает → в БД хоста модуль на
+  (zero-config для `ts-node src/harness/main.ts`/`ping`/e2e). Хост его не получает → в БД хоста модуль на
   старте не пишет.
 - **Seed-скрипт `scripts/seed.ts`** (`npm run seed`) — поднимает `AppModule`-контекст (как
   `ping`; `DevSeedService` при этом сеет `platform`), сеет демо-тенантов; `SEED_DEMO=false` →
@@ -446,6 +446,18 @@ env-ветка зашиты в data-layer-сервис.
 
 **Статус:** сделано и проверено. Чисто структурный перенос — логика не тронута; публичный API пакета
 (`index.ts`) и seam встраивания в хост не изменились.
+
+### Follow-up (2026-06-18) — dev-харнесс вынесен в `src/harness/`
+Юзер заметил «голые» файлы в корне `src/` и попросил доделать по папкам. Корень `src/` **намеренно**
+держал 7 файлов (публичная поверхность + dev-харнесс); кросс-таск аудит подтвердил — фича-модули все
+чисты, ничего не «недоделано». Единственное осмысленное улучшение — отделить dev-харнесс от
+эмбеддабл-поверхности: `main.ts` + `app.module.ts` + `dev-seed.service.ts` → **`src/harness/`** (`git mv`,
+внутренние импорты `./`→`../`). В корне остались только **публичный контракт**: `index.ts`,
+`mastercard.module.ts`, `mastercard.module-definition.ts`, `mastercard.entities.ts` (их перемещать нельзя —
+сломает импорт пакета хостом). Правки: `nest-cli.json` `entryFile: harness/main`; 5 внешних импортов
+`../src/app.module`→`../src/harness/app.module` (2 e2e + `ping`/`seed`/`boot-check`); run-команды в
+README/tests/memory. Проверка: `nest build` ✓ (`dist/harness/main.js`), `tsc` чисто, **hermetic e2e 18/18**
+(реально бутстрапит `AppModule` из нового пути), unit 202.
 
 ---
 

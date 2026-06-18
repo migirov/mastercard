@@ -52,7 +52,7 @@ E2E-набор сам поднимает приложение на порту `3
 ```bash
 # Postgres + сервер
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
-cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && npx ts-node src/main.ts & popd"
+cmd /c "pushd \\wsl.localhost\Ubuntu\home\isaak\valeri\mastercard && npx ts-node src/harness/main.ts & popd"
 ```
 
 ---

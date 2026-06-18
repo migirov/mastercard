@@ -270,7 +270,7 @@ deliberately, not silently on every boot), and keeps local/e2e zero-config.
   overwritten → admin approval/suspend edits survive; returns the ids actually inserted).
 - **`src/dev-seed.service.ts` (`DevSeedService`)** — a dev-harness-ONLY provider (in `AppModule`,
   NOT the embeddable `MastercardModule`): on `onApplicationBootstrap` it seeds the baseline
-  `platform` (zero-config for `ts-node src/main.ts`/`ping`/e2e). The host doesn't get it → the module
+  `platform` (zero-config for `ts-node src/harness/main.ts`/`ping`/e2e). The host doesn't get it → the module
   writes nothing to the host DB on boot.
 - **Seed script `scripts/seed.ts`** (`npm run seed`) — boots an `AppModule` context (like `ping`;
   `DevSeedService` seeds `platform` then), seeds the demo tenants; `SEED_DEMO=false` → only the
@@ -449,6 +449,18 @@ and the `src/` umbrella+harness files (`mastercard.module.ts`, `app.module.ts`, 
 
 **Status:** done + verified. Pure structural move — no logic touched; the public package API
 (`index.ts`) and host integration seam are untouched.
+
+### Follow-up (2026-06-18) — dev harness moved to `src/harness/`
+The user noticed loose files at the `src/` root and asked to finish organizing by folder. The `src/` root
+**deliberately** kept 7 files (the public surface + the dev harness); a cross-task audit confirmed the
+feature modules are all clean — nothing was left undone. The one worthwhile improvement was to separate the
+dev harness from the embeddable surface: `main.ts` + `app.module.ts` + `dev-seed.service.ts` → **`src/harness/`**
+(`git mv`, internal imports `./`→`../`). The root keeps only the **public contract**: `index.ts`,
+`mastercard.module.ts`, `mastercard.module-definition.ts`, `mastercard.entities.ts` (these cannot move — it
+would break the host's package import). Changes: `nest-cli.json` `entryFile: harness/main`; 5 external imports
+`../src/app.module`→`../src/harness/app.module` (2 e2e + `ping`/`seed`/`boot-check`); run commands in
+README/tests/memory. Verified: `nest build` ✓ (`dist/harness/main.js`), `tsc` clean, **hermetic e2e 18/18**
+(boots `AppModule` from the new path), unit 202.
 
 ---
 

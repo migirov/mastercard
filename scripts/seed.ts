@@ -13,7 +13,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../src/harness/app.module';
 import { TenantEntity } from '../src/tenants/entities/tenant.entity';
 import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
 

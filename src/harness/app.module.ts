@@ -10,13 +10,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TerminusModule } from '@nestjs/terminus';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
-import { validateEnv } from './config/env.validation';
-import { MastercardModuleOptions } from './config/gateway-config';
-import { DatabaseModule } from './database/database.module';
+import { validateEnv } from '../config/env.validation';
+import { MastercardModuleOptions } from '../config/gateway-config';
+import { DatabaseModule } from '../database/database.module';
 import { DevSeedService } from './dev-seed.service';
-import { HealthController } from './health/controllers/health.controller';
-import { MastercardModule } from './mastercard.module';
-import { TenantEntity } from './tenants/entities/tenant.entity';
+import { HealthController } from '../health/controllers/health.controller';
+import { MastercardModule } from '../mastercard.module';
+import { TenantEntity } from '../tenants/entities/tenant.entity';
 
 /**
  * Dev-харнесс (standalone-запуск, e2e, Swagger). В production-монолите хост
