@@ -25,7 +25,6 @@ const EnvSchema = z.object({
   // --- optional / defaulted (validate format only if present) ---
   MC_ENCRYPTION_ENABLED: z.enum(['true', 'false']).optional(),
   MC_SECRET_STORE: z.enum(['local', 'vault']).optional(),
-  DB_SYNC: z.enum(['true', 'false']).optional(),
   // positive-integer string (pool size; parsed later via Number()). Stricter than
   // the old @IsNumberString, which also accepted floats/signs (e.g. '-3.5') that
   // make no sense as a pool max — fail fast on those instead.

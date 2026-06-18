@@ -23,7 +23,7 @@ The links below point to the English version.
 | File | About |
 |---|---|
 | [architecture.md](docs/en/architecture.md) | **Architecture (as-built)** — diagram, modules, flows, storage, security, phase status. Start here. |
-| [documentation.md](docs/en/documentation.md) | **Entities and concepts** — Tenant, OAuthClient, AuditLog, KvEntry, McCredentials, etc.; where DB / where in-memory; encryption (interceptor); OWN/PLATFORM scenarios; `tenant_id` vs `partner_id`. |
+| [documentation.md](docs/en/documentation.md) | **Entities and concepts** — Tenant, OAuthClient, AuditLog, PaymentIdempotency, TransactionStatus, McCredentials, etc.; where DB / where in-memory; encryption (interceptor); OWN/PLATFORM scenarios; `tenant_id` vs `partner_id`. |
 | [api.md](docs/en/api.md) | **Our API reference** — all endpoints (OAuth, Cross-Border, Admin, Webhooks), authentication, request/response examples, rate-limits. |
 | [api-mastercard.md](docs/en/api-mastercard.md) | **Official Mastercard docs** for Cross-Border (full reference, ~540 KB). The source of truth for payload formats. |
 | [plan.md](docs/en/plan.md) | **Plan and status** by phases 1–6 + migrations/enhancements, with the audit history. |
@@ -61,14 +61,14 @@ MC_BASE_URL, MC_CONSUMER_KEY, MC_PARTNER_ID
 MC_SIGNING_KEY_PATH, MC_SIGNING_KEY_PASSWORD
 MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # for MTF/Prod
-DATABASE_URL, DB_SYNC, DB_POOL_MAX      # PostgreSQL
+DATABASE_URL, DB_POOL_MAX               # PostgreSQL
 MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
 MC_SECRET_STORE                         # local (dev) | vault (prod)
 TRUST_PROXY                             # number of ingress hops behind a proxy (only for a correct req.ip; used by the rate-limit IP fallback — not related to auth)
 ```
 
-In production, gates apply (`main.ts`): refuse to start with weak/default secrets,
-require `MC_SECRET_STORE=vault`, forbid auto-`synchronize`.
+In production, gates apply (`main.ts`): refuse to start with weak/default secrets
+and require `MC_SECRET_STORE=vault`. The schema is migrations-only (no `synchronize`).
 
 ---
 
@@ -86,7 +86,7 @@ docker compose up -d            # Postgres 16, see docker-compose.yml
 # 3) put the keys in certs/ and fill in .env (see above)
 
 # 4) run the service (dev)
-npx ts-node src/main.ts         # http://localhost:3000, auto-schema + tenant seeds
+npx ts-node src/main.ts         # http://localhost:3000, schema from migrations + platform seed
 ```
 
 Smoke test: `npm run ping` (balances through a test tenant). Swagger: `/api-docs`.
@@ -99,8 +99,9 @@ Smoke test: `npm run ping` (balances through a test tenant). Swagger: `/api-docs
 
 ## DB migrations (production)
 
-In **dev** the schema is created by auto-`synchronize`. In **production**
-`synchronize` is always off — the schema is managed by **migrations** (TypeORM CLI).
+The schema is managed by **migrations** (TypeORM CLI) in every environment —
+`synchronize` is never used. In **dev** the harness builds it from migrations at
+startup (`migrationsRun`); in **production** migrations are applied on deploy.
 The CLI DataSource: [src/database/data-source.ts](src/database/data-source.ts).
 
 ```bash
@@ -130,13 +131,13 @@ src/
   auth/           OAuth2, guards, admin authentication, DTOs
   admin/          onboarding partners, approvals, issuing OAuth clients, DTOs
   mastercard/     low-level client module (axios encrypt/sign/decrypt + EncryptionService)
-  crossborder/    business endpoints + DTOs (quote/payment/retrieve/cancel/confirm)
-  idempotency/    payment idempotency (provider on CrossBorderModule)
+  crossborder/    business endpoints by area (accounts/quotes/payments/validations/
+                  cash-pickup/rfi) over a shared gateway; payment idempotency (Postgres)
   audit/          operation log (Postgres, batched writes)
-  webhooks/       push notifications + fail-closed auth + signature scaffold + DTO
-  store/          KvStore → PostgresKvStore + cron cleanup of expired kv_store
+  webhooks/       push notifications + fail-closed auth (token) + DTO
   database/       TypeORM (dev harness; a host provides its own DataSource)
-  health/         health/readiness probes (@nestjs/terminus) — controller in umbrella
+  health/         health/readiness probes (@nestjs/terminus) — controller in the dev
+                  harness (AppModule), not the embedded module
   common/         p12/crypto utils, throttler guards, validation pipes
   app.module.ts / main.ts   dev harness (standalone run, e2e, Swagger)
 docs/             documentation (see the table above)
