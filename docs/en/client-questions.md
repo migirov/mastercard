@@ -11,7 +11,8 @@ A list of questions and materials needed to continue the integration.
   embedded into the host `b24club-api`; the host provides the TypeORM `DataSource` and
   runs the migrations.
 - ✅ **e2e on Postgres** → **done** (live Postgres in Docker).
-- ✅ **`Idempotency-Key`** → **kept** (client confirmed).
+- ✅ **`Idempotency-Key`** → **SUPERSEDED** (team-lead issue #3): the header was removed;
+  idempotency is now derived from `transaction_reference`.
 
 ---
 
@@ -123,7 +124,9 @@ Phase 3 is mostly **not blocked** — built and verified on sandbox:
 - ✅ `TenantContext` (replacing the `x-tenant-id` header);
 - ✅ approval model (2 flags, `ACTIVE` computed) + admin API;
 - ✅ per-tenant rate-limit (in-memory; Redis — once F2 is answered);
-- ✅ webhook reception scaffold (signature to be added when C1 arrives).
+- ✅ webhook reception (push authenticity = **mTLS**, NOT a payload signature — MC does
+  not sign the body; the noop signature verifier was removed in issue #7). The real
+  remaining webhook item is decrypting the encrypted push, not a payload-signature check.
 
 **Only blocked by:** going live (needs A1–A2, prod keys) and the final webhook check
 (C1). Phase 3 development can proceed in parallel with the request.

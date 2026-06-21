@@ -75,9 +75,9 @@ standalone dev-harness (`main.ts`). Вопрос закрыт.
 - [ ] **Опциональный rate-limit на ингрессе** как доп. защита — authoritative-лимит это самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса); лимит на ингрессе, если есть — не authoritative.
 - [ ] **Personal partner-id и ключи** OWN-партнёров заведены в секрет-менеджере.
 - [x] **Миграции БД** — инфраструктура готова (`data-source.ts`, npm-скрипты
-      `migration:generate/run/revert`, миграции `InitialSchema` + `AddTxStatus` (таблица
-      `tx_status` для персиста push-статусов), `synchronize` off в prod). Осталось: прогон
-      `migration:run` на прод-БД при деплое.
+      `migration:generate/run/revert`, единственная миграция `InitialSchema` (создаёт
+      `tx_status` для персиста push-статусов И `payment_idempotency`), `synchronize` off
+      в prod). Осталось: прогон `migration:run` на прод-БД при деплое.
 
 ---
 

@@ -127,6 +127,14 @@ CIS team). Hence `MC_ENCRYPTION_ENABLED="false"` for sandbox.
 have the public `.pem`. From the original ZIP at key creation, or by regenerating on
 the portal → into `MC_DECRYPTION_KEY_PATH`. Not needed in sandbox.
 
+> ⚠️ **CORRECTED 2026-06-16 — both paragraphs above are OUTDATED.** Sandbox **does support**
+> FLE; `082000` came from a mirrored key model (we were encrypting with the Mastercard
+> Encryption key instead of the Client Encryption key). Correct model: encrypt REQUESTS
+> with the Client Encryption Key (public cert), decrypt RESPONSES with our Mastercard
+> Encryption private key (which we generated ourselves — `fintory-decrypt`, `75ea7e15…`,
+> activated on the portal). `MC_ENCRYPTION_ENABLED="true"` now, sandbox included. Details
+> — the FLE milestone earlier in this file and `mastercard-fle-working`.
+
 ---
 
 ## Running (Windows + project on a WSL UNC path)
@@ -161,13 +169,14 @@ Dev scripts: `npm run ping`, `npm run encrypt-poc` (+`plain`), `src/scripts/p12-
 `MC_SIGNING_KEY_PATH/PASSWORD`, `MC_CONSUMER_KEY`, `MC_PARTNER_ID`
 (sandbox=`SANDBOX_1234567`), `MC_BASE_URL`, `MC_ENCRYPTION_CERT_PATH`
 (=the extracted MC cert), `MC_ENCRYPTION_FINGERPRINT` (=cec4…),
-`MC_ENCRYPTION_ENABLED` (false), `MC_DECRYPTION_KEY_PATH` (empty, for prod),
+`MC_ENCRYPTION_ENABLED` (true — FLE works in all environments, sandbox included),
+`MC_DECRYPTION_KEY_PATH` (empty, for prod),
 `MC_SECRET_STORE` (local),
 `MC_JWT_SECRET`/`MC_INTERNAL_TOKEN`/`MC_ADMIN_TOKEN`/`MC_WEBHOOK_TOKEN` (dev; in prod
 the gate in main.ts requires strong ones), `TRUST_PROXY` (empty),
 **`DATABASE_URL`** (postgres://mc:mc@localhost:5432/mc_gateway),
-**`DB_SYNC`** (true in dev; in production `synchronize` is ALWAYS off),
-**`DB_POOL_MAX`** (per-pod pool, default 10). `REDIS_URL` — removed. A values-free
+**`DB_POOL_MAX`** (per-pod pool, default 10). Schema is migrations-only (`synchronize`
+removed; no more `DB_SYNC`). `REDIS_URL` — removed. A values-free
 template — `.env.example` (in the repo).
 
 ---
@@ -201,8 +210,9 @@ warning — the client has the same combo).
   500); (6) a successful payment is not lost on a result-cache failure; (7) retry
   **GET only** on 502/503/504+network (POST never; config rebuilt each attempt);
   (8) `DB_POOL_MAX` (default 10) — per-pod pool (otherwise pods×10 > Postgres
-  max_connections); (9) webhook **at-least-once** (release the dedup key on failure);
-  (10) fire-and-forget cleanup of expired KV.
+  max_connections); (9) webhook **at-least-once** (release the dedup key on failure).
+  (Item (10) was fire-and-forget cleanup of expired KV — the KV layer was removed in
+  issue #4; retention is now DB-level, not an app cron.)
 - **e2e on a live Postgres run** (Docker inside WSL): admin/tenants, both auth paths,
   gating 403/404, real balances/rates/quote, idempotency, rate-limit→429, webhook
   dedup, **persistence after pod restart**. Report — `tests.md`. Not covered: ~~JWE
@@ -212,7 +222,7 @@ warning — the client has the same combo).
   `@nestjs/terminus` (`/health`, `/ready`); ENV validation `ConfigModule.validate`
   (Zod, fail-fast); TypeORM migrations (`src/database/data-source.ts`,
   `migration:*`, `InitialSchema` generated+run, synchronize off in prod);
-  `@nestjs/schedule` `KvCleanupService` (cron cleans kv_store); `nestjs-pino`
+  `nestjs-pino`
   structured JSON logs + correlation-id `x-request-id` + secret redaction. New env:
   `LOG_LEVEL`, `DB_MIGRATIONS_RUN`. To capture pino stdout cleanly run the server with
   `node -r ts-node/register src/harness/main.ts` (the cmd-detach redirect does not capture pino's stdout).
@@ -235,8 +245,9 @@ warning — the client has the same combo).
    thread the keys into `EncryptionService`. See `production-questions.md`.
 4. **Prod keys:** private Client Encryption key (decryption), `MC_ENCRYPTION_ENABLED=true`
    in MTF/Prod, prod secrets instead of dev defaults, OWN partners' partner-id/keys in Vault.
-5. Optional: RFI subsystem, observability, cleanup of expired `kv_store` (cron;
-   `@nestjs/schedule` adds a dependency).
+5. Optional: RFI subsystem, observability. (Retention of `payment_idempotency`/`tx_status`
+   is a DB/infra concern, no app cron; the KV layer and its cron cleanup were removed in
+   issue #4.)
 
 ---
 
@@ -270,7 +281,9 @@ warning — the client has the same combo).
    Secrets/Store/Audit).
 5. ✅ **Entities co-located** (commit `09c4ece`). Removed the central `database/entities/`
    folder; each entity lives in its module: `TenantEntity`→`tenants/`,
-   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`, `KvEntity`→`store/`. `database/`
+   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`. (`KvEntity`/`store/` were later
+   removed in issue #4 along with the whole KV layer; the payment/webhook entities are
+   `payment_idempotency` and `tx_status`.) `database/`
    keeps only infra (DatabaseModule, data-source, migrations). Schema and table names
    unchanged; typecheck + e2e 10/10.
 6. ✅ **Audit shutdown race fixed** (commit `bb9a6ea`): buffer flush moved to
@@ -289,7 +302,8 @@ webhook without token→401, with token→200).
   (`POST crossborder/accounts/validations`), Bank Lookup (`crossborder/banks/details`),
   Account generation (`crossborder/accounts/generate`). Separate opt-in suites → ask E1 first.
 - **Embedding into `b24club-api`:** host must include our entities in its DataSource and
-  run their migrations; provide `ScheduleModule.forRoot()` for the kv cleanup cron.
+  run their migrations. (No cron/`ScheduleModule` needed — the KV layer was removed in
+  issue #4; retention is DB-level.)
 - The **per-tenant encryption** blocker before prod-OWN is still open.
 
 ---

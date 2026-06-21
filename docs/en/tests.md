@@ -20,17 +20,22 @@ Related: [api.md](./api.md), [architecture.md](./architecture.md),
 # Postgres (E2E needs it) — inside WSL
 wsl -d Ubuntu -- bash -lc "cd /home/isaak/valeri/mastercard && docker compose up -d"
 
-# Unit suites: 20 suites / 147 tests (rootDir src, *.spec.ts)
+# Unit suites: 28 suites / 202 tests (rootDir src, *.spec.ts)
 node node_modules\jest\bin\jest.js
 
-# E2E against the LIVE sandbox: 23/23
+# Hermetic E2E (stubbed MC, no network): 18 tests — npm `test:e2e`
+#   test/app.contract.e2e-spec.ts via ./test/jest-e2e.json
 node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
+
+# Live E2E against the LIVE sandbox: 23 tests — npm `test:e2e:live`
+#   test/app.e2e-spec.ts via ./test/jest-e2e-live.json
+node node_modules\jest\bin\jest.js --config ./test/jest-e2e-live.json
 ```
 
 > On this Windows + WSL-UNC setup Jest is invoked via `node node_modules\jest\bin\jest.js`
 > — `npx` does not resolve on the mapped drive. The E2E harness boots the real
 > `AppModule` on port `3999` (manual bodyParser, no global pipe — like
-> `main.ts`) and drives it with `axios`.
+> `src/harness/main.ts` / `src/harness/app.module.ts`) and drives it with `axios`.
 
 ---
 
@@ -129,7 +134,8 @@ Direction **MC → us** (status push notifications). Does not call the MC API ou
 | WH-1 | `POST /webhooks/mastercard` without a token | ✅ 401 (fail-closed) |
 | WH-2 | `POST /webhooks/mastercard` with `x-webhook-token` | ✅ 200 |
 
-> The webhook dedup-by-`eventRef` path (`kv_store`) is unit-pinned by
+> The webhook dedup-by-`eventRef` path now persists to `tx_status` (atomic
+> `INSERT … ON CONFLICT` — no `kv_store` layer) and is unit-pinned by
 > `webhook.handler.spec` / `webhook-auth.guard.spec` — see [tests-inner.md](./tests-inner.md).
 > Webhook authentication is the in-service fail-closed token (`X-Webhook-Token`),
 > required in prod and dev. Mastercard's authoritative authenticity for push notifications
