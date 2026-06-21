@@ -21,8 +21,8 @@ Reflects the **actually implemented** state of the service. Related documents:
 > validation strategy — `gatewayValidationPipe(ValidationStrategy.Strict)` for admin/oauth,
 > `…Passthrough` without `transform` for bodies going to MC — plus the
 > `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
-> override the host's error handling. Webhook auth is fail-closed in-service (+ a
-> signature-verifier scaffold), not "trust the ingress". `EncryptionService` is collapsed
+> override the host's error handling. Webhook auth is fail-closed in-service
+> (`X-Webhook-Token` + mTLS), not "trust the ingress" (MC does not sign push bodies). `EncryptionService` is collapsed
 > into a provider; payment idempotency / webhook dedup live on Postgres (the separate KV
 > layer is gone, issue #4); health probes moved to the dev harness (not the umbrella). The single
 > entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
@@ -296,6 +296,6 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   GET, push persistence) went through 3 more analysis rounds (bugs/optimization/security).
   Tests: unit 20 suites / 159, e2e on the live sandbox.
 - ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
-  key — see §6), webhook signature (C1) and **encrypted-push decryption** (needs the Client key),
-  private Client decryption key, Vault implementation, metrics/tracing (Prometheus/OTel) —
+  key — see §6), **encrypted-push decryption** (the Client decryption key + the per-tenant seam),
+  Vault implementation, metrics/tracing (Prometheus/OTel) —
   see [production-questions.md](./production-questions.md).

@@ -94,7 +94,7 @@ encrypt→sign по зашифрованному телу; response: decrypt). `
 - **OAuth2:** `POST /oauth/token` (client_credentials → JWT 15мин; form-urlencoded и JSON).
 - **Cross-Border** (auth: Bearer JWT внешний / `X-Internal-Token`+`X-Tenant-Id` внутренний):
   `GET balances`, `GET rates`, `POST quotes`, `POST quotes/confirmations`,
-  `POST payments` (+ `Idempotency-Key`), `GET payments/:id`, `GET payments?ref=`,
+  `POST payments` (идемпотентность по `transaction_reference`), `GET payments/:id`, `GET payments?ref=`,
   `POST payments/:id/cancel`.
 - **Admin** (`X-Admin-Token`): `GET/POST /admin/tenants`, `…/approve/platform`,
   `…/approve/mastercard`, `…/suspend|unsuspend`, `…/clients` (выпуск), `GET /admin/audit`.
@@ -163,13 +163,14 @@ Dev-скрипты: `npm run ping`, `npm run encrypt-poc` (+`plain`), `src/scrip
 `MC_SIGNING_KEY_PATH/PASSWORD`, `MC_CONSUMER_KEY`, `MC_PARTNER_ID`
 (sandbox=`SANDBOX_1234567`), `MC_BASE_URL`, `MC_ENCRYPTION_CERT_PATH`
 (=извлечённый MC cert), `MC_ENCRYPTION_FINGERPRINT` (=cec4…),
-`MC_ENCRYPTION_ENABLED` (false), `MC_DECRYPTION_KEY_PATH` (пусто, для прода),
+`MC_ENCRYPTION_ENABLED` (true — FLE работает во всех средах, sandbox в том числе),
+`MC_DECRYPTION_KEY_PATH` (пусто, для прода),
 `MC_SECRET_STORE` (local),
 `MC_JWT_SECRET`/`MC_INTERNAL_TOKEN`/`MC_ADMIN_TOKEN`/`MC_WEBHOOK_TOKEN` (dev; в
 проде prod-гейт в main.ts требует сильные), `TRUST_PROXY` (пусто),
 **`DATABASE_URL`** (postgres://mc:mc@localhost:5432/mc_gateway),
-**`DB_SYNC`** (true в dev; в production `synchronize` ВСЕГДА off),
-**`DB_POOL_MAX`** (пул пер-под, дефолт 10). `REDIS_URL` — удалён. Шаблон без
+**`DB_POOL_MAX`** (пул пер-под, дефолт 10). Схема — только миграции (`synchronize`
+убран; `DB_SYNC` больше нет). `REDIS_URL` — удалён. Шаблон без
 значений — `.env.example` (в репо).
 
 ---
@@ -203,8 +204,9 @@ class-validator/mapped-types — есть и у клиента).
   (6) успешный платёж не теряется при сбое кэша результата; (7) ретрай **только GET**
   на 502/503/504+сеть (POST никогда; конфиг строится заново каждую попытку);
   (8) `DB_POOL_MAX` (дефолт 10) — пул пер-под (иначе подов×10 > Postgres
-  max_connections); (9) webhook **at-least-once** (релиз дедуп-ключа при сбое);
-  (10) fire-and-forget очистка протухших KV.
+  max_connections); (9) webhook **at-least-once** (релиз дедуп-ключа при сбое).
+  (Пункт (10) был fire-and-forget очисткой протухших KV — KV-слой удалён в issue #4,
+  ретеншн теперь на уровне БД, не app-cron.)
 - **e2e на живом Postgres прогнан** (Docker внутри WSL): admin/tenants, оба пути
   auth, gating 403/404, реальные balances/rates/quote, идемпотентность,
   rate-limit→429, webhook-дедуп, **персистентность после рестарта пода**. Отчёт —
@@ -213,7 +215,7 @@ class-validator/mapped-types — есть и у клиента).
   `@nestjs/terminus` (`/health`, `/ready`); валидация ENV `ConfigModule.validate`
   (Zod, fail-fast); TypeORM-миграции (`src/database/data-source.ts`,
   `migration:*`, `InitialSchema` сгенерирована+прогнана, synchronize off в prod);
-  `@nestjs/schedule` `KvCleanupService` (cron чистит kv_store); `nestjs-pino`
+  `nestjs-pino`
   структурные JSON-логи + correlation-id `x-request-id` + redact секретов. Новые
   env: `LOG_LEVEL`, `DB_MIGRATIONS_RUN`. Запуск сервера для чистого захвата
   pino-stdout: `node -r ts-node/register src/harness/main.ts` (cmd-детач stdout pino не ловит).
@@ -226,8 +228,9 @@ class-validator/mapped-types — есть и у клиента).
    - Отдельный → текущая схема верна (свой `DatabaseModule.forRoot` + `DATABASE_URL`).
    - Часть монолита → убрать наш `forRoot`, entity через `forFeature` в их DataSource,
      схема — их миграциями (не `synchronize`). ← это и делаем.
-2. ~~Удаление `Idempotency-Key`~~ — **РЕШЕНО ОСТАВИТЬ** (клиент подтвердил
-   2026-06-10). `IdempotencyService` остаётся на `POST /crossborder/payments`.
+2. ~~Idempotency-Key / IdempotencyService~~ — **ОТМЕНЕНО issue-ами тимлида #3/#4:**
+   заголовок убран (issue #3), а KV-based `IdempotencyService` заменён на Postgres
+   `payment_idempotency` с ключом по `transaction_reference` (issue #4).
 3. 🔴 **БЛОКЕР per-tenant encryption:** интерцептор шифрует **платформенным**
    ключом, а у OWN-партнёров разные MC encryption-ключи → в MTF/Prod запрос
    зашифруется чужим ключом, MC отвергнет. `CredentialsService` уже резолвит
@@ -235,8 +238,8 @@ class-validator/mapped-types — есть и у клиента).
    ключи в `EncryptionService`. См. `production-questions.md`.
 4. **Прод-ключи:** приватный Client Encryption key (расшифровка), `MC_ENCRYPTION_ENABLED=true`
    в MTF/Prod, прод-секреты вместо dev-дефолтов, partner-id/ключи OWN-партнёров в Vault.
-5. Опционально: RFI-подсистема, observability, очистка протухших `kv_store`
-   (cron; `@nestjs/schedule` добавит зависимость).
+5. Опционально: RFI-подсистема, observability. (Ретеншн `payment_idempotency`/`tx_status`
+   — на уровне БД/инфры, без app-cron; KV-слой и его cron-очистка удалены в issue #4.)
 
 ---
 
@@ -271,7 +274,9 @@ class-validator/mapped-types — есть и у клиента).
    Secrets/Store/Audit) оставлены.
 5. ✅ **Сущности co-located** (коммит `09c4ece`). Убрана общая папка
    `database/entities/`; каждая entity лежит в своём модуле: `TenantEntity`→`tenants/`,
-   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`, `KvEntity`→`store/`. В
+   `OAuthClientEntity`→`auth/`, `AuditLogEntity`→`audit/`. (`KvEntity`/`store/` позже
+   удалены в issue #4 вместе со всем KV-слоём; entity платежей/вебхуков —
+   `payment_idempotency` и `tx_status`.) В
    `database/` осталась только инфра (DatabaseModule, data-source, migrations). Схема
    и имена таблиц не изменились; typecheck + e2e 10/10.
 6. ✅ **Фикс shutdown-гонки аудита** (коммит `bb9a6ea`): флаш буфера перенесён в
@@ -291,7 +296,8 @@ webhook без токена→401, с токеном→200).
   Account generation (`crossborder/accounts/generate`). Отдельные опт-ин сьюты → сперва
   вопрос E1 клиенту.
 - **Встраивание в `b24club-api`:** хост должен включить наши entity в свой DataSource
-  и вести их миграции; предоставить `ScheduleModule.forRoot()` для cron-очистки kv.
+  и вести их миграции. (Cron/`ScheduleModule` больше не нужен — KV-слой удалён в issue #4,
+  ретеншн на уровне БД.)
 - Открыт блокер **per-tenant encryption** перед прод-OWN.
 
 ---

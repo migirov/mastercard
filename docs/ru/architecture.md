@@ -22,8 +22,8 @@
 > `gatewayValidationPipe(ValidationStrategy.Strict)` для admin/oauth,
 > `…Passthrough` без `transform` для тел, идущих в MC — плюс композитный декоратор
 > `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
-> ошибок хоста. Аутентификация вебхука — fail-closed в сервисе (+ каркас проверки
-> подписи), а не «доверие к ингрессу». `EncryptionService` свёрнут в провайдер;
+> ошибок хоста. Аутентификация вебхука — fail-closed в сервисе
+> (`X-Webhook-Token` + mTLS), а не «доверие к ингрессу» (MC не подписывает тела push). `EncryptionService` свёрнут в провайдер;
 > идемпотентность платежей / дедуп вебхуков — на Postgres (отдельный KV-слой убран, issue #4);
 > health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
 > `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
@@ -298,6 +298,6 @@ address-validation; теперь в одном аудируемом месте).
   GET, push-персист) прошла ещё 3 раунда анализа (баги/оптимизация/безопасность). Тесты: unit
   20 сьютов / 159, e2e на живом sandbox.
 - ⬜ **Перед прод:** per-tenant encryption (JWE-интерцептор всё ещё на платформенном
-  ключе — см. §6), подпись вебхука (C1) и **декрипт зашифрованного push** (нужен Client-ключ),
-  приватный Client-ключ дешифрования, Vault-реализация, метрики/трейсинг (Prometheus/OTel) —
+  ключе — см. §6), **декрипт зашифрованного push** (приватный Client-ключ дешифрования + per-tenant seam),
+  Vault-реализация, метрики/трейсинг (Prometheus/OTel) —
   см. [production-questions.md](./production-questions.md).

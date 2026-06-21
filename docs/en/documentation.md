@@ -8,7 +8,7 @@ Related documents: [architecture.md](./architecture.md) (design),
 ## Sections
 
 - [Data storage](#data-storage-where-db-where-in-memory) — where Postgres, where in-memory
-- [Encryption](#encryption--decryption) — JWE interceptor, extraction into a separate service
+- [Encryption](#encryption--decryption) — JWE: `EncryptionService` is a provider of the mastercard-client module, called from the axios interceptor
 - [Operating scenarios](#operating-scenarios-merchant-model) — merchant model (OWN / PLATFORM)
 
 ## Entity list
@@ -18,11 +18,11 @@ Related documents: [architecture.md](./architecture.md) (design),
 | [Tenant](#tenant) | Postgres `tenants` | Partner/merchant on the platform |
 | [OAuthClient](#oauthclient) | Postgres `oauth_clients` | Partner's OAuth2 client (API access) |
 | [AuditLog](#auditlog-auditentry) | Postgres `audit_log` | Operation log record |
-| [KvEntry](#kventry-kv_store) | Postgres `kv_store` | Idempotency + NON-status webhook dedup (with TTL) |
-| [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Persisted status push notifications (Status Change) |
+| [PaymentIdempotency](#paymentidempotency-payment_idempotency) | Postgres `payment_idempotency` | Payment idempotency (keyed by `txref:sha256(transaction_reference)`) |
+| [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Persisted webhook events (status push + non-status dedup) |
 | [McCredentials](#mccredentials) | not stored (resolve + cache) | Resolved Mastercard keys for a tenant |
 | [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore/Vault | Partner secrets (keys, consumerKey) |
-| [McWebhookEvent](#mcwebhookevent) | status → `tx_status`; others not stored | Mastercard push-notification payload |
+| [McWebhookEvent](#mcwebhookevent) | all events → `tx_status` | Mastercard push-notification payload |
 
 ---
 
@@ -39,19 +39,19 @@ The service is deployed to Docker/Kubernetes on **many pods**. Hence the rule:
 | `tenants` | **Postgres** (TypeORM) | domain | created on pod A → needed on pod B |
 | `oauth_clients` | **Postgres** (TypeORM) | domain | key issued on A → authentication on B |
 | `audit_log` | **Postgres** (TypeORM) | domain | aggregated across all pods |
-| `idempotency` | **Postgres** (`KvStore`→PG, TTL) | domain | payment retry on another pod → otherwise a double charge |
-| webhook dedup (NON-status) | **Postgres** (`KvStore`→PG, TTL) | domain | MC webhook retry on another pod → otherwise a duplicate |
-| `tx_status` (status push) | **Postgres** (TypeORM) | domain | status arrives on pod A → merchant reads on B; dedup = UNIQUE(eventRef) |
+| `idempotency` | **Postgres** `payment_idempotency` (`PaymentIdempotencyStore`) | domain | payment retry on another pod → otherwise a double charge |
+| webhook dedup (NON-status) | **Postgres** `tx_status` (`INSERT…ON CONFLICT` eventRef) | domain | MC webhook retry on another pod → otherwise a duplicate |
+| `tx_status` (all webhook events) | **Postgres** (TypeORM) | domain | event arrives on pod A → merchant reads on B; dedup = UNIQUE(eventRef) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` | ephemeral | correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative |
-| credentials cache | **in-memory per-pod** | cache | source of truth — Vault/env; pods cache independently from one source, TTL bounds staleness |
+| credentials cache | **cache-manager (memory, TTL+LRU) per-pod** | cache | source of truth — Vault/env; pods cache independently from one source, TTL bounds staleness |
 | partner secrets | SecretStore (Vault) | external | managed by the secret manager, not our layer |
 
 **Redis is NOT used** — Postgres is chosen for consistent state; for ephemeral
 rate-limit — the self-standing per-pod `@nestjs/throttler` (correctness independent
 of the ingress); an ingress limit, if any, is optional defense-in-depth, not authoritative.
 
-**Storage stack:** PostgreSQL + TypeORM (`@nestjs/typeorm`), `synchronize` in dev
-(auto-schema), migrations in prod. Connection via `DATABASE_URL`.
+**Storage stack:** PostgreSQL + TypeORM (`@nestjs/typeorm`), migrations-only (no
+`synchronize`); the dev harness runs migrations at startup. Connection via `DATABASE_URL`.
 
 ---
 
@@ -402,41 +402,46 @@ Table `audit_log`.
 
 ---
 
-# KvEntry (`kv_store`)
+# PaymentIdempotency (`payment_idempotency`)
 
-**KvEntry** — a universal key-value record with a **TTL**. One table serves two
-mechanisms that need cross-pod consistency:
-1. **payment idempotency** (key `idem:<tenantId>:<Idempotency-Key>`);
-2. **NON-status Mastercard webhook dedup** (key `wh:<eventRef>`). Status push events
-   (STATUS_CHG/QUOTE_STATUS_CHG) are deduped NOT here but in
-   [`tx_status`](#transactionstatus-tx_status) (UNIQUE(eventRef), dedup+persist atomic).
+**PaymentIdempotency** — the persistent (no TTL) store guaranteeing that a retried
+payment is not charged twice. Keyed per-tenant by `idemKey =
+txref:sha256(transaction_reference)`; there is **no** `Idempotency-Key` header — the
+key is derived from the payment's `transaction_reference`. The old KV layer is gone
+(issue #4) — webhook dedup moved to [`tx_status`](#transactionstatus-tx_status).
 
-Code: [`src/store/postgres-kv.store.ts`](../../src/store/postgres-kv.store.ts),
-entity (co-located in the module): [`src/store/kv.entity.ts`](../../src/store/kv.entity.ts).
-Table `kv_store`.
+Code: [`src/crossborder/payments/services/payment-idempotency.store.ts`](../../src/crossborder/payments/services/payment-idempotency.store.ts)
+(`PaymentIdempotencyStore`),
+entity: [`src/crossborder/payments/entities/payment-idempotency.entity.ts`](../../src/crossborder/payments/entities/payment-idempotency.entity.ts).
+Table `payment_idempotency`.
 
 ## Fields
 
 | Field | Type | Description |
 |---|---|---|
-| `key` | `varchar(256)` PK | Key with the mechanism prefix. |
-| `value` | `text` | Value (JSON — e.g. `{done, result}` for idempotency). |
-| `expiresAt` | `timestamptz` (indexed) | Expiry moment; expired is treated as absent. |
+| `tenantId` | `varchar` | Owning tenant (part of the unique key). |
+| `idemKey` | `varchar` | `txref:sha256(transaction_reference)` (6 + 64 hex). |
+| `fingerprint` | `varchar` | `sha256` of the body — detects "same key, different body" (→ 422). |
+| `done` | `boolean` | `true` once the MC call completed and the result was recorded. |
+| `result` | `jsonb` | The cached MC result (returned to a retry once `done`). |
+| `lockedAt` | `timestamptz` | When the in-progress slot was claimed (re-claimable after `LOCK_TTL`). |
+
+Index: **UNIQUE(`tenantId`, `idemKey`)**.
 
 ## Behavior
 
-- **`setIfAbsent`** — an atomic capture via
-  `INSERT … ON CONFLICT (key) DO UPDATE … WHERE expiresAt < now()`: inserts, or
-  overwrites ONLY an expired record. This underpins the idempotency lock and the
-  "first wins" for webhooks (no races between pods).
-- **`get`** — reads and, if the record is expired, deletes it (fire-and-forget) and
-  returns `null`.
-- **TTL:** idempotency — a short `in-progress` lock (120s, > MC timeout), then the
-  result for a day; webhook dedup — a day.
-- **Cleanup:** expired rows are removed by a cron job (`KvCleanupService`, hourly,
-  `@nestjs/schedule`, under a `pg_try_advisory_xact_lock` so only one pod cleans per
-  cycle; the `DELETE` is **batched via `LIMIT`/`ctid`** so one pass removes at most
-  `CLEANUP_BATCH` rows and never holds a long lock), plus lazily on read.
+- **Atomic claim** — `INSERT … ON CONFLICT (tenantId, idemKey) DO UPDATE … WHERE done =
+  false AND lockedAt < now() − LOCK_TTL AND fingerprint = EXCLUDED.fingerprint`: inserts a
+  fresh in-progress slot, or re-claims a stale one. `RETURNING id` non-empty ⇔ we own the
+  slot and run the MC call.
+- **In-progress** (slot held by a fresh call) → **409** "already being processed".
+- **Same key, DIFFERENT body** (`fingerprint` mismatch) → **422** (IETF Idempotency-Key /
+  Stripe semantics).
+- **Completed** (`done=true`) → the cached `result` is returned without re-calling MC.
+- **Fail-safe:** a business 4xx releases the slot; a 5xx keeps the lock (so a retry within
+  `LOCK_TTL` gets 409, after that it is re-claimed) — the key never gets stuck forever.
+- **Persistent, not TTL** — the row stays; there is no cleanup cron (the old
+  `kv_store`/`KvCleanupService`/`@nestjs/schedule` mechanism was removed).
 
 ---
 
@@ -492,10 +497,10 @@ in-memory (per-pod). The rest of the code works only with this type and **does n
 know** whether these are the shared platform keys or the partner's own keys.
 
 Code: [`src/credentials/credentials.types.ts`](../../src/credentials/credentials.types.ts),
-resolver: [`src/credentials/credentials.service.ts`](../../src/credentials/credentials.service.ts)
+resolver: [`src/credentials/services/credentials.service.ts`](../../src/credentials/services/credentials.service.ts)
 (a thin facade — issue #14 — delegating to `PlatformCredentialsProvider` and
-`OwnCredentialsProvider`; the OWN cache lives in `OwnCredentialsCache`, the boundary
-guards in `utils/credential-sanitize.ts`).
+`OwnCredentialsProvider`; the OWN cache is cache-manager (memory) wired inside
+`OwnCredentialsProvider`, the boundary guards in `utils/credential-sanitize.ts`).
 
 ## Fields
 
@@ -533,7 +538,7 @@ guards in `utils/credential-sanitize.ts`).
 
 **MerchantSecretBundle** — the full set of a partner's secrets that `SecretStore`
 returns by `secretRef` (`OWN` mode). **Stored in the secret manager** (Vault/KMS), not
-in our DB. From the bundle `CredentialsService` assembles [McCredentials](#mccredentials).
+in our DB. From the bundle `OwnCredentialsProvider` assembles [McCredentials](#mccredentials).
 
 Code: [`src/secrets/secret-store.types.ts`](../../src/secrets/secret-store.types.ts).
 Implementations: `LocalSecretStore` (dev), `VaultSecretStore` (prod — a stub until a
@@ -572,8 +577,8 @@ and `signing`. Encryption fields are optional (needed only with `MC_ENCRYPTION_E
 
 **McWebhookEvent** — a Mastercard push-notification payload (`POST /webhooks/mastercard`).
 Status events are **persisted** to [`tx_status`](#transactionstatus-tx_status); others
-(Carded Rate Push, RFI, etc.) are not stored, only deduped via a `eventRef` marker in
-[`kv_store`](#kventry-kv_store).
+(Carded Rate Push, RFI, etc.) are persisted to `tx_status` too (atomic dedup+audit via
+`INSERT … ON CONFLICT (eventRef) DO NOTHING`); there is **no separate KV layer**.
 
 Code: [`src/webhooks/services/webhook.handler.ts`](../../src/webhooks/services/webhook.handler.ts).
 
@@ -601,9 +606,13 @@ MC sends fields in TWO notations — camelCase and snake_case; the handler norma
 - **Status events** (`STATUS_CHG`/`QUOTE_STATUS_CHG`) → persisted to `tx_status` via a single
   `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup+write atomic). Tenant attribution:
   OWN → by `partnerId`, PLATFORM/unknown → the shared pool (`tenantId=NULL`).
-- **Other events** → dedup `setIfAbsent('wh:<eventRef>')` (one-day TTL) + log.
-- **Encrypted push** (`encrypted_payload.data`): acked 200 without processing (encrypted
-  push only happens in MTF/Prod — sandbox is "Not Applicable"; the decryption key already
-  exists, what's left is threading `decryptResponse` into the handler + the per-tenant seam).
+- **Other events** (Carded Rate Push, RFI, …) → `statusStore.record` (atomic
+  `INSERT … ON CONFLICT (eventRef) DO NOTHING` in `tx_status`) + log; events with no ref are
+  accepted without persisting (NULLs are distinct, so dedup is impossible).
+- **Encrypted push** (`encrypted_payload.data`): the raw envelope is **PERSISTED** to
+  `tx_status` with `eventType='ENCRYPTED'` **BEFORE** the 200 ack (dedup key = a top-level ref
+  if MC sends one outside the cipher, else `enc:sha256(ciphertext)`); a write failure → **500**
+  so MC retries (otherwise the event is lost for good). Decryption is threaded later
+  (MTF/Prod — sandbox is "Not Applicable"; + the per-tenant seam).
 - **Always responds 200** (otherwise MC retries). Repeat → `{status:'duplicate'}`,
   otherwise `{status:'accepted'}`.

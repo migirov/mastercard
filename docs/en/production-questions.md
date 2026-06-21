@@ -77,9 +77,9 @@ standalone dev-harness (`main.ts`). Question closed.
 - [ ] **Optional ingress rate-limit** as defense-in-depth — the authoritative limit is the in-service self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is not authoritative.
 - [ ] **Personal partner-id and keys** of OWN partners loaded into the secret manager.
 - [x] **DB migrations** — infrastructure is ready (`data-source.ts`, npm scripts
-      `migration:generate/run/revert`, migrations `InitialSchema` + `AddTxStatus` (the
-      `tx_status` table for push-status persistence), `synchronize` off in prod). Remaining:
-      run `migration:run` against the prod DB on deploy.
+      `migration:generate/run/revert`, the single `InitialSchema` migration (creates the
+      `tx_status` table for push-status persistence AND `payment_idempotency`), `synchronize`
+      off in prod). Remaining: run `migration:run` against the prod DB on deploy.
 
 ---
 
