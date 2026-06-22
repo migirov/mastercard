@@ -44,13 +44,16 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 | Файл | Назначение | Переменная `.env` |
 |---|---|---|
 | `Fintory-sandbox-signing.p12` | приватный ключ **подписи OAuth1** | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
-| `mastercard-encryption-cert.pem` | публичный cert **Mastercard Encryption Key** — им шифруются ЗАПРОСЫ (JWE) в MTF/Prod | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
-| приватный **Client Encryption key** (PEM) | расшифровка ОТВЕТОВ в MTF/Prod | `MC_DECRYPTION_KEY_PATH` *(в sandbox не нужен)* |
+| `client-encryption-cert.pem` | публичный cert **Client Encryption Key** — им шифруются ЗАПРОСЫ (JWE) | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
+| наш приватный **Mastercard Encryption key** (PEM) | расшифровка ОТВЕТОВ | `MC_DECRYPTION_KEY_PATH` |
 
-> **Sandbox не поддерживает field-level encryption** — там работает plain
-> (`MC_ENCRYPTION_ENABLED=false`), и достаточно signing-ключа + consumer key.
-> Шифрование включается только в MTF/Production. Подробно про ключи — в
-> [architecture.md](docs/ru/architecture.md) и [documentation.md](docs/ru/documentation.md).
+> **Field-level encryption (JWE) работает во ВСЕХ средах, включая sandbox**
+> (подтверждено 2026-06-16). Ставьте `MC_ENCRYPTION_ENABLED=true`, когда cert + ключ
+> настроены, или `false` — чтобы работать plain (достаточно signing-ключа + consumer key).
+> **Направление ключей — НЕ перепутать (обратный выбор даёт ошибку MC `082000`):**
+> ЗАПРОСЫ шифруем публичным cert'ом **Client Encryption** (`MC_ENCRYPTION_CERT_PATH`); ОТВЕТЫ
+> расшифровываем нашим приватным ключом **Mastercard Encryption** (`MC_DECRYPTION_KEY_PATH`).
+> Подробно про ключи — в [architecture.md](docs/ru/architecture.md) и [documentation.md](docs/ru/documentation.md).
 
 ### `.env` (тоже не в репозитории)
 
@@ -67,7 +70,7 @@ MC_SECRET_STORE                         # local (dev) | vault (prod)
 TRUST_PROXY                             # число хопов ингресса за прокси
 ```
 
-В production действуют гейты (`main.ts`): запрет старта со слабыми/дефолтными
+В production действуют гейты (`src/harness/main.ts`): запрет старта со слабыми/дефолтными
 секретами и требование `MC_SECRET_STORE=vault`. Схема — только миграции (без `synchronize`).
 
 ---
