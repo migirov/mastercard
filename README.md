@@ -44,13 +44,16 @@ from [Mastercard Developers](https://developer.mastercard.com) there.
 | File | Purpose | `.env` variable |
 |---|---|---|
 | `Fintory-sandbox-signing.p12` | private **OAuth1 signing** key | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
-| `mastercard-encryption-cert.pem` | public cert of the **Mastercard Encryption Key** — encrypts REQUESTS (JWE) in MTF/Prod | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
-| private **Client Encryption key** (PEM) | decrypts RESPONSES in MTF/Prod | `MC_DECRYPTION_KEY_PATH` *(not needed in sandbox)* |
+| `client-encryption-cert.pem` | public cert of the **Client Encryption Key** — encrypts REQUESTS (JWE) | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
+| our private **Mastercard Encryption key** (PEM) | decrypts RESPONSES | `MC_DECRYPTION_KEY_PATH` |
 
-> **Sandbox does not support field-level encryption** — it runs plain
-> (`MC_ENCRYPTION_ENABLED=false`), and a signing key + consumer key is enough.
-> Encryption is enabled only in MTF/Production. Key details — in
-> [architecture.md](docs/en/architecture.md) and [documentation.md](docs/en/documentation.md).
+> **Field-level encryption (JWE) works in every environment, including sandbox**
+> (verified 2026-06-16). Set `MC_ENCRYPTION_ENABLED=true` once the cert + key are
+> configured, or leave it `false` to run plain (a signing key + consumer key is enough).
+> **Key direction — do not invert (inverting yields MC error `082000`):** encrypt
+> REQUESTS with the **Client Encryption** public cert (`MC_ENCRYPTION_CERT_PATH`); decrypt
+> RESPONSES with our **Mastercard Encryption** private key (`MC_DECRYPTION_KEY_PATH`).
+> Key details — in [architecture.md](docs/en/architecture.md) and [documentation.md](docs/en/documentation.md).
 
 ### `.env` (also not in the repo)
 
@@ -67,7 +70,7 @@ MC_SECRET_STORE                         # local (dev) | vault (prod)
 TRUST_PROXY                             # number of ingress hops behind a proxy (only for a correct req.ip; used by the rate-limit IP fallback — not related to auth)
 ```
 
-In production, gates apply (`main.ts`): refuse to start with weak/default secrets
+In production, gates apply (`src/harness/main.ts`): refuse to start with weak/default secrets
 and require `MC_SECRET_STORE=vault`. The schema is migrations-only (no `synchronize`).
 
 ---
