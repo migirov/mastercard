@@ -25,18 +25,18 @@ import { WebhookAuthGuard } from '../guards/webhook-auth.guard';
 import { WebhookHandler } from '../services/webhook.handler';
 
 /**
- * Приём push-уведомлений Mastercard. Всегда отвечаем 200 (по докам — иначе MC
- * ретраит). Тело валидируется пресетом Passthrough общей стратегии валидации: MC
- * шлёт много полей сверх объявленных — их нельзя вырезать/отвергать. Зашифрованные
- * payload-ы (опц.) расшифруем в Фазе 4.
+ * Receives Mastercard push notifications. Always responds 200 (per the docs — otherwise MC
+ * retries). The body is validated with the Passthrough preset of the shared validation
+ * strategy: MC sends many fields beyond those declared — they must not be stripped or
+ * rejected. Encrypted payloads (optional) are decrypted in Phase 4.
  *
- * Throttler стоит ПОСЛЕ WebhookAuthGuard (лимитирует только токен-валидные
- * запросы; невалидный токен → 401 ДО throttler, не тратит бюджет) — backstop
- * против флуда DB-записей держателем токена. Лимит намеренно ЩЕДРЫЙ: легитимные
- * MC-всплески (мультимерчант, ретраи) не должны ловить 429 (а 429 ещё и
- * спровоцировал бы MC-ретрай). По IP: вся MC-нагрузка с немногих IP.
- * ⚠️ Лимит PER-POD (in-memory throttler, Redis в проекте не используем) —
- * совокупный потолок = 1200×N подов. Это backstop, а НЕ глобальный жёсткий кап.
+ * The throttler runs AFTER WebhookAuthGuard (it limits only token-valid requests; an
+ * invalid token → 401 BEFORE the throttler, spending no budget) — a backstop against a
+ * token holder flooding DB writes. The limit is deliberately GENEROUS: legitimate MC bursts
+ * (multi-merchant, retries) must not hit 429 (and a 429 would itself provoke an MC retry).
+ * By IP: all MC traffic comes from a few IPs.
+ * NOTE: the limit is PER-POD (in-memory throttler, Redis is not used in this project) —
+ * the aggregate ceiling = 1200×N pods. This is a backstop, NOT a global hard cap.
  */
 @ApiTags('webhooks')
 @ApiSecurity('webhook')
@@ -50,7 +50,7 @@ export class MastercardWebhookController {
 
   @Post('mastercard')
   @ApiOperation({
-    summary: 'Приём push-уведомлений MC (X-Webhook-Token, fail-closed).',
+    summary: 'Receive MC push notifications (X-Webhook-Token, fail-closed).',
   })
   @ApiResponse({ status: 200, type: WebhookAckDto })
   @HttpCode(200)

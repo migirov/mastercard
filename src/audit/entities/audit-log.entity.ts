@@ -1,6 +1,6 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-/** Запись журнала операций (без тел и секретов). */
+/** An operations-log record (no bodies and no secrets). */
 @Entity('audit_log')
 export class AuditLogEntity {
   @PrimaryGeneratedColumn('increment')

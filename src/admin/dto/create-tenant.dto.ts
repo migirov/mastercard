@@ -10,8 +10,8 @@ import {
 } from 'class-validator';
 import { CredentialMode } from '../../tenants/tenant.types';
 
-/** Тело POST /admin/tenants — валидируется пресетом Strict общей стратегии
- *  валидации (gatewayValidationPipe) на AdminController. */
+/** Body of POST /admin/tenants — validated by the Strict preset of the shared
+ *  validation strategy (gatewayValidationPipe) on AdminController. */
 export class CreateTenantDto {
   @ApiProperty({ maxLength: 120 })
   @IsString()
@@ -22,9 +22,9 @@ export class CreateTenantDto {
   @IsEnum(CredentialMode)
   credentialMode!: CredentialMode;
 
-  // id становится первичным ключом тенанта и потом фигурирует в путях admin
-  // `:id` (через SafeIdPipe). Ограничиваем тем же безопасным charset, иначе можно
-  // создать тенанта с id, который SafeIdPipe затем отвергнет (станет неадресуемым).
+  // id becomes the tenant primary key and later appears in admin `:id` paths
+  // (via SafeIdPipe). We restrict it to the same safe charset, otherwise a tenant
+  // could be created with an id that SafeIdPipe then rejects (becoming unaddressable).
   @ApiPropertyOptional({ maxLength: 64 })
   @IsOptional()
   @IsString()
@@ -32,10 +32,10 @@ export class CreateTenantDto {
   @Matches(/^[A-Za-z0-9._-]+$/, { message: 'id: only [A-Za-z0-9._-]' })
   id?: string;
 
-  // partnerId уходит в URL-пути/заголовки запросов к MC. Ограничиваем тем же
-  // безопасным charset и длиной, что и SAFE_PARTNER_ID в credential-sanitize
-  // (`^[A-Za-z0-9._-]{1,64}$`), иначе плохой partnerId сохранится и упадёт лишь на
-  // первой транзакции непрозрачной ошибкой резолва, а не понятным 400 при создании.
+  // partnerId goes into URL paths/headers of requests to MC. We restrict it to the
+  // same safe charset and length as SAFE_PARTNER_ID in credential-sanitize
+  // (`^[A-Za-z0-9._-]{1,64}$`), otherwise a bad partnerId would be persisted and fail
+  // only on the first transaction with an opaque resolve error, not a clear 400 at creation.
   @ApiPropertyOptional({ maxLength: 64 })
   @IsOptional()
   @IsString()
@@ -43,16 +43,16 @@ export class CreateTenantDto {
   @Matches(/^[A-Za-z0-9._-]+$/, { message: 'partnerId: only [A-Za-z0-9._-]' })
   partnerId?: string;
 
-  // Для режима OWN secretRef ОБЯЗАТЕЛЕН (ключи мерчанта из секрет-стора); для
-  // PLATFORM — не валидируется (используются платформенные ключи). Раньше эта
-  // условная проверка была ручной в AdminService — теперь декларативно в DTO.
-  // secretRef интерполируется в ключ-путь секрет-стора (Vault) → ограничиваем
-  // charset и запрещаем `..`-сегменты (path-traversal / key-confusion: иначе
-  // одного тенанта можно онбордить с ref на чужой/платформенный секрет). Дублируется
-  // защитой на границе резолва (safeSecretRef в credential-sanitize).
+  // For OWN mode secretRef is REQUIRED (merchant keys from the secret store); for
+  // PLATFORM it is not validated (platform keys are used). This conditional check used
+  // to be manual in AdminService — now it is declarative in the DTO.
+  // secretRef is interpolated into the secret-store (Vault) key path → we restrict the
+  // charset and forbid `..` segments (path-traversal / key-confusion: otherwise a tenant
+  // could be onboarded with a ref to another/platform secret). Duplicated by the guard at
+  // the resolve boundary (safeSecretRef in credential-sanitize).
   @ApiPropertyOptional({
     maxLength: 256,
-    description: 'Обязателен для credentialMode=OWN.',
+    description: 'Required for credentialMode=OWN.',
   })
   @ValidateIf((o) => o.credentialMode === CredentialMode.OWN)
   @IsString()

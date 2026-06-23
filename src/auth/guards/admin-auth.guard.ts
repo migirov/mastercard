@@ -8,7 +8,7 @@ import { Request } from 'express';
 import { GatewayConfig } from '../../config/gateway-config';
 import { matchSharedToken } from '../../common/utils/crypto.util';
 
-/** Admin-API под отдельным токеном (X-Admin-Token). */
+/** Admin API behind a dedicated token (X-Admin-Token). */
 @Injectable()
 export class AdminAuthGuard implements CanActivate {
   constructor(private readonly config: GatewayConfig) {}

@@ -2,8 +2,8 @@ import { Repository } from 'typeorm';
 import { AuditEntry, AuditService } from './audit.service';
 import { AuditLogEntity } from '../entities/audit-log.entity';
 
-// Управляемый fake-репозиторий: insert возвращает промис, который мы резолвим
-// вручную, чтобы держать flush «в полёте» и проверять re-entrancy.
+// A controllable fake repository: insert returns a promise we resolve manually,
+// to keep a flush "in flight" and test re-entrancy.
 function deferred<T = void>() {
   let resolve!: (v?: T) => void;
   let reject!: (e: unknown) => void;
@@ -40,18 +40,18 @@ describe('AuditService', () => {
 
   it('re-entrancy: a flush in flight is not started twice (no double insert)', async () => {
     const d = deferred();
-    repo.insert.mockReturnValueOnce(d.promise); // первый flush «зависает»
+    repo.insert.mockReturnValueOnce(d.promise); // the first flush "hangs"
 
-    fill(100); // 100-я запись триггерит flush → insert вызван 1 раз, буфер пуст
+    fill(100); // the 100th record triggers flush → insert called once, buffer empty
     expect(repo.insert).toHaveBeenCalledTimes(1);
 
-    fill(100); // буфер снова 100 → триггер flush, но он ещё в полёте → no-op
-    expect(repo.insert).toHaveBeenCalledTimes(1); // не вызван повторно
+    fill(100); // buffer is 100 again → triggers flush, but it's still in flight → no-op
+    expect(repo.insert).toHaveBeenCalledTimes(1); // not called again
 
-    d.resolve(); // завершаем первый insert → гард снят
+    d.resolve(); // complete the first insert → guard released
     await Promise.resolve();
     await Promise.resolve();
-    // следующий флаш добивает накопленные 100
+    // the next flush drains the accumulated 100
     await svc.recent().catch(() => undefined);
     expect(repo.insert).toHaveBeenCalledTimes(2);
   });
@@ -59,16 +59,16 @@ describe('AuditService', () => {
   it('recent(): двойной флаш — пишет записи, добавленные во время in-flight флаша', async () => {
     repo.insert = jest.fn().mockResolvedValue(undefined) as never;
     (repo.insert as jest.Mock).mockImplementationOnce(() => {
-      // во время ПЕРВОГО insert прилетает ещё запись
+      // during the FIRST insert one more record arrives
       svc.record(entry(999));
       return Promise.resolve();
     });
-    // @ts-expect-error: find не нужен для проверки — заглушаем
+    // @ts-expect-error: find isn't needed for the check — stub it
     repo.find = jest.fn().mockResolvedValue([]);
 
-    fill(100); // flush #1 (внутри добавится 1 запись)
-    await svc.recent(); // должен добить «хвост» вторым флашем
-    // insert вызван дважды: основной батч + хвостовая запись
+    fill(100); // flush #1 (one record is added inside it)
+    await svc.recent(); // should drain the "tail" with a second flush
+    // insert called twice: the main batch + the tail record
     expect((repo.insert as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(
       2,
     );
@@ -76,10 +76,10 @@ describe('AuditService', () => {
 
   it('capBuffer: переполнение сбрасывает САМЫЕ СТАРЫЕ и логирует drop', async () => {
     const d = deferred();
-    repo.insert.mockReturnValueOnce(d.promise); // держим флаш в полёте
+    repo.insert.mockReturnValueOnce(d.promise); // keep the flush in flight
 
-    fill(100); // flush #1 в полёте, буфер пуст
-    fill(1001); // буфер растёт > MAX_RETAINED(1000) → дроп старейших
+    fill(100); // flush #1 in flight, buffer empty
+    fill(1001); // buffer grows > MAX_RETAINED(1000) → drop the oldest
     expect(svc['logger'].warn).toHaveBeenCalledWith(
       expect.stringContaining('dropped'),
     );
@@ -88,31 +88,31 @@ describe('AuditService', () => {
 
   it('insert failure: батч возвращается в буфер для повторной попытки', async () => {
     repo.insert.mockRejectedValueOnce(new Error('db down'));
-    fill(100); // flush падает → unshift обратно
+    fill(100); // flush fails → unshift back
     await Promise.resolve();
     await Promise.resolve();
-    // следующий успешный флаш переотправит тот же батч
+    // the next successful flush re-sends the same batch
     await svc.recent().catch(() => undefined);
     expect(repo.insert.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('backoff: после провала НЕпринудительный флаш пропускается в окне; force (recent/shutdown) его игнорирует', async () => {
-    // @ts-expect-error: find заглушаем для recent()
+    // @ts-expect-error: stub find for recent()
     repo.find = jest.fn().mockResolvedValue([]);
-    repo.insert.mockRejectedValueOnce(new Error('db down')); // 1-й insert падает
+    repo.insert.mockRejectedValueOnce(new Error('db down')); // the 1st insert fails
 
-    fill(100); // MAX_BUFFER → flush #1 → insert #1 → fail → backoff (~2с), батч возвращён
+    fill(100); // MAX_BUFFER → flush #1 → insert #1 → fail → backoff (~2s), batch returned
     await Promise.resolve();
     await Promise.resolve();
     expect(repo.insert).toHaveBeenCalledTimes(1);
 
-    // НЕпринудительный флаш в окне backoff (record при >=100) → пропускается
+    // a non-forced flush inside the backoff window (record at >=100) → skipped
     svc.record(entry(101));
     await Promise.resolve();
     await Promise.resolve();
-    expect(repo.insert).toHaveBeenCalledTimes(1); // не вызван — backoff
+    expect(repo.insert).toHaveBeenCalledTimes(1); // not called — backoff
 
-    // recent() форсит флаш мимо backoff → вставка проходит
+    // recent() forces a flush past the backoff → the insert goes through
     await svc.recent();
     expect(repo.insert).toHaveBeenCalledTimes(2);
   });

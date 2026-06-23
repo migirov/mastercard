@@ -5,10 +5,10 @@ import { AuditService } from './services/audit.service';
 import { AuditInterceptor } from './interceptors/audit.interceptor';
 
 /**
- * Аудит навешивается ПЕР-КОНТРОЛЛЕРНО (`@UseInterceptors(AuditInterceptor)` на
- * наших контроллерах), а НЕ глобально через APP_INTERCEPTOR — модуль встраиваемый
- * и не должен оборачивать трафик всего хост-приложения. Поэтому экспортируем
- * `AuditInterceptor`, чтобы модули контроллеров могли его навесить.
+ * Auditing is attached PER-CONTROLLER (`@UseInterceptors(AuditInterceptor)` on our
+ * controllers), NOT globally via APP_INTERCEPTOR — the module is embeddable and must not
+ * wrap the whole host application's traffic. Hence we export `AuditInterceptor` so
+ * controller modules can attach it.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([AuditLogEntity])],

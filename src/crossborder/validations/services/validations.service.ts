@@ -16,9 +16,10 @@ export class ValidationsService {
   constructor(private readonly gw: CrossBorderGateway) {}
 
   /**
-   * Валидация адреса получателя (POST, до платежа). У MC СВОЯ база
-   * (`/send/address-validation-service/...`) — без `/crossborder` и без partner-id
-   * в пути; OAuth1-подпись всё равно ставится по creds тенанта в интерцепторе.
+   * Validate the recipient address (POST, before payment). MC uses its OWN base
+   * (`/send/address-validation-service/...`) — without `/crossborder` and without
+   * a partner-id in the path; the OAuth1 signature is still applied from the
+   * tenant's creds in the interceptor.
    */
   validateAddress(tenantId: string, body: AddressValidationRequestDto) {
     return this.gw.run(tenantId, 'validateAddress', (c) => ({
@@ -30,9 +31,10 @@ export class ValidationsService {
   }
 
   /**
-   * Валидация счёта получателя ДО платежа (POST, MC Account Validation API).
-   * accountUri = { type: IBAN|PAN|BAN, value }. Путь — с partner-id (как quote).
-   * На sandbox проверяемо для IBAN/CES-кейсов; ASV (requestType=ASV) в sandbox нет.
+   * Validate the recipient account BEFORE payment (POST, MC Account Validation
+   * API). accountUri = { type: IBAN|PAN|BAN, value }. The path includes partner-id
+   * (like quote). On sandbox this is testable for IBAN/CES cases; ASV
+   * (requestType=ASV) is not available on sandbox.
    */
   validateAccount(tenantId: string, body: AccountValidationRequestDto) {
     return this.gw.run(tenantId, 'validateAccount', (c) => ({
@@ -43,7 +45,7 @@ export class ValidationsService {
     }));
   }
 
-  /** Поиск реквизитов банка получателя (POST, MC Bank Information Lookup API). */
+  /** Look up the recipient bank's details (POST, MC Bank Information Lookup API). */
   lookupBank(tenantId: string, body: BankLookupRequestDto) {
     return this.gw.run(tenantId, 'lookupBank', (c) => ({
       method: 'POST',
@@ -53,7 +55,7 @@ export class ValidationsService {
     }));
   }
 
-  /** Генерация IBAN из реквизитов счёта (POST, MC IBAN Generation API). */
+  /** Generate an IBAN from account details (POST, MC IBAN Generation API). */
   generateIban(tenantId: string, body: IbanGenerationRequestDto) {
     return this.gw.run(tenantId, 'generateIban', (c) => ({
       method: 'POST',
@@ -64,11 +66,12 @@ export class ValidationsService {
   }
 
   /**
-   * Endpoint Guide (GET): технические/бизнес-требования к полям для конкретного
-   * коридора (payment_type + destination_country/currency/payment_instrument).
-   * База `/crossborder` (без /send, без partner-id в пути); идентификация —
-   * ref-заголовками (X-Mc-Correlation-Id + Partner-Ref-Id), как у validation-
-   * сервисов. Тела запроса НЕТ → шифровать нечего → на sandbox работает вживую.
+   * Endpoint Guide (GET): technical/business field requirements for a specific
+   * corridor (payment_type + destination_country/currency/payment_instrument).
+   * Base `/crossborder` (without /send, without a partner-id in the path);
+   * identification is via ref headers (X-Mc-Correlation-Id + Partner-Ref-Id), like
+   * the validation services. There is NO request body → nothing to encrypt → it
+   * works live on sandbox.
    */
   endpointGuide(tenantId: string, q: EndpointGuideQuery) {
     return this.gw.run(tenantId, 'endpointGuide', (c) => ({

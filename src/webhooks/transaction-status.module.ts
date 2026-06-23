@@ -4,10 +4,10 @@ import { TransactionStatusEntity } from './entities/transaction-status.entity';
 import { TransactionStatusStore } from './services/transaction-status.store';
 
 /**
- * Владеет персистом статус-событий push-уведомлений (`tx_status`). Выделен в
- * отдельный модуль, т.к. `TransactionStatusStore` нужен ДВУМ потребителям:
- * WebhooksModule (запись входящих событий) и CrossBorderModule (tenant-scoped
- * чтение для polling'а мерчантом). Экспортирует только стор.
+ * Owns persistence of push-notification status events (`tx_status`). Split into its own
+ * module because `TransactionStatusStore` is needed by TWO consumers: WebhooksModule
+ * (writing incoming events) and CrossBorderModule (tenant-scoped reads for merchant
+ * polling). Exports only the store.
  */
 @Module({
   imports: [TypeOrmModule.forFeature([TransactionStatusEntity])],

@@ -3,32 +3,32 @@ import { ApiResponse } from '@nestjs/swagger';
 import { ErrorResponseDto } from '../dto/error-response.dto';
 
 /**
- * Документирует единый контракт ошибок (`ErrorResponseDto`) для Swagger на типовых
- * статусах. Бандл вместо копипасты `@ApiResponse` на каждом контроллере, чтобы
- * сгенерированный клиент видел предсказуемую форму ошибки везде, а не только там,
- * где её вручную прописали. (Не для `/oauth/token` — там формат RFC 6749 §5.2.)
+ * Documents the unified error contract (`ErrorResponseDto`) for Swagger on the common
+ * statuses. A bundle instead of copy-pasting `@ApiResponse` on every controller, so the
+ * generated client sees a predictable error shape everywhere, not only where it was
+ * written out by hand. (Not for `/oauth/token` — that uses the RFC 6749 §5.2 format.)
  */
 export function ApiErrorResponses() {
   return applyDecorators(
     ApiResponse({
       status: 400,
       type: ErrorResponseDto,
-      description: 'Невалидный запрос (валидация/формат).',
+      description: 'Invalid request (validation/format).',
     }),
     ApiResponse({
       status: 401,
       type: ErrorResponseDto,
-      description: 'Не аутентифицирован.',
+      description: 'Not authenticated.',
     }),
     ApiResponse({
       status: 403,
       type: ErrorResponseDto,
-      description: 'Доступ запрещён.',
+      description: 'Access denied.',
     }),
     ApiResponse({
       status: 500,
       type: ErrorResponseDto,
-      description: 'Внутренняя ошибка (детали не раскрываются).',
+      description: 'Internal error (details not disclosed).',
     }),
   );
 }

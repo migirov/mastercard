@@ -44,10 +44,10 @@ export class TenantRegistry {
   }
 
   /**
-   * Резолв tenantId по partnerId для OWN-тенантов (атрибуция входящих
-   * push-уведомлений). Только OWN: у PLATFORM partner-id общий → однозначно
-   * тенанта не определить, такие события идут в общий пул (вернём null). Если
-   * OWN-тенанта с таким partnerId нет — тоже null.
+   * Resolves tenantId by partnerId for OWN tenants (attribution of incoming push
+   * notifications). OWN only: PLATFORM has a shared partner-id → the tenant cannot be
+   * determined unambiguously, such events go to the shared pool (returns null). If there
+   * is no OWN tenant with that partnerId — also null.
    */
   async findOwnTenantIdByPartnerId(partnerId: string): Promise<string | null> {
     const t = await this.repo.findOne({
@@ -70,9 +70,9 @@ export class TenantRegistry {
       suspended: false,
     });
     try {
-      // INSERT (а не save): при коллизии PK Postgres бросит unique-violation
-      // (23505), а не молча сделает UPDATE поверх существующего тенанта — иначе
-      // повторный/гоночный create с тем же id затёр бы запись и СБРОСИЛ одобрения.
+      // INSERT (not save): on a PK collision Postgres throws a unique-violation
+      // (23505) rather than silently UPDATE over an existing tenant — otherwise a
+      // repeated/racing create with the same id would overwrite the row and RESET approvals.
       await this.repo.insert(entity);
     } catch (e) {
       if ((e as { code?: string }).code === '23505') {
@@ -99,9 +99,9 @@ export class TenantRegistry {
     id: string,
     fields: Partial<TenantEntity>,
   ): Promise<Tenant> {
-    // Колоночный UPDATE (а не read-modify-write всей строки через save): иначе
-    // два конкурентных тогла одобрения с разных подов читали бы один снимок и
-    // перезаписывали друг друга (потеря mcApproved/suspended — security-релевантно).
+    // A column-scoped UPDATE (not a read-modify-write of the whole row via save): otherwise
+    // two concurrent approval toggles from different pods would read one snapshot and
+    // overwrite each other (loss of mcApproved/suspended — security-relevant).
     const res = await this.repo.update({ id }, fields);
     if (!res.affected) {
       throw new NotFoundException(`Tenant '${id}' not found`);

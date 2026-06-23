@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 
 /**
- * Валидация ОПЦИОНАЛЬНОГО строкового query-параметра-фильтра (cash-pickup /
- * endpoint-guide) на ГРАНИЦЕ. В отличие от `SafeIdPipe` (для id в ПУТИ) здесь
- * значение идёт в query-строку запроса к MC и URL-кодируется (`qs()`), поэтому
- * спецсимволы/пробелы допустимы (например, город «New York»). Задача пайпа —
- * только отвергнуть НЕ-строку: при `?country[x]=1` / `?country=a&country=b`
- * Express отдаёт объект/массив, и без пайпа фильтр МОЛЧА отбрасывался бы в `qs()`
- * (клиент думал бы, что отфильтровал, а получил бы более широкую выборку).
- * Делаем контракт явным: не-строка → 400. `undefined` (параметр не задан) — ок.
+ * Validates an OPTIONAL string filter query parameter (cash-pickup / endpoint-guide)
+ * at the BOUNDARY. Unlike `SafeIdPipe` (for an id in the PATH), here the value goes
+ * into the query string of the MC request and is URL-encoded (`qs()`), so special
+ * characters/spaces are allowed (e.g. the city "New York"). The pipe's only job is to
+ * reject a NON-string: with `?country[x]=1` / `?country=a&country=b` Express returns
+ * an object/array, and without the pipe the filter would be SILENTLY dropped in `qs()`
+ * (the client would think it had filtered but get a broader result set). Make the
+ * contract explicit: non-string → 400. `undefined` (parameter not set) is fine.
  */
 @Injectable()
 export class StringQueryPipe implements PipeTransform<

@@ -1,16 +1,16 @@
-/** Откуда берутся ключи Mastercard для партнёра. */
+/** Where a partner's Mastercard keys come from. */
 export enum CredentialMode {
-  /** Общие ключи и partner-id платформы; мерчант — логический суб-аккаунт. */
+  /** The platform's shared keys and partner-id; the merchant is a logical sub-account. */
   PLATFORM = 'PLATFORM',
-  /** Собственные ключи партнёра и его partner-id (секреты в Vault). Основной. */
+  /** The partner's own keys and partner-id (secrets in Vault). The primary mode. */
   OWN = 'OWN',
 }
 
 /**
- * Вычисляемый статус доступа партнёра (для отображения). ВАЖНО: члены —
- * НЕЗАВИСИМЫЕ частичные состояния одобрения, а НЕ линейная последовательность
- * (platformApproved и mcApproved приходят из разных мест); порядок в enum —
- * не машина состояний (см. effectiveStatus).
+ * Computed partner access status (for display). IMPORTANT: the members are INDEPENDENT
+ * partial approval states, NOT a linear sequence (platformApproved and mcApproved come
+ * from different places); the order in the enum is not a state machine (see
+ * effectiveStatus).
  */
 export enum TenantStatus {
   PENDING = 'PENDING',
@@ -21,29 +21,29 @@ export enum TenantStatus {
 }
 
 /**
- * Партнёр (tenant). Одобрение моделируется ДВУМЯ независимыми флагами, т.к.
- * приходит из разных мест (платформа vs Mastercard). Эффективный статус ACTIVE
- * вычисляется, а не хранится — чтобы нельзя было «выставить ACTIVE» в обход.
+ * A partner (tenant). Approval is modeled with TWO independent flags, since it comes from
+ * different places (platform vs Mastercard). The effective ACTIVE status is computed, not
+ * stored — so that one cannot "set ACTIVE" in a bypass.
  */
 export interface Tenant {
   readonly id: string;
   readonly name: string;
   readonly credentialMode: CredentialMode;
-  /** Только для OWN: собственный partner-id. Для PLATFORM берётся общий. */
+  /** OWN only: the partner's own partner-id. For PLATFORM the shared one is used. */
   readonly partnerId?: string;
-  /** Только для OWN: путь к секретам партнёра в Vault. */
+  /** OWN only: the path to the partner's secrets in Vault. */
   readonly secretRef?: string;
   readonly platformApproved: boolean;
   readonly mcApproved: boolean;
   readonly suspended: boolean;
 }
 
-/** Транзакции разрешены только при двойном одобрении и без блокировки. */
+/** Transactions are allowed only with double approval and no suspension. */
 export function isActive(t: Tenant): boolean {
   return !t.suspended && t.platformApproved && t.mcApproved;
 }
 
-/** Человекочитаемый статус из флагов. */
+/** Human-readable status from the flags. */
 export function effectiveStatus(t: Tenant): TenantStatus {
   if (t.suspended) return TenantStatus.SUSPENDED;
   if (t.platformApproved && t.mcApproved) return TenantStatus.ACTIVE;

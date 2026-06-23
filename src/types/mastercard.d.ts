@@ -1,10 +1,10 @@
 /**
- * Локальные типы для CommonJS-пакетов Mastercard, которые поставляются без
- * деклараций. Минимальные сигнатуры под фактическое использование — чтобы
- * убрать `any`/`require()` на крипто-границе (OAuth1-подпись и JWE).
+ * Local types for the Mastercard CommonJS packages that ship without declarations.
+ * Minimal signatures matching actual usage — to remove `any`/`require()` at the crypto
+ * boundary (OAuth1 signature and JWE).
  */
 declare module 'mastercard-oauth1-signer' {
-  /** Формирует заголовок `Authorization: OAuth ...` для запроса к Mastercard. */
+  /** Builds the `Authorization: OAuth ...` header for a request to Mastercard. */
   export function getAuthorizationHeader(
     uri: string,
     method: string,
@@ -15,7 +15,7 @@ declare module 'mastercard-oauth1-signer' {
 }
 
 declare module 'mastercard-client-encryption' {
-  /** Field-level encryption (JWE) Mastercard. */
+  /** Mastercard field-level encryption (JWE). */
   export class JweEncryption {
     constructor(config: unknown);
     encrypt(

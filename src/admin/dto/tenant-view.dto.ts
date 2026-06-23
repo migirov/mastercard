@@ -3,13 +3,13 @@ import { Expose } from 'class-transformer';
 import { CredentialMode, TenantStatus } from '../../tenants/tenant.types';
 
 /**
- * Публичное представление партнёра в ответах admin-API. БЕЗ `secretRef`
- * (секрет наружу не отдаём) + вычисленный `status`. Для типизации и Swagger.
+ * Public partner representation in admin-API responses. WITHOUT `secretRef`
+ * (the secret is never exposed) + a computed `status`. For typing and Swagger.
  *
- * `@Expose` на КАЖДОМ поле + `plainToInstance(..., { excludeExtraneousValues:
- * true })` в контроллере = whitelist: наружу попадают ТОЛЬКО перечисленные ниже
- * поля. Любая новая (в т.ч. чувствительная) колонка сущности не «протечёт» по
- * умолчанию — её надо явно добавить сюда, чтобы она появилась в ответе.
+ * `@Expose` on EVERY field + `plainToInstance(..., { excludeExtraneousValues:
+ * true })` in the controller = whitelist: ONLY the fields listed below are
+ * exposed. Any new (including sensitive) entity column will not leak by default —
+ * it must be explicitly added here to appear in the response.
  */
 export class TenantViewDto {
   @Expose()
@@ -26,7 +26,7 @@ export class TenantViewDto {
 
   @Expose()
   @ApiPropertyOptional({
-    description: 'Только для OWN: собственный partner-id.',
+    description: 'OWN only: the partner-supplied partner-id.',
   })
   partnerId?: string;
 
@@ -45,7 +45,7 @@ export class TenantViewDto {
   @Expose()
   @ApiProperty({
     enum: TenantStatus,
-    description: 'Вычисляемый эффективный статус.',
+    description: 'Computed effective status.',
   })
   status!: TenantStatus;
 }

@@ -1,22 +1,23 @@
 /**
- * Централизованные шаблоны путей Mastercard Cross-Border. Префиксы у MC
- * НЕОДНОРОДНЫ (это не баг — так в их API): держим их в ОДНОМ месте, чтобы
- * разница была явной и аудируемой, а не разбросанной по ~20 строковым литералам
- * (где `/send/` vs `/send/v1/` легко перепутать незаметно). Сгруппировано по базе:
+ * Centralized Mastercard Cross-Border path templates. MC's prefixes are
+ * NON-UNIFORM (not a bug — that's how their API is): we keep them in ONE place so
+ * the difference is explicit and auditable, rather than scattered across ~20
+ * string literals (where `/send/` vs `/send/v1/` is easy to mix up unnoticed).
+ * Grouped by base:
  *
- *   - `/send/partners/{pid}/crossborder/...`     (БЕЗ v1): balances, account-/bank-/
+ *   - `/send/partners/{pid}/crossborder/...`     (WITHOUT v1): balances, account-/bank-/
  *     iban-lookup, RFI, quote-confirmations/-cancellations, retrieve-confirmed-quote;
  *   - `/send/v1/partners/{pid}/crossborder/...`  (v1):     rates, quotes, payment,
  *     retrieve/cancel;
- *   - `/crossborder/...`                          (без /send и без partner-id в пути;
- *     partner-id идёт ЗАГОЛОВКОМ): cash-pickup, endpoint-guide;
- *   - `/send/address-validation-service/...`      (собственная база address-validation).
+ *   - `/crossborder/...`                          (without /send and without a partner-id
+ *     in the path; partner-id goes in the HEADER): cash-pickup, endpoint-guide;
+ *   - `/send/address-validation-service/...`      (address-validation's own base).
  *
- * `partner` ОЖИДАЕТСЯ уже URL-encoded (см. CrossBorderGateway.partner()); id/ref в
- * сегментах пути кодируются здесь (encodeURIComponent). `qs` — готовая query-строка.
+ * `partner` is EXPECTED to already be URL-encoded (see CrossBorderGateway.partner());
+ * id/ref in path segments are encoded here (encodeURIComponent). `qs` is a ready query string.
  */
 export const mcPath = {
-  // --- /send/partners/{pid}/crossborder/... (без v1) ---
+  // --- /send/partners/{pid}/crossborder/... (without v1) ---
   balances: (p: string) =>
     `/send/partners/${p}/crossborder/accounts?include_balance=true`,
   accountValidations: (p: string) =>
@@ -47,21 +48,21 @@ export const mcPath = {
   cancelPayment: (p: string, id: string) =>
     `/send/v1/partners/${p}/crossborder/${encodeURIComponent(id)}/cancel`,
 
-  // --- /crossborder/... (без /send; partner-id в заголовке) ---
+  // --- /crossborder/... (without /send; partner-id in the header) ---
   cashPickup: (sub: string, qs: string) =>
     `/crossborder/cash-pickup/${sub}${qs}`,
   endpointGuide: (qs: string) =>
     `/crossborder/endpoint-guide/specifications${qs}`,
 
-  // --- собственная база address-validation ---
+  // --- address-validation's own base ---
   addressValidations: () =>
     `/send/address-validation-service/addresses/validations`,
 } as const;
 
-// Формы query-параметров каталогов (snake_case = как ждёт MC). Держим тип в ОДНОМ
-// месте рядом с путями — контроллер строит литерал, сервис принимает этот тип, и
-// компилятор ловит рассинхрон имён полей (опечатка → ошибка типа, а не тихо
-// пропавший фильтр).
+// Shapes of catalog query parameters (snake_case = as MC expects). We keep the
+// type in ONE place next to the paths — the controller builds the literal, the
+// service accepts this type, and the compiler catches field-name drift (a typo →
+// a type error, not a silently dropped filter).
 export interface CashPickupCitiesQuery {
   country?: string;
   currency?: string;

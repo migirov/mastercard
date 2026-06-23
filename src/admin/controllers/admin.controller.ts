@@ -36,18 +36,18 @@ import { CreateTenantDto } from '../dto/create-tenant.dto';
 import { IssuedClientDto } from '../dto/issued-client.dto';
 import { TenantViewDto } from '../dto/tenant-view.dto';
 
-/** Admin-API: ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов. */
+/** Admin API: partner onboarding, approvals, OAuth client issuance/revocation. */
 @ApiTags('admin')
 @ApiSecurity('admin')
 @ApiErrorResponses()
 @Controller('admin')
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
-// Строгая валидация DTO на нашей границе (общая стратегия шлюза, пресет Strict).
+// Strict DTO validation at our boundary (shared gateway strategy, Strict preset).
 @UsePipes(gatewayValidationPipe(ValidationStrategy.Strict))
-@UseGatewayContract() // единый error-фильтр + audit (как у прочих контроллеров)
-// ClassSerializerInterceptor (per-controller, не глобально — модуль встраиваемый):
-// чтит class-transformer-декораторы при сериализации (страхует @Exclude на
-// TenantEntity.secretRef). AuditInterceptor добавляет UseGatewayContract.
+@UseGatewayContract() // unified error filter + audit (like the other controllers)
+// ClassSerializerInterceptor (per-controller, not global — the module is embeddable):
+// honors class-transformer decorators during serialization (backstops @Exclude on
+// TenantEntity.secretRef). AuditInterceptor is added by UseGatewayContract.
 @UseInterceptors(ClassSerializerInterceptor)
 export class AdminController {
   constructor(
@@ -56,18 +56,18 @@ export class AdminController {
     private readonly audit: AuditService,
   ) {}
 
-  // --- аудит ---
+  // --- audit ---
 
   @Get('audit')
-  @ApiOperation({ summary: 'Последние записи аудита (без тел/секретов).' })
+  @ApiOperation({ summary: 'Recent audit records (without bodies/secrets).' })
   auditLog() {
     return this.audit.recent(200);
   }
 
-  // --- партнёры ---
+  // --- partners ---
 
   @Get('tenants')
-  @ApiOperation({ summary: 'Список партнёров.' })
+  @ApiOperation({ summary: 'List of partners.' })
   @ApiResponse({ status: 200, type: TenantViewDto, isArray: true })
   async list() {
     const tenants = await this.registry.list();
@@ -75,56 +75,56 @@ export class AdminController {
   }
 
   @Get('tenants/:id')
-  @ApiOperation({ summary: 'Партнёр по id.' })
+  @ApiOperation({ summary: 'Partner by id.' })
   @ApiResponse({ status: 200, type: TenantViewDto })
   async getOne(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.registry.get(id));
   }
 
   @Post('tenants')
-  @ApiOperation({ summary: 'Создать партнёра (OWN требует secretRef).' })
+  @ApiOperation({ summary: 'Create a partner (OWN requires secretRef).' })
   @ApiResponse({ status: 201, type: TenantViewDto })
   async create(@Body() body: CreateTenantDto) {
     return this.view(await this.admin.createTenant(body));
   }
 
-  // --- одобрения / блокировка ---
+  // --- approvals / suspension ---
 
-  // Эти действия МУТИРУЮТ состояние, но ничего не СОЗДАЮТ → 200, а не дефолтный
-  // для POST 201 (201 оставлен только за реальным созданием — POST /tenants).
+  // These actions MUTATE state but do not CREATE anything → 200, not the default
+  // POST 201 (201 is reserved for actual creation — POST /tenants).
   @Post('tenants/:id/approve/platform')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Одобрение со стороны платформы.' })
+  @ApiOperation({ summary: 'Approval from the platform side.' })
   async approvePlatform(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.approvePlatform(id));
   }
 
   @Post('tenants/:id/approve/mastercard')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Одобрение со стороны Mastercard.' })
+  @ApiOperation({ summary: 'Approval from the Mastercard side.' })
   async approveMastercard(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.approveMastercard(id));
   }
 
   @Post('tenants/:id/suspend')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Заблокировать партнёра.' })
+  @ApiOperation({ summary: 'Suspend a partner.' })
   async suspend(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.suspend(id));
   }
 
   @Post('tenants/:id/unsuspend')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Снять блокировку.' })
+  @ApiOperation({ summary: 'Lift a suspension.' })
   async unsuspend(@Param('id', SafeIdPipe) id: string) {
     return this.view(await this.admin.unsuspend(id));
   }
 
-  // --- OAuth-клиенты ---
+  // --- OAuth clients ---
 
   @Post('tenants/:id/clients')
   @ApiOperation({
-    summary: 'Выпустить OAuth-клиента (client_secret показан 1 раз).',
+    summary: 'Issue an OAuth client (client_secret shown once).',
   })
   @ApiResponse({ status: 201, type: IssuedClientDto })
   async issueClient(
@@ -142,12 +142,15 @@ export class AdminController {
   }
 
   @Delete('clients/:clientId')
-  @ApiOperation({ summary: 'Отозвать OAuth-клиента.' })
-  @ApiResponse({ status: 404, description: 'Клиент не найден / уже отозван.' })
+  @ApiOperation({ summary: 'Revoke an OAuth client.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Client not found / already revoked.',
+  })
   async revokeClient(@Param('clientId', SafeIdPipe) clientId: string) {
     const res = await this.admin.revokeClient(clientId);
-    // 404 на несуществующий/уже отозванный клиент — иначе 200 {revoked:false}
-    // не отличить от успешного отзыва (опечатка в id выглядит как успех).
+    // 404 for a nonexistent/already-revoked client — otherwise 200 {revoked:false}
+    // is indistinguishable from a successful revoke (a typo in the id looks like success).
     if (!res.revoked) {
       throw new NotFoundException(`Client '${clientId}' not found`);
     }
@@ -155,11 +158,11 @@ export class AdminController {
   }
 
   /**
-   * Представление партнёра наружу. Whitelist через class-transformer:
-   * `excludeExtraneousValues` копирует ТОЛЬКО `@Expose`-поля TenantViewDto, так
-   * что `secretRef` (и любая будущая колонка сущности) не попадёт в ответ по
-   * умолчанию — раньше ручной `{ secretRef, ...pub }` был blacklist'ом и новая
-   * чувствительная колонка «протекла» бы через `...pub`.
+   * Outward-facing partner representation. Whitelist via class-transformer:
+   * `excludeExtraneousValues` copies ONLY the `@Expose` fields of TenantViewDto, so
+   * `secretRef` (and any future entity column) will not appear in the response by
+   * default — previously a manual `{ secretRef, ...pub }` was a blacklist and a new
+   * sensitive column would have leaked through `...pub`.
    */
   private view(t: Tenant): TenantViewDto {
     return plainToInstance(

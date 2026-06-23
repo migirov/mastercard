@@ -50,7 +50,7 @@ describe('ValidationsService', () => {
     const { svc, client } = make(crlfCreds);
     await svc.validateAccount('acme', {} as never);
     const h = reqOf(client).headers ?? {};
-    expect(h['Partner-Ref-Id']).toBe('PIDX: y'); // \r\n вырезаны
+    expect(h['Partner-Ref-Id']).toBe('PIDX: y'); // \r\n stripped
     expect(h['X-Mc-Correlation-Id']).toMatch(/[0-9a-f-]{36}/);
   });
 });

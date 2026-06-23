@@ -1,28 +1,28 @@
-/** DI-токен для подключаемой реализации хранилища секретов. */
+/** DI token for the pluggable secret store implementation. */
 export const SECRET_STORE = Symbol('SECRET_STORE');
 
-/** Материал ключа .p12 — либо путь (dev), либо base64 (Vault). */
+/** .p12 key material — either a path (dev) or base64 (Vault). */
 export interface KeyMaterial {
   readonly p12Base64?: string;
   readonly p12Path?: string;
   readonly password: string;
 }
 
-/** Полный набор секретов мерчанта, выдаваемый хранилищем по secretRef. */
+/** Full set of merchant secrets returned by the store for a given secretRef. */
 export interface MerchantSecretBundle {
   readonly consumerKey: string;
   readonly partnerId: string;
   readonly signing: KeyMaterial;
-  /** Для JWE-шифрования запросов (Фаза 4). */
+  /** For JWE encryption of requests (Phase 4). */
   readonly encryptionCertPem?: string;
   readonly encryptionFingerprint?: string;
-  /** Для расшифровки ответов (Фаза 4). */
+  /** For decryption of responses (Phase 4). */
   readonly decryption?: KeyMaterial;
 }
 
 /**
- * Абстракция секрет-менеджера. Реализации: LocalSecretStore (dev),
- * VaultSecretStore (прод — Vault/AWS/GCP, подключается после выбора вендора).
+ * Secret manager abstraction. Implementations: LocalSecretStore (dev),
+ * VaultSecretStore (prod — Vault/AWS/GCP, wired up once a vendor is chosen).
  */
 export interface SecretStore {
   getMerchantSecrets(secretRef: string): Promise<MerchantSecretBundle>;

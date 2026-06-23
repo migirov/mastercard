@@ -2,19 +2,20 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsObject } from 'class-validator';
 
 /**
- * Тело `POST /crossborder/rfi/documents` → MC RFI Upload Document API.
- * Загрузка файла (<1 MB), который потом линкуется к RFI-запросу. Обёртка
- * `uploadDocumentRequest` ({ fileName, file }), где `file` — содержимое в base64
- * (НЕ multipart; JSON). Ответ MC — { documentId }. Идёт через пресет Passthrough.
+ * Body of `POST /crossborder/rfi/documents` → MC RFI Upload Document API.
+ * Uploads a file (<1 MB) that is later linked to an RFI request.
+ * `uploadDocumentRequest` wrapper ({ fileName, file }), where `file` is the
+ * content in base64 (NOT multipart; JSON). MC's response is { documentId }.
+ * Uses the Passthrough preset.
  */
 export class RfiDocumentUploadRequestDto {
   @ApiProperty({
     description:
-      'Документ (обёртка uploadDocumentRequest: { fileName, file }).',
+      'Document (uploadDocumentRequest wrapper: { fileName, file }).',
     example: {
       uploadDocumentRequest: {
         fileName: 'Passport copy.pdf',
-        file: '<base64-содержимое>',
+        file: '<base64-content>',
       },
     },
   })

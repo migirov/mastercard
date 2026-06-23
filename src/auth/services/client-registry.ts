@@ -8,12 +8,12 @@ import {
 } from '../../common/utils/crypto.util';
 import { OAuthClientEntity } from '../entities/oauth-client.entity';
 
-/** Фиктивный хэш для выравнивания времени, когда client_id не найден. */
+/** Dummy hash used to equalize timing when client_id is not found. */
 const DUMMY_HASH = sha256hex('');
 
 /**
- * Реестр OAuth2-клиентов поверх PostgreSQL. Секрет хранится только хэшем;
- * сырой показывается один раз при выпуске.
+ * Registry of OAuth2 clients backed by PostgreSQL. The secret is stored only as
+ * a hash; the raw value is shown once at issuance.
  */
 @Injectable()
 export class ClientRegistry {
@@ -24,18 +24,18 @@ export class ClientRegistry {
     private readonly repo: Repository<OAuthClientEntity>,
   ) {}
 
-  /** Выпустить клиента для партнёра. Возвращает сырой секрет ОДИН раз. */
+  /** Issue a client for a partner. Returns the raw secret ONCE. */
   async issue(
     tenantId: string,
   ): Promise<{ clientId: string; clientSecret: string }> {
     const clientId = `mc_${randomToken(9)}`;
     const clientSecret = randomToken(24);
-    // Хэшируем SHA-256, а НЕ bcrypt/argon2 (которые рекомендует дока для ПАРОЛЕЙ):
-    // client_secret — это 24 байта (~192 бит) CSPRNG-энтропии, не человеческий
-    // пароль. Перебор/радужные таблицы, против которых нужен медленный salted-KDF,
-    // на 192-битном случайном токене вычислительно невозможны, а argon2 добавил бы
-    // десятки мс латентности на КАЖДУЮ валидацию токена без выигрыша. Защита от
-    // утечки хэша = энтропия токена; от тайминга — safeEqual + dummy-hash в validate().
+    // We hash with SHA-256, NOT bcrypt/argon2 (which the docs recommend for PASSWORDS):
+    // client_secret is 24 bytes (~192 bits) of CSPRNG entropy, not a human password.
+    // Brute-force / rainbow tables, against which a slow salted KDF is needed, are
+    // computationally infeasible on a 192-bit random token, and argon2 would add tens
+    // of ms of latency to EVERY token validation with no benefit. Protection against a
+    // hash leak = token entropy; against timing = safeEqual + dummy-hash in validate().
     await this.repo.save(
       this.repo.create({
         clientId,
@@ -48,13 +48,13 @@ export class ClientRegistry {
     return { clientId, clientSecret };
   }
 
-  /** Проверка пары client_id/secret. Возвращает tenantId или null. */
+  /** Validate a client_id/secret pair. Returns tenantId or null. */
   async validate(
     clientId: string,
     clientSecret: string,
   ): Promise<string | null> {
     const c = await this.repo.findOne({ where: { clientId } });
-    // Хэш-сравнение выполняем ВСЕГДА (против timing-энумерации client_id).
+    // The hash comparison is ALWAYS performed (against timing enumeration of client_id).
     const providedHash = sha256hex(clientSecret);
     const targetHash = c && !c.revoked ? c.secretHash : DUMMY_HASH;
     const match = safeEqual(targetHash, providedHash);

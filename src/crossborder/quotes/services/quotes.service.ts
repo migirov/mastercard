@@ -10,8 +10,9 @@ export class QuotesService {
   constructor(private readonly gw: CrossBorderGateway) {}
 
   /**
-   * Запрос котировки (POST). Шифрование тела (MTF/Prod) и подпись — прозрачно
-   * в axios-интерцепторе `MastercardClient`; здесь отдаём чистый объект.
+   * Request a quote (POST). Body encryption (MTF/Prod) and signing happen
+   * transparently in the `MastercardClient` axios interceptor; here we return a
+   * plain object.
    */
   createQuote(tenantId: string, body: QuoteRequestDto) {
     return this.gw.run(tenantId, 'createQuote', (c) => ({
@@ -21,7 +22,7 @@ export class QuotesService {
     }));
   }
 
-  /** Подтверждение котировки (POST). Шифрование — в интерцепторе. */
+  /** Confirm a quote (POST). Encryption happens in the interceptor. */
   confirmQuote(tenantId: string, body: ConfirmationRequestDto) {
     return this.gw.run(tenantId, 'confirmQuote', (c) => ({
       method: 'POST',
@@ -31,10 +32,10 @@ export class QuotesService {
   }
 
   /**
-   * Отмена ПОДТВЕРЖДЁННОЙ котировки (POST). Тело идентично подтверждению
-   * (`{ transactionReference, proposalId }`) → переиспользуем ConfirmationRequestDto.
-   * До инициации платежа → возврат зарезервированных средств; после — MC отклонит.
-   * Шифрование тела (MTF/Prod) — в интерцепторе.
+   * Cancel a CONFIRMED quote (POST). The body is identical to confirmation
+   * (`{ transactionReference, proposalId }`) → we reuse ConfirmationRequestDto.
+   * Before a payment is initiated → reserved funds are released; afterwards MC
+   * rejects it. Body encryption (MTF/Prod) happens in the interceptor.
    */
   cancelConfirmedQuote(tenantId: string, body: ConfirmationRequestDto) {
     return this.gw.run(tenantId, 'cancelConfirmedQuote', (c) => ({
@@ -45,9 +46,9 @@ export class QuotesService {
   }
 
   /**
-   * Просмотр подтверждённой котировки (GET). ref/proposalId уже проверены
-   * SafeIdPipe в контроллере. Тела/шифрования запроса нет; ответ расшифровывается
-   * интерцептором в MTF/Prod.
+   * Retrieve a confirmed quote (GET). ref/proposalId are already validated by
+   * SafeIdPipe in the controller. There is no request body/encryption; the
+   * response is decrypted by the interceptor in MTF/Prod.
    */
   retrieveConfirmedQuote(tenantId: string, ref: string, proposalId: string) {
     return this.gw.run(tenantId, 'retrieveConfirmedQuote', (c) => ({

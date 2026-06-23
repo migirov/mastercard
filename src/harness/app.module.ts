@@ -19,32 +19,31 @@ import { MastercardModule } from '../mastercard.module';
 import { TenantEntity } from '../tenants/entities/tenant.entity';
 
 /**
- * Dev-харнесс (standalone-запуск, e2e, Swagger). В production-монолите хост
- * импортирует ТОЛЬКО `MastercardModule.forRootAsync(...)`, а инфраструктуру
- * (ConfigModule, БД-соединение, логгер, health-пробы) предоставляет
- * сам. Здесь мы поднимаем эту инфраструктуру локально, чтобы прогонять сервис
- * автономно. `HealthController` (`/health`, `/ready`) — глобальный корневой маршрут
- * уровня приложения, поэтому живёт здесь, а не во встраиваемом `MastercardModule`
- * (иначе коллизия с пробами хоста).
+ * Dev harness (standalone run, e2e, Swagger). In a production monolith the host
+ * imports ONLY `MastercardModule.forRootAsync(...)` and provides the infrastructure
+ * (ConfigModule, DB connection, logger, health probes) itself. Here we stand up that
+ * infrastructure locally to run the service autonomously. `HealthController`
+ * (`/health`, `/ready`) is a global app-level root route, so it lives here, not in the
+ * embeddable `MastercardModule` (otherwise it would collide with the host's probes).
  */
 @Module({
   imports: [
-    // читает .env из корня проекта + валидирует переменные на старте (fail-fast)
+    // reads .env from the project root + validates env vars at startup (fail-fast)
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    TerminusModule, // health-индикаторы для HealthController (харнесс)
-    // Структурные JSON-логи + correlation-id (x-request-id) сквозь все логи.
+    TerminusModule, // health indicators for HealthController (harness)
+    // Structured JSON logs + correlation-id (x-request-id) across all logs.
     LoggerModule.forRoot({
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? 'info',
-        // health-пробы не логируем (шум)
+        // don't log health probes (noise)
         autoLogging: {
           ignore: (req) => {
             const u = (req.url ?? '') as string;
             return u.startsWith('/health') || u.startsWith('/ready');
           },
         },
-        // correlation-id: входящий X-Request-Id принимаем ТОЛЬКО если он
-        // безопасного формата (анти log-injection / раздувание), иначе генерим.
+        // correlation-id: accept the incoming X-Request-Id ONLY if it's of a safe
+        // format (anti log-injection / bloat), otherwise generate one.
         genReqId: (req, res) => {
           const raw = req.headers['x-request-id'];
           const candidate = Array.isArray(raw) ? raw[0] : raw;
@@ -56,9 +55,9 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
           res.setHeader('x-request-id', id);
           return id;
         },
-        // Slim-логи: только то, что нужно (id/method/url + статус/время). НЕ
-        // дампим заголовки целиком — меньше объём логов и нет риска утечки
-        // секретных заголовков (Authorization/X-*-Token).
+        // Slim logs: only what's needed (id/method/url + status/time). Don't dump
+        // headers wholesale — smaller log volume and no risk of leaking secret
+        // headers (Authorization/X-*-Token).
         serializers: {
           req: (req: { id: unknown; method: string; url: string }) => ({
             id: req.id,
@@ -69,7 +68,7 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
             statusCode: res.statusCode,
           }),
         },
-        // подстраховка на случай логирования заголовков где-то ещё
+        // a safety net in case headers are logged somewhere else
         redact: {
           paths: [
             'req.headers.authorization',
@@ -81,13 +80,13 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
         },
       },
     }),
-    // Dev-БД: TypeORM-соединение (в монолите его даёт хост).
+    // Dev DB: TypeORM connection (in a monolith the host provides it).
     DatabaseModule,
     // TenantEntity repository for DevSeedService (seeds the baseline platform on startup —
     // dev harness only; the embeddable module does no seeding on boot).
     TypeOrmModule.forFeature([TenantEntity]),
-    // Вся интеграция Mastercard — одним модулем. Конфиг берём из .env через
-    // ConfigService (в монолите хост передаёт свой useFactory).
+    // The entire Mastercard integration in a single module. Config comes from .env via
+    // ConfigService (in a monolith the host passes its own useFactory).
     MastercardModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (c: ConfigService): MastercardModuleOptions => ({

@@ -13,8 +13,8 @@ import { UseGatewayContract } from '../../../common/decorators/gateway-contract.
 import { TenantThrottlerGuard } from '../../../common/guards/tenant-throttler.guard';
 
 /**
- * Shared cross-cutting decorator for every Cross-Border area controller (issue
- * #16 split). One source of truth for the auth/throttle guards, the Swagger
+ * Shared cross-cutting decorator for every Cross-Border area controller. One
+ * source of truth for the auth/throttle guards, the Swagger
  * security/headers/error docs and the gateway error+audit contract, so a new
  * area controller cannot forget them or drift.
  *
@@ -32,14 +32,14 @@ export function CrossBorderArea(): ClassDecorator {
       name: 'X-Tenant-Id',
       required: false,
       description:
-        'ID тенанта — ОБЯЗАТЕЛЕН при internal-аутентификации (X-Internal-Token).',
+        'Tenant ID — REQUIRED for internal authentication (X-Internal-Token).',
     }),
     ApiErrorResponses(),
     ApiResponse({
       status: 502,
       type: ErrorResponseDto,
       description:
-        'Ошибка связи с Mastercard / её ответ (или upstream-статус) скрыт.',
+        'Error communicating with Mastercard / its response (or upstream status) is hidden.',
     }),
     UseGuards(TenantAuthGuard, TenantThrottlerGuard),
     UseGatewayContract(),

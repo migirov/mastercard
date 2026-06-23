@@ -18,28 +18,28 @@ export interface AuditEntry {
   ms: number;
 }
 
-const FLUSH_INTERVAL_MS = 1000; // периодический сброс буфера
-const MAX_BUFFER = 100; // принудительный сброс при заполнении
-// Потолок буфера при ретраях: если БД лежит, держим до стольки записей и не
-// растём в OOM (избыток отбрасываем). 10× MAX_BUFFER ≈ 10с трафика на пике.
+const FLUSH_INTERVAL_MS = 1000; // periodic buffer flush
+const MAX_BUFFER = 100; // forced flush when full
+// Buffer ceiling under retries: if the DB is down, retain up to this many records and do
+// not grow into OOM (the excess is dropped). 10× MAX_BUFFER ≈ 10s of traffic at peak.
 const MAX_RETAINED = MAX_BUFFER * 10;
 
 /**
- * Журнал операций в PostgreSQL (общий для всех подов). Запись — fire-and-forget
- * + **батчинг**: накапливаем в буфере и пишем пачкой (раз в секунду / по 100
- * записей / на shutdown), чтобы не делать отдельный INSERT на каждый запрос.
- * Компромисс: при жёстком краше теряется ≤1с незаписанного аудита (не
- * транзакционные данные). Параллельно — немедленный структурный лог в stdout.
+ * Operations log in PostgreSQL (shared across all pods). Writes are fire-and-forget
+ * + **batched**: accumulated in a buffer and written in a batch (once a second / per 100
+ * records / on shutdown), to avoid a separate INSERT per request. Trade-off: a hard crash
+ * loses ≤1s of unwritten audit (non-transactional data). In parallel — an immediate
+ * structured log to stdout.
  */
 @Injectable()
 export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   private readonly logger = new Logger('Audit');
   private buffer: AuditEntry[] = [];
   private timer?: NodeJS.Timeout;
-  /** In-flight flush: гард ре-энтерабельности (см. flush()). */
+  /** In-flight flush: re-entrancy guard (see flush()). */
   private flushing?: Promise<void>;
-  /** Backoff при затяжном отказе БД: число подряд провалившихся вставок и
-   *  момент (ms), до которого периодический флаш пропускаем (см. doFlush). */
+  /** Backoff on prolonged DB failure: the count of consecutive failed inserts and
+   *  the moment (ms) until which the periodic flush is skipped (see doFlush). */
   private consecutiveFailures = 0;
   private backoffUntilMs = 0;
 
@@ -48,12 +48,12 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     private readonly repo: Repository<AuditLogEntity>,
   ) {}
 
-  /** Таймер периодического сброса запускаем в lifecycle-хуке, а НЕ в конструкторе
-   *  (конструктор без side-effect'ов — конвенция Nest; иначе таймер тикал бы ещё
-   *  до полной инициализации модуля). */
+  /** The periodic-flush timer is started in a lifecycle hook, NOT in the constructor
+   *  (a side-effect-free constructor is a Nest convention; otherwise the timer would tick
+   *  before the module is fully initialized). */
   onModuleInit(): void {
     this.timer = setInterval(() => void this.flush(), FLUSH_INTERVAL_MS);
-    // не держим event loop живым из-за таймера
+    // don't keep the event loop alive because of the timer
     this.timer.unref?.();
   }
 
@@ -66,13 +66,13 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     if (this.buffer.length >= MAX_BUFFER) {
       void this.flush();
     }
-    // Кап и на УСПЕШНОМ пути: если флаш МЕДЛЕННЫЙ (не падает), re-entrancy-гард
-    // делает последующие flush() no-op, а record() продолжает пушить — без капа
-    // буфер рос бы неограниченно под нагрузкой при тормозящей БД.
+    // Cap on the SUCCESS path too: if a flush is SLOW (not failing), the re-entrancy guard
+    // makes subsequent flush() calls a no-op while record() keeps pushing — without the cap
+    // the buffer would grow unbounded under load when the DB is slow.
     this.capBuffer();
   }
 
-  /** Ограничивает буфер сверху, отбрасывая САМЫЕ СТАРЫЕ записи (см. doFlush). */
+  /** Caps the buffer from above, dropping the OLDEST records (see doFlush). */
   private capBuffer(): void {
     if (this.buffer.length > MAX_RETAINED) {
       const dropped = this.buffer.length - MAX_RETAINED;
@@ -82,19 +82,19 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
   }
 
   /**
-   * Сбросить буфер в БД одной пачкой. Ре-энтерабельность: flush() зовётся из 4
-   * мест (таймер, MAX_BUFFER-триггер, recent(), shutdown) — при наложении второй
-   * вызов НЕ запускает параллельную вставку (иначе батчи могли бы продублироваться
-   * или переупорядочиться), а ждёт уже идущий флаш.
+   * Flush the buffer to the DB in a single batch. Re-entrancy: flush() is called from 4
+   * places (timer, MAX_BUFFER trigger, recent(), shutdown) — when they overlap, the second
+   * call does NOT start a parallel insert (otherwise batches could be duplicated or
+   * reordered) but waits for the flush already in progress.
    */
   /**
-   * @param force игнорировать backoff-окно (shutdown/recent() должны флашить всегда).
+   * @param force ignore the backoff window (shutdown/recent() must always flush).
    */
   private flush(force = false): Promise<void> {
     if (this.flushing) return this.flushing;
     if (this.buffer.length === 0) return Promise.resolve();
-    // При затяжном отказе БД не долбим её каждую секунду полным батчем (storm +
-    // лог-спам именно когда БД уже плохо). Принудительный флаш backoff игнорирует.
+    // On prolonged DB failure don't hammer it every second with the full batch (storm +
+    // log spam exactly when the DB is already unhealthy). A forced flush ignores backoff.
     if (!force && Date.now() < this.backoffUntilMs) return Promise.resolve();
     this.flushing = this.doFlush().finally(() => {
       this.flushing = undefined;
@@ -117,18 +117,18 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
           ms: e.ms,
         })),
       );
-      // Успех — снимаем backoff.
+      // Success — clear the backoff.
       this.consecutiveFailures = 0;
       this.backoffUntilMs = 0;
     } catch (err) {
-      // Транзиентная ошибка БД (deadlock/failover/блип): возвращаем батч в буфер,
-      // чтобы следующий тик повторил вставку — иначе записи терялись бы навсегда,
-      // даже когда под продолжает работать. Кап отбрасывает САМЫЕ СТАРЫЕ: при
-      // затяжном сбое важнее сохранить свежие события (их и расследуют).
+      // Transient DB error (deadlock/failover/blip): return the batch to the buffer so the
+      // next tick retries the insert — otherwise records would be lost forever, even while
+      // the pod keeps running. The cap drops the OLDEST: on a prolonged failure it is more
+      // important to keep the freshest events (those are what gets investigated).
       this.buffer.unshift(...batch);
       this.capBuffer();
-      // Экспоненциальный backoff с потолком 60с: при durable-сбое БД повторяем
-      // вставку всё реже, а не каждую секунду (буфер всё равно ограничен capBuffer).
+      // Exponential backoff capped at 60s: on a durable DB failure retry the insert ever
+      // less often, not every second (the buffer is bounded by capBuffer anyway).
       this.consecutiveFailures += 1;
       const backoffMs = Math.min(2 ** this.consecutiveFailures, 60) * 1000;
       this.backoffUntilMs = Date.now() + backoffMs;
@@ -138,28 +138,28 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
     }
   }
 
-  // Флашим в beforeApplicationShutdown — это ФАЗА РАНЬШE onApplicationShutdown, в
-  // которой @nestjs/typeorm закрывает соединение. Иначе буфер сбрасывался бы уже
-  // после разрыва коннекта (ошибка «Connection terminated», потеря записей).
+  // We flush in beforeApplicationShutdown — this is the PHASE BEFORE onApplicationShutdown,
+  // in which @nestjs/typeorm closes the connection. Otherwise the buffer would be flushed
+  // after the connection is torn down ("Connection terminated" error, lost records).
   async beforeApplicationShutdown(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
-    // Двойной флаш, как в recent(): если на момент shutdown шёл флаш по таймеру,
-    // первый await вернул ЕГО промис (re-entrancy-гард), а записи, добавленные
-    // во время него, остались бы в буфере и потерялись на остановке — добиваем
-    // их вторым флашем (гард уже снят → реальная вставка). force=true: на остановке
-    // пробуем записать даже в backoff-окне (последний шанс сохранить буфер).
+    // Double flush, as in recent(): if a timer flush was in progress at shutdown, the first
+    // await returned ITS promise (re-entrancy guard), and records added during it would
+    // remain in the buffer and be lost on stop — we drain them with a second flush (the
+    // guard is now released → a real insert). force=true: on stop we try to write even
+    // inside the backoff window (last chance to persist the buffer).
     await this.flush(true);
     if (this.buffer.length > 0) await this.flush(true);
   }
 
   async recent(limit = 100): Promise<AuditEntry[]> {
-    // чтобы /admin/audit отражал и ещё не сброшенные записи. Если флаш уже шёл,
-    // первый await вернул ЕГО промис (re-entrancy-гард), а записи, накопленные
-    // за время того флаша, остались в буфере — добиваем их вторым флашем (гард
-    // снят → реальная вставка). Гарантия best-effort: записи, добавленные уже во
-    // время ВТОРОГО флаша, попадут в выборку лишь на следующем вызове — для
-    // debug-вью /admin/audit это приемлемо (в БД они не теряются, ждут таймер).
-    // force=true: вью аудита должно отражать буфер даже в backoff-окне.
+    // so /admin/audit reflects not-yet-flushed records too. If a flush was already in
+    // progress, the first await returned ITS promise (re-entrancy guard), and records
+    // accumulated during that flush remain in the buffer — we drain them with a second
+    // flush (guard released → a real insert). Best-effort guarantee: records added during
+    // the SECOND flush appear in the result only on the next call — for the /admin/audit
+    // debug view this is acceptable (they are not lost in the DB, they wait for the timer).
+    // force=true: the audit view must reflect the buffer even inside the backoff window.
     await this.flush(true);
     if (this.buffer.length > 0) await this.flush(true);
     const rows = await this.repo.find({ order: { id: 'DESC' }, take: limit });

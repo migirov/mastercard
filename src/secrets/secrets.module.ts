@@ -5,8 +5,8 @@ import { LocalSecretStore } from './services/local-secret-store';
 import { VaultSecretStore } from './services/vault-secret-store';
 
 /**
- * Выбор реализации хранилища секретов по опции модуля `secretStore`:
- *   'vault' → VaultSecretStore (прод), иначе → LocalSecretStore (dev, по умолчанию).
+ * Selects the secret store implementation based on the `secretStore` module option:
+ *   'vault' → VaultSecretStore (prod), otherwise → LocalSecretStore (dev, default).
  */
 @Module({
   providers: [

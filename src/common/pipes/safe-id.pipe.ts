@@ -1,18 +1,16 @@
 import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 
 /**
- * Валидация идентификатора из пути/квери (`:id`, `:clientId`, `?ref=`) на ГРАНИЦЕ
- * (контроллер), а не вручную в сервисе. Идентификаторы подставляются в путь
- * запроса к Mastercard, поэтому не должны менять структуру URL: запрещены `/`,
- * `\`, пробелы и `..` (path-traversal). Пусто — тоже ошибка (required).
- *
- * Заменяет прежний `assertSafeId`/`if(!ref)` в CrossBorderService.
+ * Validates an identifier from the path/query (`:id`, `:clientId`, `?ref=`) at the
+ * BOUNDARY (controller), not by hand in the service. Identifiers are substituted into
+ * the Mastercard request path, so they must not alter the URL structure: `/`, `\`,
+ * whitespace, and `..` (path traversal) are forbidden. Empty is also an error (required).
  */
 @Injectable()
 export class SafeIdPipe implements PipeTransform<unknown, string> {
   transform(value: unknown): string {
-    // Сначала type-guard: при `?ref[x]=1` / `?ref=a&ref=b` Express отдаёт объект
-    // или массив — `.includes`/regex на не-строке упали бы в 500. Отвергаем как 400.
+    // Type-guard first: with `?ref[x]=1` / `?ref=a&ref=b` Express returns an object
+    // or array — `.includes`/regex on a non-string would crash with a 500. Reject as 400.
     if (
       typeof value !== 'string' ||
       !value ||

@@ -1,26 +1,26 @@
 /**
- * Анти-инъекционные примитивы для недоверенных строк. Две операции НАМЕРЕННО
- * разные и НЕ взаимозаменяемы — поэтому именованы по месту применения, а не сведены
- * в одну «универсальную» функцию:
- *  • `stripCrlf` — для значения HTTP-ЗАГОЛОВКА (CR/LF вырезаются полностью);
- *  • `clipForLog` — для строки ЛОГА (CR/LF → пробел + обрезка длины).
- * Применяются в МЕСТЕ использования (defense-in-depth, не полагаясь на валидацию
- * источника): если валидатор источника когда-то ослабят, заголовок/лог не пострадают.
+ * Anti-injection primitives for untrusted strings. The two operations are
+ * DELIBERATELY different and NOT interchangeable — hence named by their point of use
+ * rather than merged into one "universal" function:
+ *  • `stripCrlf` — for an HTTP HEADER value (CR/LF stripped entirely);
+ *  • `clipForLog` — for a LOG string (CR/LF → space + length truncation).
+ * Applied at the POINT of use (defense-in-depth, not relying on source validation):
+ * if the source validator is ever loosened, the header/log are unaffected.
  */
 
 /**
- * Значение HTTP-заголовка без CR/LF — защита от header-injection. Вырезает CR/LF
- * полностью (заголовок не должен содержать переводов строк). См. исходящие
- * MC-заголовки `Partner-Ref-Id` / `partner-id`.
+ * HTTP header value with CR/LF removed — protection against header injection. Strips
+ * CR/LF entirely (a header must not contain line breaks). See the outgoing MC headers
+ * `Partner-Ref-Id` / `partner-id`.
  */
 export function stripCrlf(v: string): string {
   return v.replace(/[\r\n]/g, '');
 }
 
 /**
- * Санитайз значения для ЛОГА: CR/LF → пробел (защита от лог-инъекции — подделки
- * строк лога) + обрезка длины (защита от раздувания лога). `null`/`undefined` →
- * `'none'`. По умолчанию максимум 80 символов.
+ * Sanitizes a value for a LOG line: CR/LF → space (protection against log injection —
+ * forging log lines) + length truncation (protection against log bloat).
+ * `null`/`undefined` → `'none'`. Defaults to a maximum of 80 chars.
  */
 export function clipForLog(v: string | null | undefined, max = 80): string {
   if (v == null) return 'none';

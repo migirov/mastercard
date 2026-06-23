@@ -30,9 +30,10 @@ export class ValidationsController {
   constructor(private readonly svc: ValidationsService) {}
 
   @Post('address-validations')
-  @HttpCode(200) // валидация — вычисление, не создание ресурса
+  @HttpCode(200) // validation is a computation, not a resource creation
   @ApiOperation({
-    summary: 'Валидация адреса получателя до платежа (MC Address Validation).',
+    summary:
+      'Validate the recipient address before payment (MC Address Validation).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   validateAddress(
@@ -43,9 +44,10 @@ export class ValidationsController {
   }
 
   @Post('account-validations')
-  @HttpCode(200) // валидация — вычисление, не создание ресурса
+  @HttpCode(200) // validation is a computation, not a resource creation
   @ApiOperation({
-    summary: 'Валидация счёта получателя до платежа (MC Account Validation).',
+    summary:
+      'Validate the recipient account before payment (MC Account Validation).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   validateAccount(
@@ -56,9 +58,10 @@ export class ValidationsController {
   }
 
   @Post('bank-lookups')
-  @HttpCode(200) // поиск/вычисление, не создание ресурса
+  @HttpCode(200) // a lookup/computation, not a resource creation
   @ApiOperation({
-    summary: 'Поиск реквизитов банка получателя (MC Bank Information Lookup).',
+    summary:
+      "Look up the recipient bank's details (MC Bank Information Lookup).",
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   lookupBank(
@@ -69,9 +72,9 @@ export class ValidationsController {
   }
 
   @Post('iban-generations')
-  @HttpCode(200) // генерация значения, не создание ресурса в нашей системе
+  @HttpCode(200) // generates a value, not a resource in our system
   @ApiOperation({
-    summary: 'Генерация IBAN из реквизитов счёта (MC IBAN Generation).',
+    summary: 'Generate an IBAN from account details (MC IBAN Generation).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   generateIban(
@@ -84,7 +87,7 @@ export class ValidationsController {
   @Get('endpoint-guide/specifications')
   @ApiOperation({
     summary:
-      'Endpoint Guide: требования к полям коридора (MC Endpoint Guide, GET).',
+      'Endpoint Guide: corridor field requirements (MC Endpoint Guide, GET).',
   })
   endpointGuide(
     @CurrentTenant() ctx: TenantContext,

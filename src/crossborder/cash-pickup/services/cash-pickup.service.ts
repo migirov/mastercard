@@ -15,7 +15,7 @@ import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 export class CashPickupService {
   constructor(private readonly gw: CrossBorderGateway) {}
 
-  /** Список стран с выдачей наличных (GET, фильтр по cash_pickup_type). */
+  /** List of cash-pickup countries (GET, filtered by cash_pickup_type). */
   cashPickupCountries(tenantId: string, cashPickupType?: string) {
     return this.gw.run(tenantId, 'cashPickupCountries', (c) => ({
       method: 'GET',
@@ -27,7 +27,7 @@ export class CashPickupService {
     }));
   }
 
-  /** Города с выдачей наличных (GET, Directed). */
+  /** Cash-pickup cities (GET, Directed). */
   cashPickupCities(tenantId: string, q: CashPickupCitiesQuery) {
     return this.gw.run(tenantId, 'cashPickupCities', (c) => ({
       method: 'GET',
@@ -45,7 +45,7 @@ export class CashPickupService {
     }));
   }
 
-  /** Точки выдачи конкретного провайдера (GET). */
+  /** Pickup branches of a specific provider (GET). */
   cashPickupBranches(tenantId: string, q: CashPickupBranchesQuery) {
     return this.gw.run(tenantId, 'cashPickupBranches', (c) => ({
       method: 'GET',

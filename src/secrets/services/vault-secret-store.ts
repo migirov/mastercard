@@ -2,12 +2,13 @@ import { Injectable, NotImplementedException } from '@nestjs/common';
 import { MerchantSecretBundle, SecretStore } from '../secret-store.types';
 
 /**
- * Прод-реализация секрет-менеджера. Заглушка до выбора вендора
+ * Prod implementation of the secret manager. A stub until a vendor is chosen
  * (HashiCorp Vault / AWS Secrets Manager / GCP Secret Manager).
  *
- * Контракт: по secretRef вернуть MerchantSecretBundle (ключи лучше хранить
- * как p12Base64). Кэш уже есть на стороне OwnCredentialsProvider/OwnCredentialsCache;
- * здесь — только обращение к вендору + поддержка ротации.
+ * Contract: given a secretRef, return a MerchantSecretBundle (keys are best
+ * stored as p12Base64). Caching already exists on the
+ * OwnCredentialsProvider/OwnCredentialsCache side; here it is only the vendor
+ * call plus rotation support.
  */
 @Injectable()
 export class VaultSecretStore implements SecretStore {

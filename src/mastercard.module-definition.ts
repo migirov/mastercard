@@ -2,10 +2,9 @@ import { ConfigurableModuleBuilder } from '@nestjs/common';
 import { MastercardModuleOptions } from './config/gateway-config';
 
 /**
- * Генерирует `forRoot()` / `forRootAsync()` + `MODULE_OPTIONS_TOKEN` для
- * зонтичного `MastercardModule`. `isGlobal: true` по умолчанию — чтобы
- * `GatewayConfig`, экспортируемый зонтичным модулем, был доступен всем
- * под-модулям без явного импорта.
+ * Generates `forRoot()` / `forRootAsync()` + `MODULE_OPTIONS_TOKEN` for the umbrella
+ * `MastercardModule`. `isGlobal: true` by default — so `GatewayConfig`, exported by the
+ * umbrella module, is available to all sub-modules without an explicit import.
  */
 export const {
   ConfigurableModuleClass,

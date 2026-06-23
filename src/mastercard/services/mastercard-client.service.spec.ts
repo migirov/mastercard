@@ -103,15 +103,15 @@ describe('MastercardClient — decrypt-no-retry (регресс)', () => {
     const { client, httpRequest, getResHandler } = setup(() => {
       throw new Error('bad key');
     });
-    // fakeHttp.request прогоняет ОТВЕТНЫЙ интерцептор → decrypt бросает →
-    // ResponseDecryptError всплывает как rejection самого request().
+    // fakeHttp.request runs the RESPONSE interceptor → decrypt throws →
+    // ResponseDecryptError surfaces as a rejection of request() itself.
     httpRequest.mockImplementation(async () =>
       getResHandler()({ status: 200, data: 'enc', headers: {}, config: {} }),
     );
     await expect(
       client.request(creds, { method: 'GET', path: '/p' }),
     ).rejects.toThrow();
-    // GET, но повтора НЕТ: ошибка крипты детерминирована.
+    // GET, but NO retry: the crypto error is deterministic.
     expect(httpRequest).toHaveBeenCalledTimes(1);
   });
 });

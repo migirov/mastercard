@@ -18,30 +18,31 @@ import { AdminModule } from './admin/admin.module';
 import { CrossBorderModule } from './crossborder/crossborder.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 
-// Список сущностей — единый источник в mastercard.entities.ts. Ре-экспортируем,
-// чтобы публичный API модуля (host: `import { MASTERCARD_ENTITIES }`) не менялся.
+// The entity list — single source in mastercard.entities.ts. Re-exported so the
+// module's public API (host: `import { MASTERCARD_ENTITIES }`) stays stable.
 export { MASTERCARD_ENTITIES } from './mastercard.entities';
 
 /**
- * Зонтичный модуль интеграции Mastercard Cross-Border — ЕДИНСТВЕННЫЙ модуль,
- * который импортирует хост-приложение (монолит `b24club-api` или dev-харнесс):
+ * Umbrella module for the Mastercard Cross-Border integration — the ONLY module the
+ * host application imports (the `b24club-api` monolith or the dev harness):
  *
  *   imports: [ MastercardModule.forRootAsync({ inject: [...], useFactory: ... }) ]
  *
- * Внутри собирает все под-модули (приватные детали реализации). Сознательно НЕ
- * поднимает БД (TypeORM-соединение предоставляет хост через свой `forRoot`) и НЕ
- * навешивает глобальные `ValidationPipe`/`Logger`/helmet/body-limit — этим владеет
- * хост-приложение. Per-pod rate-limit (`ThrottlerModule`) держим ВНУТРИ модуля,
- * чтобы защита не зависела от инфраструктуры (ингресс/прокси).
+ * Internally it assembles all sub-modules (private implementation details). It
+ * deliberately does NOT stand up the DB (the host provides the TypeORM connection via
+ * its own `forRoot`) and does NOT install a global `ValidationPipe`/`Logger`/helmet/
+ * body-limit — the host application owns those. The per-pod rate-limit
+ * (`ThrottlerModule`) is kept INSIDE the module so protection doesn't depend on the
+ * infrastructure (ingress/proxy).
  *
- * Health-пробы (`/health`, `/ready`) НЕ входят в зонтичный модуль: это глобальный
- * корневой маршрут уровня всего приложения, и в монолите `b24club-api` уже есть
- * свои пробы — встроенный корневой контроллер коллизировал бы с ними. `HealthController`
- * живёт в dev-харнессе (`AppModule`); в монолите за liveness/readiness отвечает хост
- * (наши entity уже в его DataSource — readiness покроет и нашу БД).
+ * Health probes (`/health`, `/ready`) are NOT part of the umbrella module: they're a
+ * global app-level root route, and the `b24club-api` monolith already has its own probes
+ * — a built-in root controller would collide with them. `HealthController` lives in the
+ * dev harness (`AppModule`); in the monolith the host handles liveness/readiness (our
+ * entities are already in its DataSource — readiness covers our DB too).
  *
- * Конфиг приходит через `forRootAsync` и раздаётся под-сервисам через глобальный
- * `GatewayConfig` (сервисы не читают `process.env`).
+ * Config arrives via `forRootAsync` and is distributed to sub-services through the global
+ * `GatewayConfig` (services don't read `process.env`).
  *
  * Host integration is an EXPLICIT contract — the module does NOT introspect the host
  * at runtime to warn about misconfiguration. What's required is stated where it's
@@ -59,10 +60,10 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  */
 @Module({
   imports: [
-    // Per-pod rate-limit как самостоятельная защита (не делегируем ингрессу).
-    // Именованный сет 'default' (120/мин) — на него по имени ссылается per-route
-    // override `@Throttle({ default: { limit: 10, ... } })` на /oauth/token.
-    // Несколько одновременных окон (short+long) не нужны → один сет.
+    // Per-pod rate-limit as standalone protection (not delegated to the ingress).
+    // The named set 'default' (120/min) is referenced by name from the per-route
+    // override `@Throttle({ default: { limit: 10, ... } })` on /oauth/token.
+    // Multiple simultaneous windows (short+long) aren't needed → a single set.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     AuditModule,
     TenantModule,

@@ -54,7 +54,7 @@ export class PaymentsService {
     );
   }
 
-  /** Статус платежа по transaction id (GET). id уже проверен SafeIdPipe в контроллере. */
+  /** Payment status by transaction id (GET). id is already validated by SafeIdPipe in the controller. */
   getPayment(tenantId: string, paymentId: string) {
     return this.gw.run(tenantId, 'getPayment', (c) => ({
       method: 'GET',
@@ -62,7 +62,7 @@ export class PaymentsService {
     }));
   }
 
-  /** Статус платежа по transaction reference (GET ?ref=). ref проверен SafeIdPipe. */
+  /** Payment status by transaction reference (GET ?ref=). ref is validated by SafeIdPipe. */
   getPaymentByRef(tenantId: string, ref: string) {
     return this.gw.run(tenantId, 'getPaymentByRef', (c) => ({
       method: 'GET',
@@ -70,7 +70,7 @@ export class PaymentsService {
     }));
   }
 
-  /** Отмена платежа (POST). id уже проверен SafeIdPipe в контроллере. */
+  /** Cancel a payment (POST). id is already validated by SafeIdPipe in the controller. */
   cancelPayment(tenantId: string, paymentId: string) {
     return this.gw.run(tenantId, 'cancelPayment', (c) => ({
       method: 'POST',
@@ -79,12 +79,13 @@ export class PaymentsService {
   }
 
   /**
-   * Push-статусы по transaction_reference из НАШЕЙ БД (polling-доставка
-   * Status Change Push). Локальное чтение, не вызов MC. Изоляция: OWN-тенант
-   * видит СТРОГО свои события; общий null-пул отдаём только PLATFORM-тенанту (у
-   * OWN событий в пуле не бывает — они атрибутируются по partnerId). ref уже
-   * проверен SafeIdPipe в контроллере. `tenant` берём из auth-контекста (mode уже
-   * там — без лишнего запроса к реестру).
+   * Push statuses by transaction_reference from OUR DB (polling delivery of
+   * Status Change Push). A local read, not an MC call. Isolation: an OWN tenant
+   * sees STRICTLY its own events; the shared null pool is exposed only to a
+   * PLATFORM tenant (OWN never has events in the pool — they are attributed by
+   * partnerId). ref is already validated by SafeIdPipe in the controller.
+   * `tenant` comes from the auth context (the mode is already there — no extra
+   * registry query).
    */
   async getStatusEvents(
     tenant: Tenant,
@@ -96,7 +97,7 @@ export class PaymentsService {
       ref,
       includePool,
     );
-    // Явный маппинг (whitelist): не отдаём внутренние id/tenantId наружу.
+    // Explicit mapping (whitelist): we do not expose internal id/tenantId outside.
     return rows.map((r) => ({
       transactionReference: r.transactionReference ?? null,
       eventType: r.eventType ?? null,

@@ -1,9 +1,10 @@
 import { HttpException } from '@nestjs/common';
 
 /**
- * Ошибка, ПРОБРОШЕННАЯ от Mastercard (или иного upstream). Несёт исходное тело
- * ответа MC, чтобы exception-фильтр вложил его под стабильный ключ `upstream`, а
- * не подменял весь контракт ошибки нативной схемой MC (`{Errors:{Error:...}}`).
+ * An error PROPAGATED from Mastercard (or another upstream). Carries the original
+ * MC response body so the exception filter nests it under the stable `upstream`
+ * key, instead of replacing the whole error contract with MC's native schema
+ * (`{Errors:{Error:...}}`).
  */
 export class UpstreamHttpException extends HttpException {
   constructor(

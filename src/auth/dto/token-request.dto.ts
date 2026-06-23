@@ -2,10 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 
 /**
- * Тело `POST /oauth/token` (OAuth2 client_credentials, RFC 6749). Строгая
- * валидация — наша граница. `client_id`/`client_secret` можно передать в теле
- * ИЛИ в заголовке `Authorization: Basic` (§2.3.1), поэтому они опциональны здесь
- * и проверяются на наличие после извлечения в контроллере.
+ * Body of `POST /oauth/token` (OAuth2 client_credentials, RFC 6749). Strict
+ * validation is our boundary. `client_id`/`client_secret` may be passed in the
+ * body OR in the `Authorization: Basic` header (§2.3.1), so they are optional
+ * here and their presence is checked after extraction in the controller.
  */
 export class TokenRequestDto {
   @ApiProperty({ enum: ['client_credentials'] })

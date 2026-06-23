@@ -14,7 +14,9 @@ export class CashPickupController {
   constructor(private readonly svc: CashPickupService) {}
 
   @Get('cash-pickup/countries')
-  @ApiOperation({ summary: 'Cash Pickup: страны (фильтр cash_pickup_type).' })
+  @ApiOperation({
+    summary: 'Cash Pickup: countries (cash_pickup_type filter).',
+  })
   cashPickupCountries(
     @CurrentTenant() ctx: TenantContext,
     @Query('cash_pickup_type', StringQueryPipe) cashPickupType?: string,
@@ -23,7 +25,7 @@ export class CashPickupController {
   }
 
   @Get('cash-pickup/cities')
-  @ApiOperation({ summary: 'Cash Pickup: города (Directed).' })
+  @ApiOperation({ summary: 'Cash Pickup: cities (Directed).' })
   cashPickupCities(
     @CurrentTenant() ctx: TenantContext,
     @Query('country', StringQueryPipe) country?: string,
@@ -59,7 +61,7 @@ export class CashPickupController {
   }
 
   @Get('cash-pickup/branches')
-  @ApiOperation({ summary: 'Cash Pickup: точки выдачи провайдера.' })
+  @ApiOperation({ summary: 'Cash Pickup: provider pickup branches.' })
   cashPickupBranches(
     @CurrentTenant() ctx: TenantContext,
     @Query('provider_id', StringQueryPipe) providerId?: string,
