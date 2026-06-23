@@ -2,8 +2,8 @@
 
 Справочник по всем HTTP-эндпоинтам шлюза, по одному разделу на эндпоинт. Связанные
 документы: [documentation.md](./documentation.md) (сущности/архитектура данных),
-[tests.md](./tests.md) (живые примеры вызовов), [architecture.md](./architecture.md)
-(дизайн), [api-mastercard.md](./api-mastercard.md) (исходная дока Mastercard).
+[architecture.md](./architecture.md) (дизайн),
+[api-mastercard.md](./api-mastercard.md) (исходная дока Mastercard).
 
 - **Базовый URL (dev):** `http://localhost:3000`
 - **Формат:** JSON (у `POST /oauth/token` — также `application/x-www-form-urlencoded`).
@@ -95,7 +95,7 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
   `encrypted_payload.data`.
 - **FLE работает на sandbox** (подтверждено вживую 2026-06-16). Раньше считали «sandbox не
   поддерживает FLE» — это была ошибка выбора ключа (`082000 Crypto Key`). Детали ключей — в
-  `production-questions.md` и авто-памяти `mastercard-fle-working`.
+  `production-questions.md`.
 - На практике: **POST с телом** (quotes/validations/bank-lookup/iban/payment/confirm/RFI
   update/upload) — тело шифруется; **GET-каталоги** (balances/rates/cash-pickup/endpoint-guide/
   RFI retrieve/download) тела не шлют — шифровать нечего. Per-tenant ключи (OWN со своими) пока
@@ -181,11 +181,11 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 
 Тело — `PaymentRequestDto` (passthrough, обёртка `paymentrequest`, суммы — строки).
 **Идемпотентность — по `transaction_reference`** (обязательное поле тела), источник истины —
-**Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; отдельного KV-слоя нет — issue
-#4): ретрай с тем же `transaction_reference` → тот же результат без повторного вызова MC (защита
+**Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; отдельного KV-слоя нет):
+ретрай с тем же `transaction_reference` → тот же результат без повторного вызова MC (защита
 от двойного списания); запрос «в обработке» → `409`; тот же ref с ДРУГИМ телом (fingerprint) →
-`422`. Ключ хешируется (`idemKey = txref:sha256(ref)`). Заголовка `Idempotency-Key` нет (убран —
-issue #3). Готовые записи постоянны (один `transaction_reference` = один платёж навсегда).
+`422`. Ключ хешируется (`idemKey = txref:sha256(ref)`). Заголовка `Idempotency-Key` нет.
+Готовые записи постоянны (один `transaction_reference` = один платёж навсегда).
 
 ### GET /crossborder/payments/:id
 **Назначение.** Статус платежа по id. · **Upstream:** `GET /send/v1/partners/{pid}/crossborder/{id}` · **Auth:** tenant · **FLE:** нет тела. Параметр `id` — `SafeIdPipe`.
@@ -351,7 +351,7 @@ MTF/Prod на сконфигурированном коридоре.
   > приёмника; передать наш cert-chain через **KMP-портал**. ⚠️ MC **не знает** наш
   > `X-Webhook-Token` — его инжектит TLS-слой после mTLS либо кастомный заголовок в Push-конфиге
   > портала (подтвердить у MC).
-- **Дедуп** по `eventRef` в **Postgres** (отдельного KV-слоя нет — issue #4; MC ретраит до 3 раз):
+- **Дедуп** по `eventRef` в **Postgres** (отдельного KV-слоя нет; MC ретраит до 3 раз):
   повтор → `{"status":"duplicate"}`, иначе `{"status":"accepted"}`.
 - **Персист в `tx_status`** одним `INSERT … ON CONFLICT (eventRef) DO NOTHING` (дедуп И запись
   **атомарны**) — для ВСЕХ событий: `STATUS_CHG`/`QUOTE_STATUS_CHG` несут status/stage и читаются
@@ -361,7 +361,7 @@ MTF/Prod на сконфигурированном коридоре.
 - **Доставка мерчанту:** polling через `GET /crossborder/status-events?ref=…`.
 - **Зашифрованный push** (`{encrypted_payload:{data}}`): декрипт ещё не подключён (открытый блокер
   MTF/Prod: ключ расшифровки + per-tenant seam), но сырой конверт **персистится в `tx_status`
-  (`eventType='ENCRYPTED'`) ДО `200`** (issue #6) — иначе после ack событие терялось бы (MC не
+  (`eventType='ENCRYPTED'`) ДО `200`** — иначе после ack событие терялось бы (MC не
   ретраит). Дедуп по `enc:sha256(шифротекста)` (или внешнему ref, если есть). Обработка — позже из
   БД, когда подключим декрипт. В sandbox push «Not Applicable».
 

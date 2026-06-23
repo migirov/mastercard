@@ -2,9 +2,7 @@
 
 Отражает **фактически реализованное** состояние сервиса. Связанные документы:
 [documentation.md](./documentation.md) (сущности, хранение, шифрование, сценарии),
-[plan.md](./plan.md) (статус по фазам),
-[production-questions.md](./production-questions.md) (блокеры перед прод),
-[memory.md](./memory.md) (контекст сессии).
+[production-questions.md](./production-questions.md) (блокеры перед прод).
 
 > **Топология (актуальная).** Вся интеграция — ОДИН встраиваемый зонтичный
 > `MastercardModule` (`src/mastercard.module.ts`, через `ConfigurableModuleBuilder`,
@@ -24,12 +22,12 @@
 > `@UseGatewayContract()`, см. §10), чтобы встраиваемый модуль не подменял обработку
 > ошибок хоста. Аутентификация вебхука — fail-closed в сервисе
 > (`X-Webhook-Token` + mTLS), а не «доверие к ингрессу» (MC не подписывает тела push). `EncryptionService` свёрнут в провайдер;
-> идемпотентность платежей / дедуп вебхуков — на Postgres (отдельный KV-слой убран, issue #4);
+> идемпотентность платежей / дедуп вебхуков — на Postgres (отдельного KV-слоя нет);
 > health-пробы — в dev-харнессе (не в зонтичном модуле). Единый список сущностей — в
 > `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, реэкспортируется зонтичным
 > модулем для `DataSource` хоста); сами entity co-located в своих модулях. Интеграция с
 > хостом — ЯВНЫЙ контракт (типизированные опции с fail-fast в `GatewayConfig` +
-> `MASTERCARD_ENTITIES` + чек-лист в README), а не рантайм-самопроверка (issue #10).
+> `MASTERCARD_ENTITIES` + чек-лист в README), а не рантайм-самопроверка.
 > «standalone» в §1 описывает режим запуска dev-харнесса.
 
 ## 1. Цель
@@ -207,7 +205,7 @@ documentation.md).
 |---|---|
 | `MastercardModule` (зонтичный) | единственный модуль, импортируемый хостом (`forRoot/forRootAsync`); собирает все под-модули, даёт глобальный `GatewayConfig`, регистрирует `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` поверх Postgres, статусы (ЧИСТЫЙ data-layer — на старте НЕ сеет); `TenantEntity` co-located. Засев тенантов вынесен наружу: `platform` — `DevSeedService` dev-харнесса (`AppModule`), демо — `npm run seed` (`tenant.seed.ts`); хост провижит сам |
-| `CredentialsModule` | фасад `CredentialsService` → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN-кэш через cache-manager v5 (in-memory, LRU 500 + TTL; issue #15 — в v5 нет stampede-coalescing); граничные гварды в `utils/credential-sanitize` (issue #14) |
+| `CredentialsModule` | фасад `CredentialsService` → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN-кэш через cache-manager v5 (in-memory, LRU 500 + TTL; в v5 нет stampede-coalescing); граничные гварды в `utils/credential-sanitize` |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (прод) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | ввод партнёров, одобрения, выпуск/отзыв OAuth-клиентов, `GET /admin/audit` |
@@ -215,10 +213,10 @@ documentation.md).
 | `AuditModule` | `AuditInterceptor` (навешивается per-controller через `@UseGatewayContract()`) + батчевый `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | приём push-уведомлений MC (in-service fail-closed `X-Webhook-Token`; mTLS на ингрессе — опциональный доп. слой); ВСЕ события персистятся/дедупятся в `tx_status` одним атомарным `INSERT ON CONFLICT` по `eventRef` (KV-слоя нет); статусные (STATUS_CHG/QUOTE_STATUS_CHG) несут status/stage и читаются мерчантом, атрибуция тенанту (OWN→partnerId / PLATFORM→общий пул), нормализация camel/snake |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); общий для `WebhooksModule` (запись) и `CrossBorderModule` (tenant-scoped чтение для polling) |
-| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) **разбиты по API-областям** (issue #16): по одному контроллеру+сервису на область (accounts/quotes/payments/validations/cash-pickup/rfi) над общим `CrossBorderGateway` (гейтинг + вызов MC/разворот + URL/header-хелперы); polling статусов (`GET /crossborder/status-events`); `mc-paths.ts` (централизованный билдер URL MC); приватный `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
+| `CrossBorderModule` | бизнес-эндпоинты (все 15 групп MC API) **разбиты по API-областям**: по одному контроллеру+сервису на область (accounts/quotes/payments/validations/cash-pickup/rfi) над общим `CrossBorderGateway` (гейтинг + вызов MC/разворот + URL/header-хелперы); polling статусов (`GET /crossborder/status-events`); `mc-paths.ts` (централизованный билдер URL MC); приватный `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (только dev-харнесс) | `DatabaseModule` (TypeORM `forRoot`) — только в standalone через `main.ts`; при встраивании `DataSource` владеет хост |
 | `HealthController` (dev-харнесс) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + пинг БД); регистрируется в `AppModule` (харнесс), НЕ в зонтичном модуле — корневые пробы конфликтовали бы с хостом; при встраивании пробы даёт хост |
-| `PaymentIdempotencyStore` | приватный провайдер `CrossBorderModule`; идемпотентность платежей на Postgres (`payment_idempotency`); заменил прежний KV-based `IdempotencyService` (issue #4) |
+| `PaymentIdempotencyStore` | приватный провайдер `CrossBorderModule`; идемпотентность платежей на Postgres (`payment_idempotency`); заменил прежний KV-based `IdempotencyService` |
 | `common/` | общие cross-cutting утилиты (см. ниже) |
 
 **`common/` (общие утилиты и паттерны):**
@@ -230,13 +228,13 @@ documentation.md).
   с двумя пресетами. `Strict` (whitelist + forbid extras + transform) — на наших границах
   (admin/oauth); `Passthrough` (без `transform`/`whitelist`) — для тел, пробрасываемых в MC как
   есть. Шаренные stateless-инстансы pipe, навешиваются per-route через `@UsePipes`. Заменил
-  два прежних ad-hoc-фактори `mcPassthroughPipe`/`strictDtoPipe` (issue #12).
+  два прежних ad-hoc-фактори `mcPassthroughPipe`/`strictDtoPipe`.
 - `secret-strength.ts` — `isWeakSecret()`, общий для `main.ts` и прод-гейта `GatewayConfig`.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` документирует единый формат ошибки в Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` отвергает не-строковые query-параметры (объекты/массивы).
 - Загрузка RFI-документа (`POST /crossborder/rfi/documents`) требует лимита тела 2MB (base64-файл).
   Dev-харнесс задаёт его как Nest middleware (`AppModule.configure`, ДО глобального 256kb-парсера);
-  при встраивании body-парсингом владеет хост (issue #11).
+  при встраивании body-парсингом владеет хост.
 - `safe-id.pipe.ts`, `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
@@ -293,10 +291,9 @@ address-validation; теперь в одном аудируемом месте).
   RFI requests/documents; идемпотентность платежей по `transaction_reference`) +
   **Push Notifications**: вебхук персистит статусы в `tx_status`,
   мерчант читает через `GET /crossborder/status-events`.
-- ✅ **Качество:** 10-раундовый аудит безопасности/багов/оптимизаций + 2 раунда регрессий +
-  4-линзовый код-ревью (Tier 1 применён); доработка покрытия (confirm-suite 3/3, carded-rate
-  GET, push-персист) прошла ещё 3 раунда анализа (баги/оптимизация/безопасность). Тесты: unit
-  20 сьютов / 159, e2e на живом sandbox.
+- ✅ **Качество:** покрытие включает confirm-suite (3/3), carded-rate GET и персист push;
+  централизованная карта путей MC, композитный декоратор `UseGatewayContract()`, barrel
+  `src/index.ts`. Тесты: unit 20 сьютов / 159, e2e на живом sandbox.
 - ⬜ **Перед прод:** per-tenant encryption (JWE-интерцептор всё ещё на платформенном
   ключе — см. §6), **декрипт зашифрованного push** (приватный Client-ключ дешифрования + per-tenant seam),
   Vault-реализация, метрики/трейсинг (Prometheus/OTel) —

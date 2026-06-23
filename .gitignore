@@ -28,3 +28,10 @@ startup*.log
 
 # Вывод/кэш сканера agentic-security (инструментальный, не версионируем)
 .agentic-security/
+
+# Internal dev/process docs — kept locally, not versioned
+docs/*/memory.md
+docs/*/plan.md
+docs/*/issues.md
+docs/*/tests.md
+docs/*/tests-inner.md

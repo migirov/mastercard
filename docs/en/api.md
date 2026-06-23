@@ -2,8 +2,8 @@
 
 Reference for every HTTP endpoint of the gateway, one section per endpoint. Related
 docs: [documentation.md](./documentation.md) (entities / data design),
-[tests.md](./tests.md) (live call examples), [architecture.md](./architecture.md)
-(design), [api-mastercard.md](./api-mastercard.md) (original Mastercard docs).
+[architecture.md](./architecture.md) (design),
+[api-mastercard.md](./api-mastercard.md) (original Mastercard docs).
 
 - **Base URL (dev):** `http://localhost:3000`
 - **Format:** JSON (`POST /oauth/token` also accepts `application/x-www-form-urlencoded`).
@@ -94,8 +94,7 @@ JWE (RSA-OAEP-256 + A256GCM), implemented as an **axios interceptor inside `Mast
 - **response:** decrypted with our **Mastercard Encryption private key** if MC sent
   `encrypted_payload.data`.
 - **FLE works on sandbox** (proven live 2026-06-16). The old belief “sandbox doesn’t support
-  FLE” was a key-selection mistake (`082000 Crypto Key`). Key details — `production-questions.md`
-  and the auto-memory `mastercard-fle-working`.
+  FLE” was a key-selection mistake (`082000 Crypto Key`). Key details — `production-questions.md`.
 - In practice: **POST with a body** (quotes/validations/bank-lookup/iban/payment/confirm/RFI
   update/upload) → body encrypted; **GET catalogs** (balances/rates/cash-pickup/endpoint-guide/
   RFI retrieve/download) send no body → nothing to encrypt. Per-tenant keys (OWN with their own)
@@ -180,11 +179,11 @@ Path params `transactionReference`, `proposalId` — both `SafeIdPipe`.
 
 Body — `PaymentRequestDto` (passthrough, `paymentrequest` wrapper, amounts are strings).
 **Idempotency is keyed on `transaction_reference`** (a required body field), with the source of
-truth in **Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; no separate KV layer —
-issue #4): a retry with the same `transaction_reference` → the same result without re-calling MC
+truth in **Postgres** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`; no separate KV layer):
+a retry with the same `transaction_reference` → the same result without re-calling MC
 (guards against double charges); a request already in progress → `409`; the same ref with a
 DIFFERENT body (fingerprint) → `422`. The key is hashed (`idemKey = txref:sha256(ref)`). There is
-no `Idempotency-Key` header (removed — issue #3). Completed records are permanent (one
+no `Idempotency-Key` header. Completed records are permanent (one
 `transaction_reference` = one payment forever).
 
 ### GET /crossborder/payments/:id
@@ -351,7 +350,7 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
   > receiver’s trust store; submit our cert chain via the **KMP portal**. ⚠️ MC **doesn’t know**
   > our `X-Webhook-Token` — it is injected by the TLS layer after mTLS, or a custom header in the
   > portal’s push config (confirm with MC).
-- **Dedup** by `eventRef` in **Postgres** (no separate KV layer — issue #4; MC retries up to 3×):
+- **Dedup** by `eventRef` in **Postgres** (no separate KV layer; MC retries up to 3×):
   repeat → `{"status":"duplicate"}`, else `{"status":"accepted"}`.
 - **Persistence in `tx_status`** via one `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup AND
   write are **atomic**) — for ALL events: `STATUS_CHG`/`QUOTE_STATUS_CHG` carry status/stage and are
@@ -362,7 +361,7 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 - **Merchant delivery:** polling via `GET /crossborder/status-events?ref=…`.
 - **Encrypted push** (`{encrypted_payload:{data}}`): decryption isn't wired yet (open MTF/Prod
   blocker: decryption key + per-tenant seam), but the raw envelope is **persisted to `tx_status`
-  (`eventType='ENCRYPTED'`) BEFORE the `200`** (issue #6) — otherwise the event would be lost after
+  (`eventType='ENCRYPTED'`) BEFORE the `200`** — otherwise the event would be lost after
   the ack (MC won't retry). Deduped by `enc:sha256(ciphertext)` (or an outer ref if present).
   Processed later from the DB once decryption is wired. Sandbox push is “Not Applicable”.
 

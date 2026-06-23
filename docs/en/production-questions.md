@@ -1,7 +1,7 @@
 # Questions and blockers before production
 
-What needs to be decided/finished before going live. Complements [memory.md](./memory.md)
-(status) and [documentation.md](./documentation.md) (architecture).
+What needs to be decided/finished before going live. Complements
+[documentation.md](./documentation.md) (architecture).
 
 ---
 
@@ -10,7 +10,7 @@ What needs to be decided/finished before going live. Complements [memory.md](./m
 **Summary.** Field-level encryption (JWE) is currently **platform-level**: the
 interceptor encrypts the request with the key from `.env`
 (`MC_ENCRYPTION_CERT_PATH` / `MC_ENCRYPTION_FINGERPRINT` / `MC_DECRYPTION_KEY_PATH`)
-through a single `EncryptionService`. Meanwhile `CredentialsService.fetchOwn` already
+through a single `EncryptionService`. Meanwhile `OwnCredentialsProvider` already
 resolves **per-tenant** encryption keys (`encryptionCertPem`,
 `encryptionFingerprint`, `decryptionKeyPem`) into `McCredentials` — but **nobody
 uses them**.
@@ -66,7 +66,7 @@ standalone dev-harness (`main.ts`). Question closed.
       `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (mandatory — the webhook guard is fail-closed).
       The prod gate checks this at startup.
 - [ ] **`TRUST_PROXY`** = number of ingress hops (not `true`) — only for deriving a correct `req.ip` behind a proxy (used by the rate-limit IP fallback); not related to authentication.
-- [ ] **mTLS for Mastercard webhooks (authoritative push-notification authenticity).** Per the MC docs, webhook authenticity is provided by **mTLS**, NOT a payload signature (MC has no JWS/HMAC payload signature; the former "question C1" is closed by reading the docs). Do at deployment: (1) request the public mTLS push-notification cert from the MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token` is delivered (MC doesn't know it — inject at the TLS layer or a custom header in the portal push config). Until then the active factor is the in-service fail-closed `X-Webhook-Token`. MC quote and details — `api.md` → Webhooks. There is no in-code payload-signature check (the noop verifier scaffold was removed in issue #7 — MC does not sign push bodies).
+- [ ] **mTLS for Mastercard webhooks (authoritative push-notification authenticity).** Per the MC docs, webhook authenticity is provided by **mTLS**, NOT a payload signature (MC has no JWS/HMAC payload signature; the former "question C1" is closed by reading the docs). Do at deployment: (1) request the public mTLS push-notification cert from the MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token` is delivered (MC doesn't know it — inject at the TLS layer or a custom header in the portal push config). Until then the active factor is the in-service fail-closed `X-Webhook-Token`. MC quote and details — `api.md` → Webhooks. There is no in-code payload-signature check — MC does not sign push bodies.
 - [ ] **Decrypt encrypted push notifications (MTF/Prod).** The `WebhookHandler` currently detects
       an encrypted body (`{ encrypted_payload: { data } }`) and acks `200` WITHOUT processing (in
       sandbox push is "Not Applicable", so the case itself can't be tested on sandbox). The
@@ -103,35 +103,18 @@ for interceptor control.
 - Observability: **logs are ready** (structured JSON pino + correlation-id);
   remaining are **metrics/tracing** (Prometheus `/metrics` or OpenTelemetry) + alerts.
 - **Health probes are ready** (`/health`, `/ready`) — wire liveness/readiness in the k8s manifest.
-- **DB retention (open item, infra).** After issue #4 the TTL'd KV layer is gone — payment
+- **DB retention (open item, infra).** There is no TTL'd KV layer — payment
   idempotency (`payment_idempotency`) and webhook dedup/persistence (`tx_status`) live in Postgres
-  with **no app-level TTL** (the cron cleanup was removed per the team lead). Implications: (1) both
+  with **no app-level TTL** (there is no cron cleanup). Implications: (1) both
   tables grow unbounded — especially `tx_status` from frequent non-status pushes (Carded Rate); (2)
   `payment_idempotency.result` stores the full MC response (possibly PII) permanently — the KV layer
   used to expire it after 24h. **Needs a host/infra decision:** a retention policy (partition by
   `receivedAt` / periodic prune of old rows), particularly for data minimization (PII/PCI). Payment
   idempotency is practically only needed within the retry window (minutes–a day), so pruning old
   `done` rows is safe. Question for the client: required retention window and mechanism.
-- **Tenant provisioning on embedding (issue #5).** The embeddable `MastercardModule` no longer
-  creates tenants on boot (`TenantRegistry` is a pure data layer; `platform` is seeded only by the
+- **Tenant provisioning on embedding.** The embeddable `MastercardModule` does not
+  create tenants on boot (`TenantRegistry` is a pure data layer; `platform` is seeded only by the
   dev harness). The host MUST provision tenants itself: the baseline `platform` and its own — via
   the admin API (double-approval onboarding) or `SEED_DEMO=false npm run seed` at provisioning time.
   Otherwise PLATFORM mode won't work (no PLATFORM tenant exists).
-- ~~Expand Swagger annotations~~ — **done** during the code-quality review.
-
----
-
-## Audit history (fixed)
-
-A **10-round audit** (bugs / security / optimization) + **2 regression rounds** (each
-round = audit→fix, all verified). **No open HIGH/MED issues.** Then a 4-perspective
-code-quality review (architecture / maintainability / API contract / testing) → "Tier
-1" refactors landed (centralized MC path map; a composed `UseGatewayContract()`
-decorator; barrel `src/index.ts`; Swagger gaps filled; +4 regression specs). Tests:
-20 suites / 147 unit tests + 23/23 e2e against the live sandbox (on live Postgres).
-
-The earlier 4-cycle bug audit (2026-06-10), all fixes passed typecheck:
-1. Tenant-seeding race when many pods start → `INSERT … ON CONFLICT DO NOTHING`.
-2. Default `MC_WEBHOOK_TOKEN` passed the prod gate → added to `assertProdSecrets`.
-3. Long `Idempotency-Key` overflowed `kv_store.key` (varchar 256) → validation (≤128).
-4. Prod silently used dev `LocalSecretStore` → the prod gate now requires `vault`.
+- ~~Expand Swagger annotations~~ — **done**.

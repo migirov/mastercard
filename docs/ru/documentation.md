@@ -2,8 +2,7 @@
 
 Описание доменных сущностей сервиса Mastercard Cross-Border Gateway.
 
-Связанные документы: [architecture.md](./architecture.md) (дизайн),
-[plan.md](./plan.md) (статус), [memory.md](./memory.md) (контекст сессии).
+Связанные документы: [architecture.md](./architecture.md) (дизайн).
 
 ## Разделы
 
@@ -410,8 +409,8 @@ effectiveStatus(t) = t.suspended            ? SUSPENDED
 **PaymentIdempotency** — персистентный (без TTL) стор, гарантирующий, что ретрай
 платежа не спишет дважды. Ключ per-tenant: `idemKey =
 txref:sha256(transaction_reference)`; заголовка `Idempotency-Key` **нет** — ключ
-выводится из `transaction_reference` платежа. Прежний KV-слой убран (issue #4) —
-дедуп вебхуков переехал в [`tx_status`](#transactionstatus-tx_status).
+выводится из `transaction_reference` платежа. Отдельного KV-слоя нет —
+дедуп вебхуков ведётся в [`tx_status`](#transactionstatus-tx_status).
 
 Код: [`src/crossborder/payments/services/payment-idempotency.store.ts`](../../src/crossborder/payments/services/payment-idempotency.store.ts)
 (`PaymentIdempotencyStore`),
@@ -480,7 +479,7 @@ Status Change) для доставки мерчанту через polling. Де
 ## Поведение
 
 - **Запись (`record`)** — атомарный `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
-  `true` = вставлено (свежее), `false` = дубль. **Без усечения** (issue #8): проекционные
+  `true` = вставлено (свежее), `false` = дубль. **Без усечения**: проекционные
   колонки (eventType/transactionType/status/stage) — тип `text`, ширины нет, поэтому слишком
   длинное значение из непокрытого DTO тела MC не вызовет «value too long» → 500 (что сломало бы
   контракт «всегда 200» + ушло бы в бесконечный ретрай MC). Индексируемые `varchar`-колонки
@@ -501,7 +500,7 @@ in-memory (per-pod). Остальной код работает только с 
 
 Код: [`src/credentials/credentials.types.ts`](../../src/credentials/credentials.types.ts),
 резолвер: [`src/credentials/services/credentials.service.ts`](../../src/credentials/services/credentials.service.ts)
-(тонкий фасад — issue #14 — делегирует `PlatformCredentialsProvider` и
+(тонкий фасад — делегирует `PlatformCredentialsProvider` и
 `OwnCredentialsProvider`; OWN-кэш — cache-manager (memory), подключённый внутри
 `OwnCredentialsProvider`, граничные гварды — в `utils/credential-sanitize.ts`).
 
@@ -521,7 +520,7 @@ in-memory (per-pod). Остальной код работает только с 
 - **`PLATFORM`** → из конфигурации платформы (`.env`): ключ подписи из `.p12`,
   `consumerKey`, общий `partnerId`. Кэш без TTL (ротация через рестарт).
 - **`OWN`** → из [MerchantSecretBundle](#merchantsecretbundle--keymaterial) по
-  `secretRef` тенанта; кэшируется через **cache-manager** (in-memory стор, issue #15):
+  `secretRef` тенанта; кэшируется через **cache-manager** (in-memory стор):
   **TTL** (`MC_CREDS_CACHE_TTL_MS`, дефолт 10 мин) + **жёсткий LRU-потолок (500 записей)**,
   чтобы множество тенантов не раздуло кэш, + `invalidate()` для ротации; отклонённый
   resolve не кэшируется. cache-manager v5 не коалесит конкурентные промахи, поэтому
