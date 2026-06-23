@@ -28,13 +28,13 @@ export class QuotesController {
   constructor(private readonly svc: QuotesService) {}
 
   @Post('quotes')
-  @HttpCode(200) // котировка — вычисление, не создание ресурса
+  @HttpCode(200) // a quote is a computation, not a resource creation
   @ApiOperation({
-    summary: 'Запрос котировки. Тело проброса в MC (quoterequest).',
+    summary: 'Request a quote. Body is passed through to MC (quoterequest).',
   })
   @ApiResponse({
     status: 400,
-    description: 'Невалидный формат критичных полей.',
+    description: 'Invalid format of critical fields.',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   quote(@CurrentTenant() ctx: TenantContext, @Body() body: QuoteRequestDto) {
@@ -42,9 +42,9 @@ export class QuotesController {
   }
 
   @Post('quotes/confirmations')
-  @HttpCode(200) // подтверждение — изменение состояния котировки, не создание
+  @HttpCode(200) // a confirmation changes the quote's state, not a creation
   @ApiOperation({
-    summary: 'Подтверждение котировки (transactionReference + proposalId).',
+    summary: 'Confirm a quote (transactionReference + proposalId).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   confirmQuote(
@@ -55,10 +55,9 @@ export class QuotesController {
   }
 
   @Post('quotes/cancellations')
-  @HttpCode(200) // отмена — изменение состояния котировки, не создание
+  @HttpCode(200) // a cancellation changes the quote's state, not a creation
   @ApiOperation({
-    summary:
-      'Отмена подтверждённой котировки (transactionReference + proposalId).',
+    summary: 'Cancel a confirmed quote (transactionReference + proposalId).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   cancelConfirmedQuote(
@@ -70,7 +69,7 @@ export class QuotesController {
 
   @Get('quotes/:transactionReference/proposals/:proposalId')
   @ApiOperation({
-    summary: 'Просмотр подтверждённой котировки (MC Retrieve Quote).',
+    summary: 'Retrieve a confirmed quote (MC Retrieve Quote).',
   })
   retrieveConfirmedQuote(
     @CurrentTenant() ctx: TenantContext,

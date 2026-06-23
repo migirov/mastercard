@@ -2,41 +2,42 @@ import { Injectable } from '@nestjs/common';
 import { isWeakSecret } from '../common/utils/secret-strength';
 
 /**
- * Конфиг встраиваемого модуля. Хост-приложение (b24club-api или dev-харнесс)
- * передаёт его через `MastercardModule.forRootAsync({ useFactory })`. Модуль НЕ
- * читает `process.env` напрямую — поэтому переносится в чужой монолит без
- * завязки на конкретные имена env-переменных.
+ * Configuration for the embeddable module. The host application (b24club-api
+ * or the dev harness) passes it via `MastercardModule.forRootAsync({ useFactory })`.
+ * The module does NOT read `process.env` directly — so it can be dropped into a
+ * foreign monolith without coupling to specific env-variable names.
  */
 export interface MastercardModuleOptions {
-  /** Базовый URL Mastercard (sandbox/MTF/prod). */
+  /** Mastercard base URL (sandbox/MTF/prod). */
   readonly baseUrl: string;
-  /** Платформенные креды (режим PLATFORM; демо-сид OWN в dev). */
+  /** Platform credentials (PLATFORM mode; OWN demo seed in dev). */
   readonly consumerKey: string;
   readonly partnerId: string;
   readonly signingKeyPath?: string;
   readonly signingKeyPassword?: string;
-  /** Field-level encryption (JWE): включается в MTF/Prod. */
+  /** Field-level encryption (JWE): enabled in MTF/Prod. */
   readonly encryptionEnabled?: boolean;
   readonly encryptionCertPath?: string;
   readonly encryptionFingerprint?: string;
   readonly decryptionKeyPath?: string;
-  /** Источник секретов мерчантов: 'local' (dev) | 'vault' (prod). */
+  /** Merchant secrets source: 'local' (dev) | 'vault' (prod). */
   readonly secretStore?: 'local' | 'vault';
-  /** TTL кэша OWN-кредов, мс. */
+  /** OWN credentials cache TTL, ms. */
   readonly credsCacheTtlMs?: number;
-  /** Секрет подписи внутренних JWT мерчантов. */
+  /** Signing secret for internal merchant JWTs. */
   readonly jwtSecret: string;
-  /** Токен внутренних (service-to-service) вызовов. */
+  /** Token for internal (service-to-service) calls. */
   readonly internalToken: string;
-  /** Токен admin-API. */
+  /** Admin API token. */
   readonly adminToken: string;
-  /** Shared-secret аутентификации вебхуков MC (обязателен — guard fail-closed). */
+  /** Shared secret for MC webhook authentication (required — guard fail-closed). */
   readonly webhookToken?: string;
   /**
-   * Окружение хоста. `'production'` включает прод-гейты (сильные секреты + vault)
-   * и отключает засев тестовых тенантов. Хост ОБЯЗАН передать его в проде; если
-   * не передан — модуль считает окружение не-production (гейты off). Модуль НЕ
-   * читает `process.env.NODE_ENV` сам — значение только отсюда.
+   * Host environment. `'production'` enables prod gates (strong secrets + vault)
+   * and disables seeding of test tenants. The host MUST pass it in prod; if it is
+   * not passed, the module treats the environment as non-production (gates off).
+   * The module does NOT read `process.env.NODE_ENV` itself — the value comes only
+   * from here.
    */
   readonly nodeEnv?: string;
 }
@@ -44,16 +45,17 @@ export interface MastercardModuleOptions {
 const DEFAULT_CREDS_TTL_MS = 10 * 60 * 1000;
 
 /**
- * Типизированный доступ к опциям модуля. Заменяет точечные `ConfigService.get(...)`
- * во внутренних сервисах — единый источник конфигурации модуля. Предоставляется
- * глобально зонтичным `MastercardModule`, поэтому доступен всем под-сервисам.
+ * Typed access to module options. Replaces scattered `ConfigService.get(...)`
+ * calls in the internal services — a single source of module configuration.
+ * Provided globally by the umbrella `MastercardModule`, so it is available to
+ * all sub-services.
  */
 @Injectable()
 export class GatewayConfig {
   constructor(private readonly opts: MastercardModuleOptions) {
-    // Обязательные опции — fail-fast на СТАРТЕ, а не при первом запросе. Критично
-    // для встраивания: хост передаёт options-объект напрямую, и env-валидация
-    // dev-харнесса (ConfigModule.validate) на этом пути НЕ выполняется.
+    // Required options — fail-fast at STARTUP, not on the first request. Critical
+    // for embedding: the host passes the options object directly, and the dev
+    // harness env validation (ConfigModule.validate) does NOT run on this path.
     const required = [
       'baseUrl',
       'consumerKey',
@@ -67,9 +69,8 @@ export class GatewayConfig {
         throw new Error(`MastercardModule: required option '${k}' is missing`);
       }
     }
-    // Прод-гейты (раньше жили только в harness main.ts → при встраивании молча
-    // не срабатывали). Теперь модуль сам не даёт стартовать в проде со слабыми
-    // секретами или dev-секрет-стором — одинаково standalone и embedded.
+    // Prod gates: the module itself refuses to start in prod with weak secrets
+    // or a dev secret store — identically standalone and embedded.
     if (this.isProduction) {
       const bad = (
         ['jwtSecret', 'internalToken', 'adminToken', 'webhookToken'] as const
@@ -135,13 +136,14 @@ export class GatewayConfig {
     return this.opts.webhookToken;
   }
   get isProduction(): boolean {
-    // Только из опций хоста — модуль встраиваемый и НЕ читает process.env сам
-    // (иначе завязка на конкретное имя env-переменной в чужом монолите). Хост
-    // передаёт nodeEnv через forRootAsync (харнесс — из ConfigService NODE_ENV).
+    // From host options only — the module is embeddable and does NOT read
+    // process.env itself (otherwise it would couple to a specific env-variable
+    // name in a foreign monolith). The host passes nodeEnv via forRootAsync
+    // (the harness sources it from ConfigService NODE_ENV).
     return this.opts.nodeEnv === 'production';
   }
 
-  /** Обязательное значение или громкая ошибка (для ключей, нужных в конкретном режиме). */
+  /** Required value or a loud error (for keys needed in a specific mode). */
   require<K extends keyof MastercardModuleOptions>(
     key: K,
   ): NonNullable<MastercardModuleOptions[K]> {

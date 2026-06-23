@@ -6,7 +6,7 @@ import {
   PrimaryColumn,
 } from 'typeorm';
 
-/** OAuth2-клиент партнёра. Секрет хранится только хэшем. */
+/** Partner OAuth2 client. The secret is stored only as a hash. */
 @Entity('oauth_clients')
 export class OAuthClientEntity {
   @PrimaryColumn({ type: 'varchar', length: 64 })

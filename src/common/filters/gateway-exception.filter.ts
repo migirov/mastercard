@@ -11,15 +11,15 @@ import { Request, Response } from 'express';
 import { UpstreamHttpException } from '../utils/upstream.exception';
 
 /**
- * Единый контракт ошибок для НАШИХ контроллеров. Навешивается per-controller
- * (`@UseFilters`), а НЕ глобально — встраиваемый модуль не должен подменять
- * обработку ошибок хост-приложения.
+ * Unified error contract for OUR controllers. Attached per-controller
+ * (`@UseFilters`), NOT globally — an embeddable module must not replace the host
+ * application's error handling.
  *
- * Формы ответа:
- *   - стандартная: `{ statusCode, error, message, path, timestamp, requestId }`;
- *   - проброс MC: то же + `upstream` (исходное тело Mastercard);
- *   - `/oauth/token`: `{ error }` по RFC 6749 §5.2;
- *   - не-HTTP исключение → 500, детали только в лог (наружу не утекают).
+ * Response shapes:
+ *   - standard: `{ statusCode, error, message, path, timestamp, requestId }`;
+ *   - MC passthrough: the same + `upstream` (the original Mastercard body);
+ *   - `/oauth/token`: `{ error }` per RFC 6749 §5.2;
+ *   - non-HTTP exception → 500, details only in the log (not leaked outward).
  */
 @Catch()
 export class GatewayExceptionFilter implements ExceptionFilter {
@@ -35,17 +35,17 @@ export class GatewayExceptionFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    // OAuth2 token endpoint — формат ошибки по RFC 6749 §5.2 (`{error}`), с КОДОМ
-    // из фиксированного набора (не утекаем сообщения валидатора и не маскируем
-    // 5xx под клиентский invalid_request).
+    // OAuth2 token endpoint — error format per RFC 6749 §5.2 (`{error}`), with a CODE
+    // from a fixed set (don't leak validator messages and don't mask a 5xx as a
+    // client-side invalid_request).
     if (req.path?.endsWith('/oauth/token')) {
       res.status(status).json({ error: oauthErrorCode(exception, status) });
       return;
     }
 
-    // requestId — строкой и ТОЛЬКО при наличии (контракт ErrorResponseDto:
-    // optional string, не null/number). path — req.path (без query): не отражаем
-    // сырой ввод клиента (?ref=…) в теле ошибки и совпадаем с примером DTO.
+    // requestId — as a string and ONLY when present (ErrorResponseDto contract:
+    // optional string, not null/number). path — req.path (without query): don't
+    // reflect raw client input (?ref=…) in the error body, and match the DTO example.
     const requestId = resolveRequestId(req);
     const base = {
       statusCode: status,
@@ -77,7 +77,7 @@ export class GatewayExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    // Неизвестное (не-HTTP) исключение: 500, тело наружу не отдаём, детали — в лог.
+    // Unknown (non-HTTP) exception: 500, don't return the body outward, details to the log.
     this.logger.error(
       `Unhandled exception on ${req.method} ${req.url}: ${
         (exception as Error)?.message ?? exception
@@ -92,15 +92,15 @@ export class GatewayExceptionFilter implements ExceptionFilter {
   }
 }
 
-/** Безопасный формат correlation-id (анти log/echo-инъекция). */
+/** Safe correlation-id format (anti log/echo injection). */
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 /**
- * requestId для тела ошибки. Приоритет — `req.id` (его ставит pino genReqId в
- * харнессе, уже валидированный). Если его нет (встраивание в хост БЕЗ pino —
- * модуль не должен полагаться на санитайзер харнесса), берём входящий
- * `X-Request-Id`, но САМИ валидируем формат: иначе сырой клиентский заголовок
- * (произвольная длина/charset) отразился бы в JSON-ответе. Не подошёл — опускаем.
+ * requestId for the error body. Priority: `req.id` (set by pino's genReqId in the
+ * harness, already validated). If it's absent (embedded in a host WITHOUT pino — the
+ * module must not rely on the harness's sanitizer), take the incoming `X-Request-Id`,
+ * but validate the format OURSELVES: otherwise a raw client header (arbitrary
+ * length/charset) would be reflected in the JSON response. If it doesn't fit, omit it.
  */
 function resolveRequestId(req: Request): string | undefined {
   if (req.id != null) return String(req.id);
@@ -111,7 +111,7 @@ function resolveRequestId(req: Request): string | undefined {
     : undefined;
 }
 
-/** Допустимые коды ошибок OAuth2 (RFC 6749 §5.2). */
+/** Allowed OAuth2 error codes (RFC 6749 §5.2). */
 const OAUTH_ERROR_CODES = new Set([
   'invalid_request',
   'invalid_client',
@@ -122,9 +122,9 @@ const OAUTH_ERROR_CODES = new Set([
 ]);
 
 /**
- * Код ошибки для /oauth/token: 5xx → `server_error` (не маскируем сбой под
- * клиентскую ошибку); 401 → `invalid_client`; иначе — сообщение, если это
- * валидный RFC-код, иначе `invalid_request` (не утекаем фразы валидатора).
+ * Error code for /oauth/token: 5xx → `server_error` (don't mask a failure as a
+ * client-side error); 401 → `invalid_client`; otherwise the message if it's a valid
+ * RFC code, else `invalid_request` (don't leak validator phrases).
  */
 function oauthErrorCode(exception: unknown, status: number): string {
   if (status >= 500) return 'server_error';
@@ -138,7 +138,7 @@ function oauthErrorCode(exception: unknown, status: number): string {
     : 'invalid_request';
 }
 
-/** Достаёт message из тела HttpException (строка / объект Nest). */
+/** Extracts the message from an HttpException body (string / Nest object). */
 function messageOf(response: unknown): string | string[] | undefined {
   if (typeof response === 'string') return response;
   if (response && typeof response === 'object') {

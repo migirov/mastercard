@@ -3,9 +3,9 @@ import { JwtService } from '@nestjs/jwt';
 import { ClientRegistry } from './client-registry';
 import { TokenResponseDto } from '../dto/token-response.dto';
 
-const TOKEN_TTL_SECONDS = 900; // 15 минут
+const TOKEN_TTL_SECONDS = 900; // 15 minutes
 
-/** Выдача access-token'ов по grant_type=client_credentials. */
+/** Issues access tokens via grant_type=client_credentials. */
 @Injectable()
 export class OAuthService {
   constructor(
@@ -13,8 +13,8 @@ export class OAuthService {
     private readonly jwt: JwtService,
   ) {}
 
-  // Возвращаем сам TokenResponseDto (единый источник wire-схемы + Swagger),
-  // чтобы тело ответа и документированная схема не могли разойтись.
+  // Return the TokenResponseDto itself (single source of the wire schema + Swagger),
+  // so the response body and the documented schema cannot diverge.
   async issueToken(
     clientId: string,
     clientSecret: string,

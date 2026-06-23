@@ -3,15 +3,16 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { Request } from 'express';
 
 /**
- * Rate-limit с ключом по tenantId (а не по IP) — лимит на мерчанта.
+ * Rate-limit keyed by tenantId (not by IP) — a per-merchant limit.
  *
- * Этот guard ВСЕГДА навешан после TenantAuthGuard (см. CrossBorderController),
- * который кладёт req.tenantContext. Поэтому tenantId обязан присутствовать.
+ * This guard is ALWAYS attached after TenantAuthGuard (see CrossBorderController),
+ * which sets req.tenantContext. So tenantId is guaranteed to be present.
  *
- * Намеренно НЕ деградируем до req.ip/'unknown': за прокси IP не всегда корректен
- * (а 'unknown' — общий бакет, где мерчанты throttлят друг друга). Отсутствие
- * tenantId здесь означает только ошибку конфигурации пайплайна (guard навесили
- * без auth) — падаем явно (fail-closed), а не молча режем чужой трафик.
+ * Intentionally NOT degraded to req.ip/'unknown': behind a proxy the IP isn't always
+ * correct (and 'unknown' is a shared bucket where merchants throttle each other). A
+ * missing tenantId here means only a pipeline misconfiguration (the guard was attached
+ * without auth) — fail loudly (fail-closed) rather than silently throttling someone
+ * else's traffic.
  */
 @Injectable()
 export class TenantThrottlerGuard extends ThrottlerGuard {

@@ -7,7 +7,7 @@ import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
 export class AccountsService {
   constructor(private readonly gw: CrossBorderGateway) {}
 
-  /** Список счетов и балансов (GET, без шифрования). */
+  /** List of accounts and balances (GET, no encryption). */
   getBalances(tenantId: string) {
     return this.gw.run(tenantId, 'getBalances', (c) => ({
       method: 'GET',
@@ -16,12 +16,13 @@ export class AccountsService {
   }
 
   /**
-   * Carded / FX Rate Pull (GET, БЕЗ тела): FX-курсы для сконфигурированных
-   * коридоров — основной механизм получения курсов до инициации платежа.
-   * По доке MC это операция `getFxRates`: GET, «No Request body» (поэтому НЕ
-   * POST — прежний POST-вариант убран как несуществующий у MC). Sandbox для
-   * Carded Rate НЕДОСТУПЕН (по доке MC) → проверяется только проводка шлюза.
-   * Push-вариант (Carded Rate Push) — вебхук на /webhooks/mastercard.
+   * Carded / FX Rate Pull (GET, WITHOUT a body): FX rates for configured
+   * corridors — the primary way to obtain rates before initiating a payment.
+   * Per the MC docs this is the `getFxRates` operation: GET, "No Request body"
+   * (hence NOT POST — the former POST variant was removed as non-existent at MC).
+   * Sandbox is NOT available for Carded Rate (per the MC docs) → only the gateway
+   * wiring is exercised. The push variant (Carded Rate Push) is a webhook on
+   * /webhooks/mastercard.
    */
   getRates(tenantId: string) {
     return this.gw.run(tenantId, 'getRates', (c) => ({

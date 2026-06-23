@@ -7,10 +7,10 @@ import {
 } from '@nestjs/terminus';
 
 /**
- * Health-пробы для оркестратора (Kubernetes). Публичные (без auth) — их дёргают
- * kubelet/LB.
- *   GET /health — liveness: процесс жив (без внешних зависимостей).
- *   GET /ready  — readiness: готов обслуживать (есть коннект к Postgres).
+ * Health probes for the orchestrator (Kubernetes). Public (no auth) — called by
+ * the kubelet/LB.
+ *   GET /health — liveness: the process is alive (no external dependencies).
+ *   GET /ready  — readiness: ready to serve (has a connection to Postgres).
  */
 @ApiTags('health')
 @Controller()
@@ -22,21 +22,21 @@ export class HealthController {
 
   @Get('health')
   @ApiOperation({
-    summary: 'Liveness (процесс жив, без внешних зависимостей).',
+    summary: 'Liveness (the process is alive, no external dependencies).',
   })
   @HealthCheck()
   live() {
-    // Пустой набор проверок: 200, пока процесс отвечает. БД сюда НЕ включаем —
-    // liveness не должен ронять под из-за временной недоступности БД.
+    // Empty set of checks: 200 as long as the process responds. The DB is NOT
+    // included here — liveness must not kill the pod over a temporary DB outage.
     return this.health.check([]);
   }
 
   @Get('ready')
-  @ApiOperation({ summary: 'Readiness (есть коннект к Postgres).' })
+  @ApiOperation({ summary: 'Readiness (has a connection to Postgres).' })
   @HealthCheck()
   ready() {
-    // Readiness: пинг БД. Если БД недоступна — под выводится из ротации (503),
-    // но не перезапускается.
+    // Readiness: ping the DB. If the DB is unavailable, the pod is taken out of
+    // rotation (503) but not restarted.
     return this.health.check([
       () => this.db.pingCheck('database', { timeout: 3000 }),
     ]);

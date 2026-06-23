@@ -9,7 +9,7 @@ const opts: MastercardModuleOptions = {
   adminToken: 'admin-token',
 };
 
-// Сильные секреты + vault — чтобы пройти прод-гейты конструктора GatewayConfig.
+// Strong secrets + vault — to pass the prod gates in the GatewayConfig constructor.
 const prod: Partial<MastercardModuleOptions> = {
   nodeEnv: 'production',
   jwtSecret: 'x'.repeat(32),

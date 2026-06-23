@@ -13,7 +13,9 @@ export class AccountsController {
   constructor(private readonly svc: AccountsService) {}
 
   @Get('balances')
-  @ApiOperation({ summary: 'Счета и балансы тенанта (passthrough из MC).' })
+  @ApiOperation({
+    summary: 'Tenant accounts and balances (passthrough from MC).',
+  })
   balances(@CurrentTenant() ctx: TenantContext) {
     return this.svc.getBalances(ctx.tenantId);
   }
@@ -21,7 +23,7 @@ export class AccountsController {
   @Get('rates')
   @ApiOperation({
     summary:
-      'Carded / FX Rate Pull: FX-курсы коридоров (MC getFxRates, GET без тела).',
+      'Carded / FX Rate Pull: corridor FX rates (MC getFxRates, GET without a body).',
   })
   rates(@CurrentTenant() ctx: TenantContext) {
     return this.svc.getRates(ctx.tenantId);

@@ -7,11 +7,11 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { isWeakSecret } from '../common/utils/secret-strength';
 
-/** В production не даём стартовать со слабыми/дефолтными секретами. */
+/** In production, refuse to start with weak/default secrets. */
 function assertProdSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
-  // MC_WEBHOOK_TOKEN — теперь ОБЯЗАТЕЛЕН и должен быть сильным: аутентификация
-  // вебхука fail-closed в самом сервисе (не полагаемся на mTLS на ингрессе).
+  // MC_WEBHOOK_TOKEN is now REQUIRED and must be strong: webhook authentication is
+  // fail-closed inside the service itself (we don't rely on mTLS at the ingress).
   const bad = [
     'MC_JWT_SECRET',
     'MC_INTERNAL_TOKEN',
@@ -24,9 +24,9 @@ function assertProdSecrets(): void {
     );
   }
 
-  // Секреты партнёров в проде ДОЛЖНЫ идти из секрет-менеджера (Vault/KMS), а не из
-  // dev-LocalSecretStore: иначе OWN-партнёры (основной сценарий) останутся без
-  // ключей, а конфиг молча окажется на дев-сторе. Падаем громко на старте.
+  // In production, partner secrets MUST come from a secret manager (Vault/KMS), not the
+  // dev LocalSecretStore: otherwise OWN partners (the main scenario) would be left
+  // without keys while the config silently sits on the dev store. Fail loudly at startup.
   if ((process.env.MC_SECRET_STORE ?? '') !== 'vault') {
     throw new Error(
       'production: set MC_SECRET_STORE=vault — LocalSecretStore is for dev only',
@@ -37,18 +37,18 @@ function assertProdSecrets(): void {
 async function bootstrap() {
   assertProdSecrets();
 
-  // bodyParser отключаем, чтобы зарегистрировать JSON-парсер со своим лимитом.
-  // bufferLogs: копим логи старта, пока не подключим pino-логгер.
+  // Disable bodyParser so we can register the JSON parser with our own limit.
+  // bufferLogs: buffer startup logs until the pino logger is attached.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     bufferLogs: true,
   });
-  // Структурный логгер (pino) для всего приложения + correlation-id.
+  // Structured logger (pino) for the whole application + correlation-id.
   app.useLogger(app.get(PinoLogger));
 
-  // trust proxy: за обратным прокси/LB нужно, чтобы req.ip и X-Forwarded-*
-  // отражали реального клиента (иначе IP-rate-limit некорректен). По умолчанию
-  // OFF (прямые соединения). TRUST_PROXY: число хопов или 'true'.
+  // trust proxy: behind a reverse proxy/LB, req.ip and X-Forwarded-* must reflect the
+  // real client (otherwise IP rate-limiting is wrong). OFF by default (direct
+  // connections). TRUST_PROXY: a number of hops or 'true'.
   const trustProxy = process.env.TRUST_PROXY;
   if (trustProxy) {
     app.set(
@@ -57,22 +57,22 @@ async function bootstrap() {
     );
   }
 
-  // Безопасные HTTP-заголовки + скрытие x-powered-by.
+  // Secure HTTP headers + hide x-powered-by.
   app.use(helmet());
 
-  // Лимиты размера тела (глобальный json 256kb + urlencoded для OAuth2 token RFC 6749,
-  // и увеличенный 2mb для RFI-upload) задаются как Nest middleware в `AppModule.configure`
-  // (RFI — первым), а НЕ здесь через `app.useBodyParser`: так порядок парсеров явный и
-  // контролируемый (Express берёт первый парсер, ставящий `req._body`).
+  // Body-size limits (global json 256kb + urlencoded for the OAuth2 token RFC 6749, and
+  // a raised 2mb for RFI upload) are set as Nest middleware in `AppModule.configure`
+  // (RFI first), NOT here via `app.useBodyParser`: this keeps the parser order explicit
+  // and controllable (Express picks the first parser that sets `req._body`).
 
-  // ВНИМАНИЕ: глобальный ValidationPipe НЕ ставим — модуль встраиваемый, и каждый
-  // контроллер объявляет нужный пресет ОДНОЙ общей стратегии валидации
-  // (`gatewayValidationPipe(ValidationStrategy.Strict|Passthrough)`): Strict — на
-  // наших границах (admin/oauth), Passthrough — на телах, идущих в Mastercard. Это
-  // исключает «двойную» валидацию, при которой глобальный строгий pipe резал бы поля MC.
+  // NOTE: we do NOT install a global ValidationPipe — the module is embeddable, and each
+  // controller declares the needed preset of ONE shared validation strategy
+  // (`gatewayValidationPipe(ValidationStrategy.Strict|Passthrough)`): Strict at our
+  // boundaries (admin/oauth), Passthrough on bodies going to Mastercard. This avoids
+  // "double" validation, where a global strict pipe would strip MC fields.
 
-  // Swagger-доки на /api-docs. По умолчанию ВЫКЛ в production (не палим схему
-  // API наружу); включить в проде явно через SWAGGER_ENABLED=true.
+  // Swagger docs at /api-docs. OFF by default in production (don't expose the API
+  // schema outward); enable explicitly in prod via SWAGGER_ENABLED=true.
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd || process.env.SWAGGER_ENABLED === 'true') {
     const swaggerConfig = new DocumentBuilder()
@@ -100,7 +100,7 @@ async function bootstrap() {
     );
   }
 
-  // Грейсфул-шатдаун: дать закрыться keep-alive соединениям и in-flight вызовам.
+  // Graceful shutdown: let keep-alive connections and in-flight calls close.
   app.enableShutdownHooks();
 
   const port = process.env.PORT ?? 3000;
@@ -109,8 +109,8 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  // Явно валим процесс с ненулевым кодом — k8s/оркестратор увидит crashloop,
-  // а не «висящий» неинициализированный под.
+  // Explicitly exit the process with a non-zero code — k8s/orchestrator will see a
+  // crashloop rather than a "hanging" uninitialized pod.
   new Logger('Bootstrap').error(
     `Не удалось запустить сервис: ${(err as Error).message}`,
   );

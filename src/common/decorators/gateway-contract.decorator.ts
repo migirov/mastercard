@@ -3,17 +3,16 @@ import { AuditInterceptor } from '../../audit/interceptors/audit.interceptor';
 import { GatewayExceptionFilter } from '../filters/gateway-exception.filter';
 
 /**
- * Общий cross-cutting контракт контроллеров модуля: единый фильтр ошибок
- * (`GatewayExceptionFilter`) + аудит (`AuditInterceptor`). Бандлим в один
- * декоратор вместо копипасты `@UseFilters`/`@UseInterceptors` на каждом
- * контроллере — чтобы новый контроллер НЕ МОГ случайно остаться без
- * error-контракта/аудита.
+ * Shared cross-cutting contract for the module's controllers: a single error filter
+ * (`GatewayExceptionFilter`) + audit (`AuditInterceptor`). Bundled into one decorator
+ * instead of copy-pasting `@UseFilters`/`@UseInterceptors` on every controller — so a
+ * new controller CAN'T accidentally end up without the error contract / audit.
  *
- * Намеренно НЕ глобально (`APP_FILTER`/`APP_INTERCEPTOR`): модуль встраиваемый и
- * не должен подменять обработку ошибок/перехват хоста — per-controller связывание
- * сохранено. Гарды специфичны для контроллера и навешиваются отдельно.
- * (AdminController не использует этот декоратор: у него свой набор интерцепторов
- * с `ClassSerializerInterceptor` — оставлен явным.)
+ * Intentionally NOT global (`APP_FILTER`/`APP_INTERCEPTOR`): the module is embeddable
+ * and must not replace the host's error handling / interception — per-controller
+ * binding is preserved. Guards are controller-specific and attached separately.
+ * (AdminController doesn't use this decorator: it has its own interceptor set with
+ * `ClassSerializerInterceptor` — left explicit.)
  */
 export function UseGatewayContract() {
   return applyDecorators(

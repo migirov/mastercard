@@ -5,15 +5,15 @@ import { TenantEntity } from './tenants/entities/tenant.entity';
 import { TransactionStatusEntity } from './webhooks/entities/transaction-status.entity';
 
 /**
- * Единый список TypeORM-сущностей модуля — ОДИН источник истины (раньше дублировался
- * в mastercard.module.ts, database.module.ts и data-source.ts). Отдельный лёгкий
- * файл (только импорты сущностей, без @Module): его тянут и зонтичный модуль, и
- * dev-DatabaseModule, и CLI-DataSource — без затягивания всего графа модулей в
- * typeorm CLI.
+ * The single list of the module's TypeORM entities — ONE source of truth (previously
+ * duplicated in mastercard.module.ts, database.module.ts, and data-source.ts). A
+ * separate lightweight file (only entity imports, no @Module): pulled in by the umbrella
+ * module, the dev DatabaseModule, and the CLI DataSource — without dragging the whole
+ * module graph into the typeorm CLI.
  *
- * Хост при встраивании ДОЛЖЕН включить их в свой TypeORM DataSource
- * (`forRoot({ entities: [...MASTERCARD_ENTITIES] })` или `autoLoadEntities: true`),
- * иначе репозитории резолвятся, но первый запрос падает EntityMetadataNotFoundError.
+ * When embedding, the host MUST include them in its TypeORM DataSource
+ * (`forRoot({ entities: [...MASTERCARD_ENTITIES] })` or `autoLoadEntities: true`),
+ * otherwise repositories resolve but the first query fails with EntityMetadataNotFoundError.
  */
 export const MASTERCARD_ENTITIES = [
   TenantEntity,

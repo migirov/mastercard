@@ -17,7 +17,7 @@ import {
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { effectiveStatus, isActive } from '../../../tenants/tenant.types';
 
-/** Бизнес/клиентские статусы Mastercard, которые осмысленно пробрасывать мерчанту. */
+/** Business/client Mastercard statuses that are meaningful to forward to the merchant. */
 const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
 
 /**
@@ -25,7 +25,7 @@ const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
  * build an McRequest and dispatch it through here. One place for tenant gating,
  * credential resolution, the MC call + response unwrapping, and the URL/header
  * helpers used while building requests. Split out of the former monolithic
- * CrossBorderService (issue #16).
+ * CrossBorderService.
  */
 @Injectable()
 export class CrossBorderGateway {
@@ -38,13 +38,13 @@ export class CrossBorderGateway {
   ) {}
 
   /**
-   * Единый раннер операции: gating (resolveActive) → строим McRequest по
-   * резолвленным creds → вызываем MC и разворачиваем ответ (call). Публичные
-   * методы area-сервисов становятся одной строкой; вся повторяющаяся обвязка
-   * (резолв + диспатч) здесь. `build` получает creds, потому что путь часто
-   * зависит от partner(creds). Заголовочную стратегию area-сервис выбирает явно:
-   * `mcRefHeaders(c)` для validation/guide, `catalogHeaders(c)` для cash-pickup,
-   * либо без заголовков.
+   * Single operation runner: gating (resolveActive) → build the McRequest from
+   * the resolved creds → call MC and unwrap the response (call). Public methods of
+   * area services become one line; all the repeated plumbing (resolve + dispatch)
+   * lives here. `build` receives the creds because the path often depends on
+   * partner(creds). The header strategy is chosen explicitly by the area service:
+   * `mcRefHeaders(c)` for validation/guide, `catalogHeaders(c)` for cash-pickup,
+   * or no headers.
    */
   async run<T>(
     tenantId: string,
@@ -56,8 +56,8 @@ export class CrossBorderGateway {
   }
 
   /**
-   * Резолвит credentials мерчанта, предварительно проверив, что он ACTIVE.
-   * Gating: транзакции запрещены, пока нет двойного одобрения.
+   * Resolves the merchant's credentials after first checking that it is ACTIVE.
+   * Gating: transactions are forbidden until there is dual approval.
    */
   async resolveActive(tenantId: string): Promise<McCredentials> {
     const tenant = await this.registry.get(tenantId);
@@ -70,18 +70,18 @@ export class CrossBorderGateway {
   }
 
   /**
-   * Вызывает Mastercard и разворачивает ответ:
-   *   2xx                       → данные;
-   *   бизнес-4xx (400/404/...)  → проброс статуса и тела мерчанту;
-   *   401/403/5xx/прочее        → 502, тело наружу не отдаём (может быть HTML
-   *                               с внутренними ссылками), детали — в лог;
-   *   сетевая ошибка            → 502.
+   * Calls Mastercard and unwraps the response:
+   *   2xx                       → data;
+   *   business 4xx (400/404/...) → forward the status and body to the merchant;
+   *   401/403/5xx/other         → 502, body is not exposed (may be HTML with
+   *                               internal links), details go to the log;
+   *   network error             → 502.
    */
   async call<T>(creds: McCredentials, req: McRequest, ctx: string): Promise<T> {
     let res: McResponse<T>;
     try {
-      // Расшифровка ответа — в response-интерцепторе MastercardClient; если она
-      // упадёт, ошибка прилетит сюда и превратится в 502 ниже.
+      // Response decryption happens in the MastercardClient response interceptor;
+      // if it fails, the error lands here and becomes a 502 below.
       res = await this.client.request<T>(creds, req);
     } catch (e) {
       this.logger.error(
@@ -98,32 +98,33 @@ export class CrossBorderGateway {
       res.data &&
       typeof res.data === 'object'
     ) {
-      // Тело уже расшифровано интерцептором (для plain — без изменений).
-      // Пробрасываем ТОЛЬКО структурированный JSON-ответ MC (объект). Не-объект
-      // (HTML/строка от edge/WAF на 429 и т.п.) скрываем как 502 ниже — иначе
-      // в `upstream` могла бы утечь HTML-страница с внутренними ссылками.
-      // UpstreamHttpException → фильтр вложит тело MC под `upstream`, сохранив
-      // единый контракт ошибки (а не подменив его схемой MC).
+      // The body is already decrypted by the interceptor (for plain — unchanged).
+      // We forward ONLY a structured JSON response from MC (an object). A non-object
+      // (HTML/string from an edge/WAF on 429, etc.) is hidden as a 502 below —
+      // otherwise an HTML page with internal links could leak into `upstream`.
+      // UpstreamHttpException → the filter nests MC's body under `upstream`,
+      // preserving the single error contract (rather than swapping it for MC's schema).
       throw new UpstreamHttpException(res.data, res.status);
     }
-    // 401/403 — это проблема НАШИХ credentials, а не мерчанта; не вводим его в
-    // заблуждение и не палим, что ключи невалидны. 5xx — тоже наружу не отдаём.
+    // 401/403 is a problem with OUR credentials, not the merchant's; we don't
+    // mislead them or reveal that the keys are invalid. 5xx is also not exposed.
     this.logger.error(`Mastercard ${ctx}: upstream HTTP ${res.status}`);
     throw new BadGatewayException('Error contacting Mastercard');
   }
 
-  /** partner-id, безопасно подставляемый в путь (защита от path-injection в OWN). */
+  /** partner-id safely substituted into the path (protects against path-injection in OWN). */
   partner(creds: McCredentials): string {
     return encodeURIComponent(creds.partnerId);
   }
 
   /**
-   * Доп. заголовки, которые MC требует у validation/lookup-сервисов (Address /
-   * Account / Bank): X-Mc-Correlation-Id — уникальный per-request trace;
-   * Partner-Ref-Id — «reference ID of the business partner». Берём СЫРОЙ partnerId
-   * (НЕ partner()=encodeURIComponent — это кодировщик URL-ПУТИ; в заголовке нужно
-   * сырое значение, иначе partnerId с `+`/`&`/`=` исказился бы), но через stripCrlf.
-   * (Семантику Partner-Ref-Id — id партнёра vs per-request ref — уточнить у MC.)
+   * Extra headers that MC requires for validation/lookup services (Address /
+   * Account / Bank): X-Mc-Correlation-Id — a unique per-request trace;
+   * Partner-Ref-Id — the "reference ID of the business partner". We use the RAW
+   * partnerId (NOT partner()=encodeURIComponent — that is a URL-PATH encoder; the
+   * header needs the raw value, otherwise a partnerId with `+`/`&`/`=` would be
+   * distorted), but via stripCrlf.
+   * (Partner-Ref-Id semantics — partner id vs per-request ref — to be clarified with MC.)
    */
   mcRefHeaders(creds: McCredentials): Record<string, string> {
     return {
@@ -132,16 +133,17 @@ export class CrossBorderGateway {
     };
   }
 
-  /** Заголовки Cash Pickup-каталога: partner-id в ЗАГОЛОВКЕ (сырой, анти-CRLF). */
+  /** Cash Pickup catalog headers: partner-id in the HEADER (raw, anti-CRLF). */
   catalogHeaders(creds: McCredentials): Record<string, string> {
     return { 'partner-id': stripCrlf(creds.partnerId) };
   }
 
   /**
-   * Query-строка из заданных параметров: только непустые, значения URL-кодируются
-   * (анти query-injection — значения уходят в URL запроса к MC, который потом
-   * подписывается OAuth1). Возвращает `?k=v&...` или пустую строку. Берём только
-   * непустые СТРОКИ (значения от `?x[]=` и т.п. отбрасываем); ключи задаёт код.
+   * Query string from the given parameters: only non-empty ones, values are
+   * URL-encoded (anti query-injection — the values go into the URL of the request
+   * to MC, which is then signed with OAuth1). Returns `?k=v&...` or an empty
+   * string. We take only non-empty STRINGS (values from `?x[]=` and the like are
+   * discarded); the keys are set by code.
    */
   qs(params: object): string {
     const pairs = Object.entries(params)

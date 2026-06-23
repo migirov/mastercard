@@ -2,9 +2,9 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
- * Тело `POST /webhooks/mastercard`. Принимается с passthrough-pipe (whitelist:false),
- * т.к. MC присылает много полей сверх объявленных — их нельзя вырезать/отвергать.
- * Здесь типизируем и документируем известные поля для Swagger и обработчика.
+ * Body of `POST /webhooks/mastercard`. Accepted with a passthrough pipe (whitelist:false),
+ * because MC sends many fields beyond those declared — they must not be stripped or rejected.
+ * Here we type and document the known fields for Swagger and the handler.
  */
 export class McWebhookEventDto {
   // eventRef/notificationId become the dedup key `tx_status.eventRef` (varchar 200),
@@ -21,9 +21,9 @@ export class McWebhookEventDto {
   @MaxLength(200)
   notificationId?: string;
 
-  // Длины ограничены и у НЕ-ключевых полей: тело вебхука пока не подписано (C1),
-  // т.е. атакующий с токеном контролирует значения, а они попадают в логи —
-  // без лимита это лог-инъекция/раздувание логов на ≤256kb. Бьём по длине.
+  // Lengths are bounded on non-key fields too: the webhook body is not yet signed (C1),
+  // i.e. an attacker with a token controls the values, and they end up in logs —
+  // without a limit this is log injection / log bloat up to ≤256kb. We cap by length.
   @ApiPropertyOptional({ example: 'STATUS_CHG', maxLength: 64 })
   @IsOptional()
   @IsString()
@@ -45,11 +45,11 @@ export class McWebhookEventDto {
   @MaxLength(64)
   partnerId?: string;
 
-  // MC присылает поля в ДВУХ нотациях в зависимости от типа уведомления:
-  // Status Change — camelCase (выше), Carded Rate Push (CARDFX_PUB) и часть
-  // событий — snake_case. Объявляем snake_case-варианты ключевых полей, чтобы
-  // (а) дедуп/диспетчеризация в WebhookHandler работали для обеих нотаций;
-  // (б) сохранить те же лимиты длины (защита от лог-инъекции — тело не подписано).
+  // MC sends fields in TWO notations depending on the notification type:
+  // Status Change — camelCase (above), Carded Rate Push (CARDFX_PUB) and some
+  // events — snake_case. We declare snake_case variants of the key fields so that
+  // (a) dedup/dispatch in WebhookHandler work for both notations;
+  // (b) the same length limits hold (log-injection guard — the body is not signed).
   @ApiPropertyOptional({ maxLength: 200 })
   @IsOptional()
   @IsString()

@@ -8,14 +8,14 @@ import {
 import { IssuedClientDto } from './issued-client.dto';
 import { TenantViewDto } from './tenant-view.dto';
 
-/** Сборка сущности OWN-партнёра с секретом для проверок утечки. */
+/** Build an OWN-partner entity with a secret for leak checks. */
 function ownTenant(): TenantEntity {
   return Object.assign(new TenantEntity(), {
     id: 'own-sandbox',
     name: 'Own Sandbox',
     credentialMode: CredentialMode.OWN,
     partnerId: 'SANDBOX_1234567',
-    secretRef: 'vault://merchants/own-sandbox', // ← НЕ должен утечь наружу
+    secretRef: 'vault://merchants/own-sandbox', // ← must NOT leak outward
     platformApproved: true,
     mcApproved: true,
     suspended: false,
@@ -26,8 +26,8 @@ function ownTenant(): TenantEntity {
 
 describe('Tenant serialization (secret-leak closure)', () => {
   it('@Exclude скрывает secretRef при сериализации самой сущности', () => {
-    // Защита у источника: если хендлер вернёт TenantEntity напрямую, секрет всё
-    // равно выпадет (ClassSerializerInterceptor зовёт instanceToPlain).
+    // Protection at the source: if a handler returns TenantEntity directly, the secret
+    // is still dropped (ClassSerializerInterceptor calls instanceToPlain).
     const plain = instanceToPlain(ownTenant());
     expect(plain).not.toHaveProperty('secretRef');
     expect(plain.id).toBe('own-sandbox');
@@ -48,7 +48,7 @@ describe('Tenant serialization (secret-leak closure)', () => {
     expect(view.partnerId).toBe('SANDBOX_1234567');
     expect(view.status).toBe(TenantStatus.ACTIVE);
 
-    // И сериализованное наружу тоже без секрета.
+    // And the serialized output also has no secret.
     expect(instanceToPlain(view)).not.toHaveProperty('secretRef');
   });
 

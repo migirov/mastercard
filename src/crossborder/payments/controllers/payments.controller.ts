@@ -29,11 +29,11 @@ export class PaymentsController {
   constructor(private readonly svc: PaymentsService) {}
 
   @Post('payments')
-  // 201 (дефолт POST) намеренно: инициирование платежа СОЗДАёт ресурс-платёж в MC —
-  // в отличие от compute/state-change POST'ов выше, помеченных @HttpCode(200).
+  // 201 (the POST default) is intentional: initiating a payment CREATES a payment
+  // resource in MC — unlike the compute/state-change POSTs above marked @HttpCode(200).
   @ApiOperation({
     summary:
-      'Инициировать платёж. Идемпотентность — по transaction_reference (ретрай с тем же ref → тот же результат без повторного вызова MC).',
+      'Initiate a payment. Idempotency is keyed on transaction_reference (a retry with the same ref → the same result without re-calling MC).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   payment(
@@ -43,10 +43,10 @@ export class PaymentsController {
     return this.svc.createPayment(ctx.tenantId, body);
   }
 
-  /** Поиск платежа по reference: GET /crossborder/payments?ref=... */
+  /** Look up a payment by reference: GET /crossborder/payments?ref=... */
   @Get('payments')
   @ApiOperation({
-    summary: 'Статус платежа по transaction_reference (lookup, не список).',
+    summary: 'Payment status by transaction_reference (lookup, not a list).',
   })
   @ApiQuery({
     name: 'ref',
@@ -61,7 +61,7 @@ export class PaymentsController {
   }
 
   @Get('payments/:id')
-  @ApiOperation({ summary: 'Статус платежа по id.' })
+  @ApiOperation({ summary: 'Payment status by id.' })
   getPayment(
     @CurrentTenant() ctx: TenantContext,
     @Param('id', SafeIdPipe) id: string,
@@ -70,8 +70,8 @@ export class PaymentsController {
   }
 
   @Post('payments/:id/cancel')
-  @HttpCode(200) // отмена — смена состояния платежа, не создание ресурса
-  @ApiOperation({ summary: 'Отмена платежа по id.' })
+  @HttpCode(200) // cancellation changes the payment's state, not a resource creation
+  @ApiOperation({ summary: 'Cancel a payment by id.' })
   cancelPayment(
     @CurrentTenant() ctx: TenantContext,
     @Param('id', SafeIdPipe) id: string,
@@ -82,20 +82,21 @@ export class PaymentsController {
   @Get('status-events')
   @ApiOperation({
     summary:
-      'Сохранённые push-статусы по transaction_reference (доставка Status Change Push через polling).',
+      'Stored push statuses by transaction_reference (Status Change Push delivered via polling).',
   })
   @ApiQuery({
     name: 'ref',
     required: true,
-    description: 'transaction_reference транзакции/котировки.',
+    description: 'transaction_reference of the transaction/quote.',
   })
   @ApiResponse({ status: 200, type: [StatusEventViewDto] })
   getStatusEvents(
     @CurrentTenant() ctx: TenantContext,
     @Query('ref', SafeIdPipe) ref: string,
   ) {
-    // Передаём весь tenant: сервису нужен credentialMode для изоляции (OWN не
-    // читает общий PLATFORM-пул). mode уже в auth-контексте — без запроса к БД.
+    // Pass the whole tenant: the service needs credentialMode for isolation (OWN
+    // does not read the shared PLATFORM pool). The mode is already in the auth
+    // context — no DB query needed.
     return this.svc.getStatusEvents(ctx.tenant, ref);
   }
 }

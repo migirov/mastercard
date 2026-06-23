@@ -1,16 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * Публичное представление сохранённого push-статуса в ответе
- * `GET /crossborder/status-events`. Маппинг из `TransactionStatusEntity` —
- * ЯВНЫЙ (поле-в-поле), а не возврат сущности: наружу НЕ утекают внутренние
- * `id` (серийный PK — иначе кросс-тенантная инфа об объёме/порядке) и `tenantId`
- * (внутренняя атрибуция, мерчанту бессмысленна). Любая новая колонка сущности не
- * «протечёт» по умолчанию — её надо явно добавить и сюда, и в маппер.
+ * Public representation of a stored push status in the
+ * `GET /crossborder/status-events` response. The mapping from
+ * `TransactionStatusEntity` is EXPLICIT (field-by-field), not a return of the
+ * entity: internal `id` (a serial PK — otherwise cross-tenant info about
+ * volume/order) and `tenantId` (internal attribution, meaningless to the
+ * merchant) do NOT leak out. Any new entity column will not "leak" by default —
+ * it must be added explicitly here and in the mapper.
  */
 export class StatusEventViewDto {
   @ApiPropertyOptional({
-    description: 'transaction_reference транзакции/котировки.',
+    description: 'transaction_reference of the transaction/quote.',
   })
   transactionReference!: string | null;
 
@@ -25,15 +26,15 @@ export class StatusEventViewDto {
 
   @ApiPropertyOptional({
     example: 'Expired',
-    description: 'pendingStage, если есть.',
+    description: 'pendingStage, if present.',
   })
   stage!: string | null;
 
-  @ApiProperty({ description: 'Момент приёма уведомления (ISO).' })
+  @ApiProperty({ description: 'Time the notification was received (ISO).' })
   receivedAt!: Date;
 
   @ApiProperty({
-    description: 'Сырое (нормализованное) тело уведомления MC целиком.',
+    description: 'Raw (normalized) MC notification body in full.',
     type: 'object',
     additionalProperties: true,
   })

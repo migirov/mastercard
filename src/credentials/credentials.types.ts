@@ -1,16 +1,16 @@
 /**
- * Разрешённые credentials Mastercard для конкретного мерчанта.
- * Остальной код работает только с этим типом и не знает, общие это ключи
- * платформы или собственные ключи мерчанта.
+ * Resolved Mastercard credentials for a specific merchant.
+ * The rest of the code works only with this type and does not know whether
+ * these are shared platform keys or the merchant's own keys.
  */
 export interface McCredentials {
   readonly consumerKey: string;
-  /** Приватный ключ подписи в формате PEM. */
+  /** Private signing key in PEM format. */
   readonly signingKeyPem: string;
   readonly partnerId: string;
-  /** Для JWE-шифрования запросов (Фаза 4). */
+  /** For JWE encryption of requests (Phase 4). */
   readonly encryptionCertPem?: string;
   readonly encryptionFingerprint?: string;
-  /** Для расшифровки ответов (Фаза 4). */
+  /** For decryption of responses (Phase 4). */
   readonly decryptionKeyPem?: string;
 }

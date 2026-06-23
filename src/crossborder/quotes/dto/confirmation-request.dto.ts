@@ -2,9 +2,9 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 
 /**
- * Тело `POST /crossborder/quotes/confirmations`. По доке MC — ПЛОСКОЕ и в
- * camelCase (в отличие от quote/payment): `{ transactionReference, proposalId }`.
- * Валидируем формат; прочие поля пробрасываются как есть.
+ * Body of `POST /crossborder/quotes/confirmations`. Per the MC docs it is FLAT
+ * and camelCase (unlike quote/payment): `{ transactionReference, proposalId }`.
+ * We validate the format; other fields are passed through as-is.
  */
 export class ConfirmationRequestDto {
   @ApiPropertyOptional({ example: '41C12344311006563' })

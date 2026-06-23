@@ -2,13 +2,13 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 
 /**
- * Денежная сумма Mastercard. ВНИМАНИЕ: `amount` — СТРОКА, не число (поэтому
- * `@IsString`, и pipe для MC-тел идёт без `transform`, чтобы не сконвертировать).
+ * Mastercard monetary amount. NOTE: `amount` is a STRING, not a number (hence
+ * `@IsString`, and the pipe for MC bodies runs without `transform` so as not to convert it).
  */
 export class McAmountDto {
   @ApiPropertyOptional({
     example: '105.15',
-    description: 'Сумма строкой (не число!).',
+    description: 'Amount as a string (not a number!).',
   })
   @IsOptional()
   @IsString()

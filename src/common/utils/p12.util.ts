@@ -3,22 +3,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as forge from 'node-forge';
 
-// Кэш распарсенного PEM по контенту (хэш материала+пароля). forge PKCS#12-декод
-// CPU-тяжёлый (~десятки мс); без кэша он повторялся бы на КАЖДОЕ истечение TTL
-// кредов на живом запросе. Ключ по содержимому → ротация ключа (новый материал)
-// = новый ключ кэша = честный ре-парс.
+// Cache of parsed PEM keyed by content (hash of material+password). forge's PKCS#12
+// decode is CPU-heavy (~tens of ms); without the cache it would repeat on EVERY creds
+// TTL expiry on a live request. Keyed by content → key rotation (new material) = new
+// cache key = an honest re-parse.
 //
-// Ёмкость ОГРАНИЧЕНА (LRU): без неё кэш рос бы монотонно — каждая ротация ключа
-// добавляет запись навсегда, и старые (отозванные) приватные PEM-ключи висели бы
-// в памяти процесса до рестарта (и память, и срок жизни секрета). При переполнении
-// выселяем least-recently-used (Map хранит порядок вставки; на hit двигаем в конец).
+// Capacity is BOUNDED (LRU): without it the cache would grow monotonically — each key
+// rotation adds an entry forever, and old (revoked) private PEM keys would linger in
+// process memory until restart (both memory and secret lifetime). On overflow, evict
+// the least-recently-used (Map preserves insertion order; on a hit, move to the end).
 const PEM_CACHE_MAX = 256;
 const pemCache = new Map<string, string>();
 
 function pemCacheGet(key: string): string | undefined {
   const pem = pemCache.get(key);
   if (pem !== undefined) {
-    // recency: переставляем в конец (most-recently-used).
+    // recency: move to the end (most-recently-used).
     pemCache.delete(key);
     pemCache.set(key, pem);
   }
@@ -34,7 +34,7 @@ function pemCacheSet(key: string, pem: string): void {
   }
 }
 
-/** Извлекает приватный ключ (PEM) из DER-строки PKCS#12. */
+/** Extracts the private key (PEM) from a PKCS#12 DER string. */
 function privateKeyPemFromDer(
   der: string,
   password: string,
@@ -52,8 +52,8 @@ function privateKeyPemFromDer(
 
   let p12: forge.pkcs12.Pkcs12Pfx;
   try {
-    // strict=false — как читает официальная библиотека MC; иначе часть валидных
-    // .p12 не проходит strict MAC-проверку forge.
+    // strict=false — same as MC's official library reads it; otherwise some valid
+    // .p12 files fail forge's strict MAC check.
     p12 = forge.pkcs12.pkcs12FromAsn1(asn1, false, password);
   } catch {
     throw new Error(
@@ -76,8 +76,8 @@ function privateKeyPemFromDer(
 }
 
 /**
- * Загружает приватный ключ из .p12-файла по пути и возвращает PEM.
- * (Режим PLATFORM и локальная разработка.)
+ * Loads the private key from a .p12 file by path and returns the PEM.
+ * (PLATFORM mode and local development.)
  */
 export function loadPrivateKeyFromP12(
   p12Path: string,
@@ -94,8 +94,8 @@ export function loadPrivateKeyFromP12(
 }
 
 /**
- * Загружает приватный ключ из base64-кодированного .p12 и возвращает PEM.
- * (Так ключи приходят из Vault/KMS в режиме OWN.)
+ * Loads the private key from a base64-encoded .p12 and returns the PEM.
+ * (This is how keys arrive from Vault/KMS in OWN mode.)
  */
 export function loadPrivateKeyFromP12Base64(
   p12Base64: string,

@@ -10,9 +10,10 @@ export class RfiService {
   constructor(private readonly gw: CrossBorderGateway) {}
 
   /**
-   * Получить текущее состояние RFI-запроса (GET). Путь — с partner-id; requestId
-   * уже проверен SafeIdPipe в контроллере. Тела/шифрования нет → на sandbox
-   * проверяемо (стаб: request-id с префиксом `33…` → статус OPEN).
+   * Retrieve the current state of an RFI request (GET). The path includes
+   * partner-id; requestId is already validated by SafeIdPipe in the controller.
+   * There is no body/encryption → it is testable on sandbox (stub: a request-id
+   * with the `33…` prefix → status OPEN).
    */
   retrieveRfi(tenantId: string, requestId: string) {
     return this.gw.run(tenantId, 'retrieveRfi', (c) => ({
@@ -22,9 +23,9 @@ export class RfiService {
   }
 
   /**
-   * Отправить ответ Customer'а на RFI-запрос (POST, обязательный шаг ответа).
-   * Тело (обёртка updateRequest) шифруется в MTF/Prod интерцептором. requestId
-   * проверен SafeIdPipe.
+   * Submit the Customer's response to an RFI request (POST, the mandatory answer
+   * step). The body (updateRequest wrapper) is encrypted in MTF/Prod by the
+   * interceptor. requestId is validated by SafeIdPipe.
    */
   updateRfi(tenantId: string, requestId: string, body: RfiUpdateRequestDto) {
     return this.gw.run(tenantId, 'updateRfi', (c) => ({
@@ -35,9 +36,9 @@ export class RfiService {
   }
 
   /**
-   * Загрузить документ (<1 MB) в RFI-систему (POST). MC возвращает documentId,
-   * который затем линкуется к запросу через updateRfi. Тело (base64 в обёртке
-   * uploadDocumentRequest) шифруется в MTF/Prod интерцептором.
+   * Upload a document (<1 MB) to the RFI system (POST). MC returns a documentId,
+   * which is then linked to the request via updateRfi. The body (base64 in the
+   * uploadDocumentRequest wrapper) is encrypted in MTF/Prod by the interceptor.
    */
   uploadRfiDocument(tenantId: string, body: RfiDocumentUploadRequestDto) {
     return this.gw.run(tenantId, 'uploadRfiDocument', (c) => ({
@@ -48,9 +49,9 @@ export class RfiService {
   }
 
   /**
-   * Скачать документ, приложенный к RFI-запросу (GET). documentId проверен
-   * SafeIdPipe. Ответ (base64 в обёртке downloadDocumentResponse) расшифровывается
-   * интерцептором в MTF/Prod.
+   * Download a document attached to an RFI request (GET). documentId is validated
+   * by SafeIdPipe. The response (base64 in the downloadDocumentResponse wrapper)
+   * is decrypted by the interceptor in MTF/Prod.
    */
   downloadRfiDocument(tenantId: string, documentId: string) {
     return this.gw.run(tenantId, 'downloadRfiDocument', (c) => ({

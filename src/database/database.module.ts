@@ -4,11 +4,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 /**
- * Подключение к PostgreSQL (TypeORM) — ТОЛЬКО для dev-харнесса (standalone-запуск,
- * e2e, `npm run ping`); в монолит хоста этот модуль не идёт. Схему ведут
- * ИСКЛЮЧИТЕЛЬНО миграции (`synchronize` не используем — рекомендация NestJS/TypeORM,
- * см. techniques/sql «synchronize shouldn't be used…»). Сущности подхватываются
- * автоматически из `forFeature` суб-модулей (`autoLoadEntities`), без явного списка.
+ * PostgreSQL connection (TypeORM) — ONLY for the dev harness (standalone run,
+ * e2e, `npm run ping`); this module is not part of the host monolith. The schema
+ * is driven EXCLUSIVELY by migrations (`synchronize` is not used — NestJS/TypeORM
+ * recommendation, see techniques/sql "synchronize shouldn't be used…"). Entities
+ * are picked up automatically from the sub-modules' `forFeature`
+ * (`autoLoadEntities`), without an explicit list.
  */
 @Module({
   imports: [
@@ -23,24 +24,24 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         const isProd =
           (config.get<string>('NODE_ENV') ?? process.env.NODE_ENV) ===
           'production';
-        // Размер пула — ПЕР-ПОД. При многоподовом деплое суммарно = подов × max,
-        // и легко упереться в Postgres max_connections (дефолт 100). Держим
-        // небольшим и конфигурируемым; при большом числе подов — PgBouncer.
+        // Pool size is PER-POD. In a multi-pod deploy the total = pods × max, and
+        // it's easy to hit Postgres max_connections (default 100). Keep it small
+        // and configurable; for many pods, use PgBouncer.
         const poolMax = Number(config.get<string>('DB_POOL_MAX')) || 10;
         return {
           type: 'postgres',
           url,
-          // Сущности — автоматически из forFeature каждого суб-модуля (NestJS
-          // «Auto-load entities»): явный список в корневом модуле течёт границами
-          // домена (techniques/sql). Хост при встраивании делает то же.
+          // Entities — automatically from each sub-module's forFeature (NestJS
+          // "Auto-load entities"): an explicit list in the root module leaks
+          // domain boundaries (techniques/sql). The host does the same when embedding.
           autoLoadEntities: true,
           extra: { max: poolMax },
-          // Схема — ТОЛЬКО миграции. `synchronize` не задаём (TypeORM default=false):
-          // авто-синхронизация рискует потерей данных и не используется ни в dev, ни в prod.
+          // Schema is migrations-ONLY. We don't set `synchronize` (TypeORM
+          // default=false): auto-sync risks data loss and is used in neither dev nor prod.
           migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
-          // dev-харнесс прогоняет миграции на старте (замена прежнего synchronize),
-          // чтобы e2e/ping работали из коробки. В prod — гонит хост/отдельный Job
-          // (DB_MIGRATIONS_RUN=true), а не каждый под.
+          // The dev harness runs migrations on startup (replacing the former
+          // synchronize), so e2e/ping work out of the box. In prod the host / a
+          // dedicated Job runs them (DB_MIGRATIONS_RUN=true), not each pod.
           migrationsRun:
             !isProd || config.get<string>('DB_MIGRATIONS_RUN') === 'true',
         };

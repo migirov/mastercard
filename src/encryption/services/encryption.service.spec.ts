@@ -2,8 +2,8 @@ import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import { EncryptionService } from './encryption.service';
 
-// Мокаем JWE-библиотеку: спека про логику сервиса (тумблер, fail-loud guard,
-// passthrough, валидация fingerprint), а не про реальную крипту/файлы.
+// Mock the JWE library: this spec is about the service logic (toggle, fail-loud
+// guard, passthrough, fingerprint validation), not the real crypto/files.
 const encryptMock = jest.fn(() => ({
   body: { encrypted_payload: { data: 'JWE' } },
 }));

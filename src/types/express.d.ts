@@ -1,16 +1,16 @@
 import { TenantContext } from '../auth/decorators/current-tenant.decorator';
 
 /**
- * Декларативное слияние со стандартным `express.Request` — добавляем поля,
- * которые наши гарды/инфраструктура проставляют в рантайме. Это идиоматичный
- * способ типизировать расширения Request (вместо `any`/`Record<string, any>`).
+ * Declaration merging with the standard `express.Request` — adds fields that our
+ * guards/infrastructure set at runtime. This is the idiomatic way to type Request
+ * extensions (instead of `any`/`Record<string, any>`).
  */
 declare global {
   namespace Express {
     interface Request {
-      /** Контекст тенанта; проставляется TenantAuthGuard. */
+      /** Tenant context; set by TenantAuthGuard. */
       tenantContext?: TenantContext;
-      /** Correlation-id запроса; проставляется nestjs-pino. */
+      /** Request correlation-id; set by nestjs-pino. */
       id?: string;
     }
   }

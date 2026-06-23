@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
- * Ответ `POST /webhooks/mastercard` — единственная gateway-авторская форма ответа
- * вебхука (само событие пробрасывается/обрабатывается, наружу отдаём только ack).
- * `accepted` — событие принято к обработке; `duplicate` — уже виделось (дедуп).
+ * Response of `POST /webhooks/mastercard` — the only gateway-authored webhook response
+ * shape (the event itself is forwarded/processed, only the ack goes out).
+ * `accepted` — the event was accepted for processing; `duplicate` — already seen (dedup).
  */
 export class WebhookAckDto {
   @ApiProperty({ enum: ['accepted', 'duplicate'], example: 'accepted' })

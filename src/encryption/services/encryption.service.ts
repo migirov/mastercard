@@ -4,33 +4,35 @@ import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import * as path from 'path';
 
-/** Постоянный ключ конфигурации путей (шифруем тело целиком одинаково для всех). */
+/** Constant path-config key (we encrypt the whole body identically for everyone). */
 const ENDPOINT = '/crossborder';
 
-/** Форма зашифрованного ответа MC: `{ encrypted_payload: { data: <JWE> } }`. */
+/** Shape of an encrypted MC response: `{ encrypted_payload: { data: <JWE> } }`. */
 interface EncryptedEnvelope {
   encrypted_payload?: { data?: unknown };
 }
 
 /**
- * Field-level encryption (JWE) по доке Mastercard.
- * Тумблер MC_ENCRYPTION_ENABLED включается всюду, где настроены ключи —
- * sandbox тоже поддерживает FLE (подтверждено вживую 2026-06-16), как и MTF/Production.
+ * Field-level encryption (JWE) per the Mastercard docs.
+ * The MC_ENCRYPTION_ENABLED toggle is turned on wherever keys are configured —
+ * sandbox also supports FLE (confirmed live), as do MTF/Production.
  *
- * Направление ключей (НЕ перепутать — обратный выбор давал ошибку `082000 Crypto Key`):
- *  • ЗАПРОС шифруем Client Encryption Key — это публичный cert MC (`encryptionCertPath` +
- *    `encryptionFingerprint`); приватную пару держит Mastercard и расшифровывает наш запрос.
- *  • ОТВЕТ расшифровываем НАШИМ Mastercard Encryption private key (`decryptionKeyPath`);
- *    его публичную пару MC использует, чтобы зашифровать ответ нам.
+ * Key direction (do NOT mix up — the inverse choice produced error `082000 Crypto Key`):
+ *  • Encrypt the REQUEST with the Client Encryption Key — the public MC cert
+ *    (`encryptionCertPath` + `encryptionFingerprint`); Mastercard holds the
+ *    private pair and decrypts our request.
+ *  • Decrypt the RESPONSE with OUR Mastercard Encryption private key
+ *    (`decryptionKeyPath`); MC uses its public pair to encrypt the response to us.
  *
- * ⚠️ ПЕРЕХОД НА PER-TENANT (открытый блокер): сейчас сервис строит ОДИН
- * `JweEncryption` из ПЛАТФОРМЕННЫХ путей в конструкторе. У OWN-партнёров —
- * собственные MC encryption-ключи (`creds.encryptionCertPem`/`encryptionFingerprint`/
- * `decryptionKeyPem` уже резолвятся в `McCredentials`, но пока НЕ используются).
- * Методы намеренно принимают `creds` в сигнатуре — контракт уже per-tenant, так
- * что когда будет доступ к MTF + реальные ключи, меняется ТОЛЬКО нутро здесь
- * (кэш per-tenant `JweEncryption` по fingerprint), а интерцептор `MastercardClient`
- * трогать не придётся. До тех пор `creds` игнорируется (одноключевой режим).
+ * PER-TENANT MIGRATION (open blocker): the service currently builds ONE
+ * `JweEncryption` from the PLATFORM paths in the constructor. OWN partners have
+ * their own MC encryption keys (`creds.encryptionCertPem`/`encryptionFingerprint`/
+ * `decryptionKeyPem` already resolve into `McCredentials`, but are NOT used yet).
+ * The methods deliberately take `creds` in their signature — the contract is
+ * already per-tenant, so once MTF access and real keys are available, ONLY the
+ * internals here change (a per-tenant `JweEncryption` cache keyed by fingerprint),
+ * and the `MastercardClient` interceptor needs no changes. Until then `creds` is
+ * ignored (single-key mode).
  */
 @Injectable()
 export class EncryptionService implements OnModuleInit {
@@ -42,9 +44,9 @@ export class EncryptionService implements OnModuleInit {
     this.enabled = config.encryptionEnabled;
   }
 
-  /** Строим JweEncryption (файловое I/O) в lifecycle-хуке, а НЕ в конструкторе
-   *  (конвенция Nest: конструктор без side-effect'ов; согласовано с
-   *  AuditService/PlatformCredentialsProvider, которые тоже инициализируются в хуках). */
+  /** Build JweEncryption (file I/O) in a lifecycle hook, NOT in the constructor
+   *  (Nest convention: side-effect-free constructors; consistent with
+   *  AuditService/PlatformCredentialsProvider, which also initialize in hooks). */
   onModuleInit(): void {
     if (this.enabled) {
       this.jwe = this.buildJwe();
@@ -57,8 +59,8 @@ export class EncryptionService implements OnModuleInit {
   }
 
   /**
-   * Шифрует тело запроса креды-зависимо. `creds` — для будущего per-tenant ключа
-   * (см. заметку на классе); сейчас используется только для fail-loud-проверки.
+   * Encrypts the request body in a creds-dependent way. `creds` is for the future
+   * per-tenant key (see the class note); currently used only for the fail-loud check.
    */
   encryptRequest(
     creds: McCredentials,
@@ -71,26 +73,26 @@ export class EncryptionService implements OnModuleInit {
   }
 
   /**
-   * Расшифровывает тело ответа, если зашифровано; иначе passthrough. `creds` —
-   * для будущего per-tenant ключа расшифровки; сейчас только для fail-loud.
+   * Decrypts the response body if encrypted; otherwise passthrough. `creds` is
+   * for the future per-tenant decryption key; currently only for fail-loud.
    */
   decryptResponse<T = unknown>(creds: McCredentials, body: T): T {
     if (!this.enabled || !this.jwe) return body;
     this.assertPlatformKeyUsable(creds);
     const env = body as unknown as EncryptedEnvelope;
-    if (!env?.encrypted_payload?.data) return body; // уже plain
+    if (!env?.encrypted_payload?.data) return body; // already plain
     return this.jwe.decrypt({ request: { url: ENDPOINT }, body }) as T;
   }
 
   /**
-   * Fail-loud: per-tenant encryption ещё НЕ реализована (одноключевой режим, см.
-   * заметку на классе). Если у тенанта есть СОБСТВЕННЫЙ материал ключей (OWN —
-   * `encryptionCertPem`/`decryptionKeyPem` из его бандла), мы НЕ имеем права молча
-   * шифровать/расшифровывать его ПЛАТФОРМЕННЫМ ключом: MC отвергнет (чужой `kid`),
-   * а в худшем случае это межтенантное использование ключа. Пока seam не достроен —
-   * явно отказываем (а не делаем тихо неверно). Срабатывает лишь при включённом
-   * `MC_ENCRYPTION_ENABLED` И OWN-тенанте — опасная комбинация, которую раньше
-   * ничто не ловило. Для PLATFORM-кред (этих полей нет) — no-op.
+   * Fail-loud: per-tenant encryption is NOT yet implemented (single-key mode, see
+   * the class note). If a tenant has its OWN key material (OWN —
+   * `encryptionCertPem`/`decryptionKeyPem` from its bundle), we must NOT silently
+   * encrypt/decrypt with the PLATFORM key: MC would reject it (foreign `kid`), and
+   * worst case it is cross-tenant key use. Until the seam is built, refuse
+   * explicitly (rather than doing the wrong thing silently). Only triggers when
+   * `MC_ENCRYPTION_ENABLED` is on AND the tenant is OWN — a dangerous combination
+   * that nothing caught before. For PLATFORM creds (these fields absent) it is a no-op.
    */
   private assertPlatformKeyUsable(creds: McCredentials): void {
     if (creds.encryptionCertPem || creds.decryptionKeyPem) {
@@ -103,15 +105,15 @@ export class EncryptionService implements OnModuleInit {
   }
 
   private buildJwe() {
-    // ⚠️ При встраивании в монолит cwd = рабочая директория ХОСТА (не нашего
-    // пакета) → относительные cert/key-пути резолвятся от хоста. Хост должен
-    // передавать АБСОЛЮТНЫЕ encryptionCertPath/decryptionKeyPath в опциях модуля
-    // (харнесс использует пути от корня проекта). path.resolve пропускает уже
-    // абсолютные пути без изменений.
+    // When embedded in the monolith, cwd = the HOST's working directory (not our
+    // package) → relative cert/key paths resolve from the host. The host must pass
+    // ABSOLUTE encryptionCertPath/decryptionKeyPath in the module options (the
+    // harness uses paths from the project root). path.resolve leaves already-absolute
+    // paths unchanged.
     const cwd = process.cwd();
-    // Fingerprint = SHA-256 публичного ключа в hex (64 символа). Валидируем формат,
-    // а НЕ коэрсим: иначе cert-fingerprint (с двоеточиями) или base64 молча
-    // превратятся в неверный JWE `kid`, и MC отвергнет шифрованный запрос.
+    // Fingerprint = SHA-256 of the public key in hex (64 chars). Validate the
+    // format, do NOT coerce: otherwise a cert fingerprint (with colons) or base64
+    // would silently become a wrong JWE `kid`, and MC would reject the encrypted request.
     const fingerprint = this.config.require('encryptionFingerprint');
     if (!/^[0-9a-f]{64}$/i.test(fingerprint)) {
       throw new Error(
@@ -128,13 +130,13 @@ export class EncryptionService implements OnModuleInit {
       ],
       mode: 'JWE',
       encryptedValueFieldName: 'data',
-      // Client Encryption Key (публичный cert MC) — им шифруем ЗАПРОС.
+      // Client Encryption Key (public MC cert) — used to encrypt the REQUEST.
       encryptionCertificate: path.resolve(
         cwd,
         this.config.require('encryptionCertPath'),
       ),
       publicKeyFingerprint: fingerprint.toLowerCase(),
-      // Наш Mastercard Encryption private key (PEM) — им расшифровываем ОТВЕТ.
+      // Our Mastercard Encryption private key (PEM) — used to decrypt the RESPONSE.
       privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
     });
   }

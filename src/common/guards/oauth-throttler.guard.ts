@@ -4,17 +4,19 @@ import { Request } from 'express';
 import { parseClientCredentials } from '../utils/oauth-credentials';
 
 /**
- * Rate-limit `/oauth/token` по `client_id`, а НЕ по IP.
+ * Rate-limit `/oauth/token` by `client_id`, NOT by IP.
  *
- * Почему: за обратным прокси/LB все запросы приходят с одного IP — IP-лимит тогда
- * схлопывает всех клиентов в общий бакет (легальных throttлит друг за друга,
- * атакующего не изолирует). `client_id` — стабильная личность запроса: брутфорс
- * секрета конкретного клиента ограничен 10/мин и его НЕЛЬЗЯ обойти ротацией IP.
- * Если `client_id` не извлекается (кривой запрос) — фолбэк на IP.
+ * Why: behind a reverse proxy/LB all requests arrive from one IP — an IP limit then
+ * collapses all clients into a shared bucket (throttling legitimate ones against each
+ * other, not isolating the attacker). `client_id` is a stable request identity:
+ * brute-forcing a specific client's secret is capped at 10/min and CANNOT be bypassed
+ * by IP rotation. If `client_id` can't be extracted (a malformed request), fall back
+ * to IP.
  *
- * `client_id` берём тем же `parseClientCredentials`, что и аутентификация
- * (`OAuthController`) — бакет лимита и аутентифицируемая личность совпадают, и
- * приоритет Basic-заголовка над телом не даёт обойти лимит мусорным body.client_id.
+ * We take `client_id` with the same `parseClientCredentials` as authentication
+ * (`OAuthController`) — the rate-limit bucket and the authenticated identity match, and
+ * the Basic header's priority over the body prevents bypassing the limit with a garbage
+ * body.client_id.
  */
 @Injectable()
 export class OAuthThrottlerGuard extends ThrottlerGuard {

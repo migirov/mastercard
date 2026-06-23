@@ -5,19 +5,19 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
  * KV layer). Status events (Status Change / Quote Status Change) carry status/stage and are
  * read by the merchant; others (Carded Rate / RFI) sit there for dedup+audit.
  *
- * `eventRef` UNIQUE → дедуп И запись атомарны (один `INSERT ... ON CONFLICT
- * DO NOTHING`), что снимает риск «жёсткий краш между пометкой дедупа и записью
- * статуса» (бывший TODO в WebhookHandler). `eventRef` nullable: если у события
- * нет ref, дедуп невозможен — Postgres считает NULL'ы РАЗЛИЧНЫМИ, поэтому такие
- * строки всегда вставляются (а не конфликтуют между собой).
+ * `eventRef` UNIQUE → dedup AND the write are atomic (a single `INSERT ... ON CONFLICT
+ * DO NOTHING`), which removes the "hard crash between marking the dedup and writing the
+ * status" risk. `eventRef` is nullable: if an event has no ref, dedup is impossible —
+ * Postgres treats NULLs as DISTINCT, so such rows are always inserted (rather than
+ * conflicting with each other).
  *
- * `tenantId` nullable по решению по привязке: для OWN-тенанта резолвится по
- * `partnerId`; для PLATFORM (общий partner-id, однозначно тенанта не определить)
- * — NULL (общий пул, читается мерчантом по transaction_reference).
+ * `tenantId` is nullable by the attribution decision: for an OWN tenant it is resolved by
+ * `partnerId`; for PLATFORM (shared partner-id, tenant cannot be determined unambiguously)
+ * it is NULL (shared pool, read by the merchant via transaction_reference).
  */
-// Индекс ведёт transactionReference: единственный путь чтения — по ref
-// (`findForTenant`), tenantId — вторичный фильтр. Ref-leading индекс обслуживает
-// и «по ref», и «по ref+tenant».
+// The index leads with transactionReference: the only read path is by ref
+// (`findForTenant`), tenantId is a secondary filter. A ref-leading index serves
+// both "by ref" and "by ref+tenant".
 @Entity('tx_status')
 @Index(['transactionReference', 'tenantId'])
 export class TransactionStatusEntity {
@@ -53,7 +53,7 @@ export class TransactionStatusEntity {
   @Column({ type: 'text', nullable: true })
   stage?: string | null;
 
-  /** Сырое (нормализованное) событие целиком — чтобы не потерять доп. поля MC. */
+  /** The full raw (normalized) event — so MC's extra fields are not lost. */
   @Column({ type: 'jsonb' })
   payload!: Record<string, unknown>;
 

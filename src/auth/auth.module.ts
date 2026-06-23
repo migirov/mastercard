@@ -24,12 +24,12 @@ import { OAuthThrottlerGuard } from '../common/guards/oauth-throttler.guard';
         if (!secret) {
           throw new Error('MastercardModule option "jwtSecret" is not set');
         }
-        // Алгоритм пинуется явно (HS256) и на подписи, и на проверке — защита
-        // от algorithm-confusion / 'none'. issuer + audience проверяются: aud
-        // привязывает merchant-токен к нашему API (нельзя переиграть в другой
-        // JWT-потребитель). maxAge — независимый от подписи потолок TTL: даже
-        // если signer когда-то поднимет expiresIn, verify не примет токен старше
-        // 15м (дублирует exp по claim iat).
+        // The algorithm is pinned explicitly (HS256) on both signing and verification
+        // — protection against algorithm-confusion / 'none'. issuer + audience are
+        // verified: aud binds the merchant token to our API (it cannot be replayed against
+        // another JWT consumer). maxAge is a TTL ceiling independent of the signature: even
+        // if the signer ever raises expiresIn, verify will not accept a token older than
+        // 15m (duplicates exp via the iat claim).
         return {
           secret,
           signOptions: {

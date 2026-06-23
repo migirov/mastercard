@@ -5,12 +5,12 @@ import * as path from 'path';
 import { MerchantSecretBundle, SecretStore } from '../secret-store.types';
 
 /**
- * Дев-реализация хранилища секретов. Источник (по приоритету):
- *   1) файл secrets.local.json в корне проекта (gitignored), карта secretRef → bundle;
- *   2) встроенный демо-сид для sandbox, переиспользующий платформенные ключи
- *      из .env — чтобы прогнать OWN-путь end-to-end без второго онбординга.
+ * Dev implementation of the secret store. Sources (by priority):
+ *   1) secrets.local.json file in the project root (gitignored), a secretRef → bundle map;
+ *   2) built-in demo seed for sandbox that reuses the platform keys
+ *      from .env — to run the OWN path end-to-end without a second onboarding.
  *
- * В проде заменяется на VaultSecretStore (та же сигнатура).
+ * In prod it is replaced by VaultSecretStore (same signature).
  */
 @Injectable()
 export class LocalSecretStore implements SecretStore {
@@ -36,9 +36,9 @@ export class LocalSecretStore implements SecretStore {
     const seed: Record<string, MerchantSecretBundle> = {};
     const isProd = this.config.isProduction;
 
-    // Демо-сид (ТОЛЬКО не в production): OWN-тенант в sandbox переиспользует
-    // платформенные ключи. В проде это утечка ключей платформы OWN-тенанту,
-    // поэтому сид отключён — секреты должны приходить из Vault/файла.
+    // Demo seed (ONLY outside production): the OWN tenant in sandbox reuses
+    // the platform keys. In prod this would leak platform keys to the OWN tenant,
+    // so the seed is disabled — secrets must come from Vault/file.
     const consumerKey = this.config.consumerKey;
     const partnerId = this.config.partnerId;
     const p12Path = this.config.signingKeyPath;
@@ -57,7 +57,7 @@ export class LocalSecretStore implements SecretStore {
       );
     }
 
-    // Файл secrets.local.json переопределяет/дополняет сид.
+    // The secrets.local.json file overrides/extends the seed.
     const file = path.resolve(process.cwd(), 'secrets.local.json');
     if (fs.existsSync(file)) {
       try {

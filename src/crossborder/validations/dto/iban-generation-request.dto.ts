@@ -2,10 +2,10 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsObject, IsOptional, IsString } from 'class-validator';
 
 /**
- * Тело `POST /crossborder/iban-generations` → MC IBAN Generation API.
- * Генерирует IBAN из реквизитов. Поля комбинируются (см. доку): либо `accountUri`
- * { type, value }, либо `country` + `branchCode` + `accountNo`, либо их сочетание —
- * поэтому все опциональны. Идёт через пресет Passthrough; MC проверяет комбинацию.
+ * Body of `POST /crossborder/iban-generations` → MC IBAN Generation API.
+ * Generates an IBAN from account details. Fields combine (see the docs): either
+ * `accountUri` { type, value }, or `country` + `branchCode` + `accountNo`, or a
+ * mix — hence all are optional. Uses the Passthrough preset; MC checks the combination.
  */
 export class IbanGenerationRequestDto {
   @ApiPropertyOptional({

@@ -9,11 +9,11 @@ import { Observable, tap } from 'rxjs';
 import { AuditService } from '../services/audit.service';
 
 /**
- * Пишет audit-запись на каждый HTTP-запрос контроллера, к которому навешан.
- * Навешивается ПЕР-КОНТРОЛЛЕРНО (`@UseInterceptors(AuditInterceptor)` на наших
- * crossborder/admin/oauth/webhooks), а НЕ глобально — поэтому видит только наши
- * роуты, а не трафик хоста (health/ready/api-docs и чужие маршруты не аудируются
- * по построению, без allowlist'а по префиксам).
+ * Writes an audit record for every HTTP request of the controller it is attached to.
+ * Attached PER-CONTROLLER (`@UseInterceptors(AuditInterceptor)` on our
+ * crossborder/admin/oauth/webhooks), NOT globally — so it sees only our routes, not host
+ * traffic (health/ready/api-docs and other routes are not audited by construction, with no
+ * prefix allowlist).
  */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {

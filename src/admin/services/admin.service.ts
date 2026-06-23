@@ -5,7 +5,7 @@ import {
   TenantRegistry,
 } from '../../tenants/services/tenant.registry';
 
-/** Оркестрация admin-операций над партнёрами и их OAuth-клиентами. */
+/** Orchestrates admin operations on partners and their OAuth clients. */
 @Injectable()
 export class AdminService {
   constructor(
@@ -13,9 +13,9 @@ export class AdminService {
     private readonly clients: ClientRegistry,
   ) {}
 
-  // Валидация входа (обязательность полей, secretRef для OWN) — декларативно в
-  // CreateTenantDto + пресет Strict общей стратегии валидации на AdminController.
-  // Здесь только бизнес-действие.
+  // Input validation (required fields, secretRef for OWN) is declarative in
+  // CreateTenantDto + the Strict preset of the shared validation strategy on AdminController.
+  // Only the business action lives here.
   createTenant(input: CreateTenantInput) {
     return this.tenants.create(input);
   }
@@ -36,9 +36,9 @@ export class AdminService {
     return this.tenants.setSuspended(id, false);
   }
 
-  /** Выпустить OAuth-клиента партнёру (сырой секрет возвращается один раз). */
+  /** Issue an OAuth client to a partner (the raw secret is returned once). */
   async issueClient(id: string) {
-    await this.tenants.get(id); // 404, если партнёра нет
+    await this.tenants.get(id); // 404 if the partner does not exist
     return this.clients.issue(id);
   }
 

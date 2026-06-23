@@ -4,10 +4,10 @@ import { IsOptional, IsString, ValidateNested } from 'class-validator';
 import { McAmountDto } from '../../common/dto/mc-amount.dto';
 
 /**
- * Внутренний объект `quoterequest` (Mastercard Quotes API). Поля опциональны:
- * жёсткую схему держит Mastercard, мы валидируем только ФОРМАТ критичных полей
- * (например, что сумма — строка). Неизвестные поля (`quote_type`,
- * `payment_origination_country`, …) пробрасываются как есть.
+ * Inner `quoterequest` object (Mastercard Quotes API). Fields are optional:
+ * Mastercard owns the strict schema, we only validate the FORMAT of critical
+ * fields (e.g. that the amount is a string). Unknown fields (`quote_type`,
+ * `payment_origination_country`, …) are passed through as-is.
  */
 export class QuoteInnerDto {
   @ApiPropertyOptional()
@@ -37,7 +37,7 @@ export class QuoteInnerDto {
   payment_type?: string;
 }
 
-/** Тело `POST /crossborder/quotes`. Прочие поля MC пробрасываются как есть. */
+/** Body of `POST /crossborder/quotes`. Other MC fields are passed through as-is. */
 export class QuoteRequestDto {
   @ApiPropertyOptional({ type: QuoteInnerDto })
   @IsOptional()

@@ -1,8 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * Единый контракт ошибки для всех наших эндпоинтов (кроме OAuth-токена, который
- * по RFC 6749 §5.2 отдаёт `{error}`). Формируется `GatewayExceptionFilter`.
+ * Unified error contract for all our endpoints (except the OAuth token, which per
+ * RFC 6749 §5.2 returns `{error}`). Produced by `GatewayExceptionFilter`.
  */
 export class ErrorResponseDto {
   @ApiProperty({ example: 400 })
@@ -12,7 +12,7 @@ export class ErrorResponseDto {
   error!: string;
 
   @ApiProperty({
-    description: 'Сообщение или массив сообщений валидации.',
+    description: 'A message or an array of validation messages.',
     example: 'Invalid identifier',
   })
   message!: string | string[];
@@ -27,7 +27,7 @@ export class ErrorResponseDto {
   requestId?: string;
 
   @ApiPropertyOptional({
-    description: 'Тело ответа Mastercard для проброшенных upstream-ошибок.',
+    description: 'Mastercard response body for propagated upstream errors.',
   })
   upstream?: unknown;
 }

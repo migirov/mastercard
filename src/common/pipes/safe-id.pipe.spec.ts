@@ -18,7 +18,7 @@ describe('SafeIdPipe', () => {
     },
   );
 
-  // ?ref[x]=1 → объект, ?ref=a&ref=b → массив; не-строка не должна ронять pipe в 500.
+  // ?ref[x]=1 → object, ?ref=a&ref=b → array; a non-string must not crash the pipe with a 500.
   it.each([
     ['array', ['a', 'b']],
     ['object', { x: '1' }],

@@ -4,10 +4,11 @@ import { IsOptional, IsString, ValidateNested } from 'class-validator';
 import { McAmountDto } from '../../common/dto/mc-amount.dto';
 
 /**
- * Внутренний объект `paymentrequest` (Mastercard Payment API). Поля опциональны:
- * структура полиморфна (с котировкой / без / BANKWIRE / carded), жёсткую схему
- * держит Mastercard. Валидируем только ФОРМАТ критичных полей (суммы — строки),
- * остальное (`sender`/`recipient`/`bank_code`/…) пробрасывается как есть.
+ * Inner `paymentrequest` object (Mastercard Payment API). Fields are optional:
+ * the structure is polymorphic (with quote / without / BANKWIRE / carded),
+ * Mastercard owns the strict schema. We only validate the FORMAT of critical
+ * fields (amounts are strings); the rest (`sender`/`recipient`/`bank_code`/…) is
+ * passed through as-is.
  */
 export class PaymentInnerDto {
   @ApiPropertyOptional()
@@ -37,7 +38,7 @@ export class PaymentInnerDto {
   payment_type?: string;
 }
 
-/** Тело `POST /crossborder/payments`. Прочие поля MC пробрасываются как есть. */
+/** Body of `POST /crossborder/payments`. Other MC fields are passed through as-is. */
 export class PaymentRequestDto {
   @ApiPropertyOptional({ type: PaymentInnerDto })
   @IsOptional()

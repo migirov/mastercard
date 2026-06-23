@@ -1,10 +1,10 @@
 /**
- * Единый предикат «слабого» секрета для прод-гейтов. Используется в ДВУХ местах
- * (dev-харнесс `main.ts:assertProdSecrets` читает `process.env`; встраиваемый
- * `GatewayConfig` читает типизированные опции) — держим определение в одном месте,
- * чтобы пороги не разъезжались при правке.
+ * Single predicate for a "weak" secret used by prod gates. Used in TWO places
+ * (dev harness `main.ts:assertProdSecrets` reads `process.env`; the embeddable
+ * `GatewayConfig` reads typed options) — keep the definition in one place so the
+ * thresholds don't drift apart on edits.
  *
- * Слабый = пустой, короче 24 символов, содержит `change-me` или начинается с `dev-`.
+ * Weak = empty, shorter than 24 chars, contains `change-me`, or starts with `dev-`.
  */
 export const isWeakSecret = (v?: string): boolean =>
   !v || v.length < 24 || v.includes('change-me') || v.startsWith('dev-');

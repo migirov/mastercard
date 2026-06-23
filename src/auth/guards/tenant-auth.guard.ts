@@ -13,10 +13,10 @@ import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { TenantContext } from '../decorators/current-tenant.decorator';
 
 /**
- * Единый гард для двух путей входа:
- *   - X-Internal-Token присутствует → внутренний вызов (доверяем X-Tenant-Id);
- *   - иначе Authorization: Bearer <JWT> → внешний мерчант (tenantId из токена).
- * Проставляет req.tenantContext.
+ * Single guard for two entry paths:
+ *   - X-Internal-Token present → internal call (we trust X-Tenant-Id);
+ *   - otherwise Authorization: Bearer <JWT> → external merchant (tenantId from the token).
+ * Sets req.tenantContext.
  */
 @Injectable()
 export class TenantAuthGuard implements CanActivate {
@@ -68,7 +68,7 @@ export class TenantAuthGuard implements CanActivate {
     try {
       tenant = await this.registry.get(tid);
     } catch {
-      // валидный токен, но партнёра больше нет — это не 404, а отказ доступа
+      // valid token, but the partner no longer exists — this is access denied, not a 404
       throw new UnauthorizedException('unknown tenant');
     }
     req.tenantContext = {

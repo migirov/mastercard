@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransactionStatusEntity } from '../entities/transaction-status.entity';
 
-/** Поля для записи статус-события (всё, кроме автогенерируемых id/receivedAt). */
+/** Fields for writing a status event (everything except the auto-generated id/receivedAt). */
 export interface TransactionStatusInput {
   eventRef?: string | null;
   tenantId?: string | null;
@@ -15,7 +15,7 @@ export interface TransactionStatusInput {
   payload: Record<string, unknown>;
 }
 
-/** Безопасное окно выдачи статус-истории по одному ref (защита от раздувания ответа). */
+/** Safe window for returning status history per ref (guards against response bloat). */
 const READ_LIMIT = 200;
 
 /**
@@ -38,10 +38,10 @@ export class TransactionStatusStore {
   ) {}
 
   /**
-   * Атомарная запись с дедупом по `eventRef`: `INSERT ... ON CONFLICT DO NOTHING
-   * RETURNING id`. true = строка вставлена (свежее событие); false = конфликт
-   * (дубликат — MC ретраит до 3 раз). Если `eventRef` отсутствует, строка всегда
-   * вставляется (NULL'ы не конфликтуют) — дедуп для безref-событий невозможен.
+   * Atomic write with dedup by `eventRef`: `INSERT ... ON CONFLICT DO NOTHING
+   * RETURNING id`. true = row inserted (a fresh event); false = conflict
+   * (a duplicate — MC retries up to 3 times). If `eventRef` is absent, the row is always
+   * inserted (NULLs do not conflict) — dedup is impossible for ref-less events.
    *
    * No length truncation: the projection columns (eventType/transactionType/status/stage)
    * are `text` (no width to overflow), and the indexed varchar columns are bounded upstream
@@ -62,23 +62,23 @@ export class TransactionStatusStore {
         transactionType: input.transactionType ?? null,
         status: input.status ?? null,
         stage: input.stage ?? null,
-        // TypeORM QueryDeepPartialEntity рекурсивно разворачивает значения и не
-        // принимает «сырой» Record для jsonb-колонки — кладём как есть через never.
+        // TypeORM's QueryDeepPartialEntity recursively unwraps values and does not
+        // accept a raw Record for a jsonb column — pass it through as-is via never.
         payload: input.payload as never,
       })
-      .orIgnore() // ON CONFLICT DO NOTHING (по UNIQUE eventRef)
+      .orIgnore() // ON CONFLICT DO NOTHING (on UNIQUE eventRef)
       .returning('id')
       .execute();
     return Array.isArray(res.raw) && res.raw.length > 0;
   }
 
   /**
-   * Статус-события по `transaction_reference` для тенанта. OWN-тенант (includePool
-   * = false) видит СТРОГО свои события (его push-и атрибутируются по partnerId,
-   * в общий пул не попадают). PLATFORM-тенант (includePool = true) видит свои +
-   * общий пул (`tenantId IS NULL`): у платформы общий partner-id, поэтому события
-   * однозначно тенанту не привязываются и читаются по ref (который знает только
-   * владелец транзакции). Сортировка по id ASC (хронология), с потолком строк.
+   * Status events by `transaction_reference` for a tenant. An OWN tenant (includePool
+   * = false) sees STRICTLY its own events (its pushes are attributed by partnerId and
+   * never land in the shared pool). A PLATFORM tenant (includePool = true) sees its own +
+   * the shared pool (`tenantId IS NULL`): the platform has a shared partner-id, so events
+   * cannot be attributed to a tenant unambiguously and are read by ref (which only the
+   * transaction owner knows). Ordered by id ASC (chronology), with a row ceiling.
    */
   async findForTenant(
     tenantId: string,

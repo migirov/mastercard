@@ -1,13 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-/** Ответ `POST /oauth/token` (OAuth2). Для типизации и Swagger-схемы. */
+/** Response of `POST /oauth/token` (OAuth2). For typing and the Swagger schema. */
 export class TokenResponseDto {
-  @ApiProperty({ description: 'JWT доступа (HS256, issuer mc-gateway).' })
+  @ApiProperty({ description: 'Access JWT (HS256, issuer mc-gateway).' })
   access_token!: string;
 
   @ApiProperty({ enum: ['Bearer'], example: 'Bearer' })
   token_type!: 'Bearer';
 
-  @ApiProperty({ example: 900, description: 'Время жизни токена, секунды.' })
+  @ApiProperty({ example: 900, description: 'Token lifetime, in seconds.' })
   expires_in!: number;
 }

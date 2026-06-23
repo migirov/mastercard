@@ -29,12 +29,12 @@ export class RfiController {
 
   @Get('rfi/requests/:requestId')
   @ApiOperation({
-    summary: 'RFI: получить состояние запроса (MC Retrieve RFI).',
+    summary: 'RFI: retrieve the request state (MC Retrieve RFI).',
   })
   @ApiParam({
     name: 'requestId',
     format: 'uuid',
-    description: 'RFI request_id — валидный UUID (RFC-4122).',
+    description: 'RFI request_id — a valid UUID (RFC-4122).',
   })
   retrieveRfi(
     @CurrentTenant() ctx: TenantContext,
@@ -44,12 +44,14 @@ export class RfiController {
   }
 
   @Post('rfi/requests/:requestId')
-  @HttpCode(200) // ответ на запрос — изменение состояния RFI, не создание
-  @ApiOperation({ summary: 'RFI: отправить ответ Customer (MC Update RFI).' })
+  @HttpCode(200) // answering the request changes the RFI's state, not a creation
+  @ApiOperation({
+    summary: 'RFI: submit the Customer response (MC Update RFI).',
+  })
   @ApiParam({
     name: 'requestId',
     format: 'uuid',
-    description: 'RFI request_id — валидный UUID (RFC-4122).',
+    description: 'RFI request_id — a valid UUID (RFC-4122).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   updateRfi(
@@ -62,7 +64,7 @@ export class RfiController {
 
   @Post('rfi/documents')
   @ApiOperation({
-    summary: 'RFI: загрузить документ <1MB (MC Upload Document).',
+    summary: 'RFI: upload a document <1MB (MC Upload Document).',
   })
   @UsePipes(gatewayValidationPipe(ValidationStrategy.Passthrough))
   uploadRfiDocument(
@@ -73,11 +75,11 @@ export class RfiController {
   }
 
   @Get('rfi/documents/:documentId')
-  @ApiOperation({ summary: 'RFI: скачать документ (MC Download Document).' })
+  @ApiOperation({ summary: 'RFI: download a document (MC Download Document).' })
   @ApiParam({
     name: 'documentId',
     format: 'uuid',
-    description: 'RFI document_id — валидный UUID (RFC-4122).',
+    description: 'RFI document_id — a valid UUID (RFC-4122).',
   })
   downloadRfiDocument(
     @CurrentTenant() ctx: TenantContext,
