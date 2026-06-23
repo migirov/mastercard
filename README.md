@@ -26,12 +26,8 @@ The links below point to the English version.
 | [documentation.md](docs/en/documentation.md) | **Entities and concepts** — Tenant, OAuthClient, AuditLog, PaymentIdempotency, TransactionStatus, McCredentials, etc.; where DB / where in-memory; encryption (interceptor); OWN/PLATFORM scenarios; `tenant_id` vs `partner_id`. |
 | [api.md](docs/en/api.md) | **Our API reference** — all endpoints (OAuth, Cross-Border, Admin, Webhooks), authentication, request/response examples, rate-limits. |
 | [api-mastercard.md](docs/en/api-mastercard.md) | **Official Mastercard docs** for Cross-Border (full reference, ~540 KB). The source of truth for payload formats. |
-| [plan.md](docs/en/plan.md) | **Plan and status** by phases 1–6 + migrations/enhancements, with the audit history. |
-| [tests.md](docs/en/tests.md) | **Mastercard integration tests** — outbound calls to the Cross-Border API + inbound webhooks. |
-| [tests-inner.md](docs/en/tests-inner.md) | **Gateway internals tests** — auth/access, reliability, infrastructure (no MC calls). |
 | [production-questions.md](docs/en/production-questions.md) | **Blockers and questions before production** (incl. per-tenant encryption, secret-manager choice, TypeORM integration). |
 | [client-questions.md](docs/en/client-questions.md) | Open questions for the client about the integration. |
-| [memory.md](docs/en/memory.md) | Development handoff context (to restore session state). |
 
 ---
 
@@ -199,8 +195,8 @@ warn about these; if an item is omitted, the affected feature fails as noted.
 
 ## Status
 
-The transactional core is complete and verified on a live sandbox (see
-[tests.md](docs/en/tests.md)). Before production — see
+The transactional core is complete and verified on a live sandbox. Before
+production — see
 [production-questions.md](docs/en/production-questions.md) (the main blocker:
 per-tenant encryption for OWN partners; the private Client Encryption key;
 implementing `VaultSecretStore`).

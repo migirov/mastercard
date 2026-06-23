@@ -2,8 +2,7 @@
 
 Description of the domain entities of the Mastercard Cross-Border Gateway.
 
-Related documents: [architecture.md](./architecture.md) (design),
-[plan.md](./plan.md) (status), [memory.md](./memory.md) (session context).
+Related documents: [architecture.md](./architecture.md) (design).
 
 ## Sections
 
@@ -407,8 +406,8 @@ Table `audit_log`.
 **PaymentIdempotency** — the persistent (no TTL) store guaranteeing that a retried
 payment is not charged twice. Keyed per-tenant by `idemKey =
 txref:sha256(transaction_reference)`; there is **no** `Idempotency-Key` header — the
-key is derived from the payment's `transaction_reference`. The old KV layer is gone
-(issue #4) — webhook dedup moved to [`tx_status`](#transactionstatus-tx_status).
+key is derived from the payment's `transaction_reference`. There is no separate KV
+layer — webhook dedup lives in [`tx_status`](#transactionstatus-tx_status).
 
 Code: [`src/crossborder/payments/services/payment-idempotency.store.ts`](../../src/crossborder/payments/services/payment-idempotency.store.ts)
 (`PaymentIdempotencyStore`),
@@ -477,7 +476,7 @@ read-by-ref path; (`receivedAt`).
 ## Behavior
 
 - **Write (`record`)** — an atomic `INSERT … ON CONFLICT DO NOTHING RETURNING id`:
-  `true` = inserted (fresh), `false` = duplicate. **No truncation** (issue #8): the projection
+  `true` = inserted (fresh), `false` = duplicate. **No truncation**: the projection
   columns (eventType/transactionType/status/stage) are `text` — no width to overflow, so an
   overlong value from the uncapped MC body can't cause "value too long" → 500 (which would break
   the always-200 contract + trigger an endless MC retry). The indexed `varchar` columns
@@ -498,7 +497,7 @@ know** whether these are the shared platform keys or the partner's own keys.
 
 Code: [`src/credentials/credentials.types.ts`](../../src/credentials/credentials.types.ts),
 resolver: [`src/credentials/services/credentials.service.ts`](../../src/credentials/services/credentials.service.ts)
-(a thin facade — issue #14 — delegating to `PlatformCredentialsProvider` and
+(a thin facade delegating to `PlatformCredentialsProvider` and
 `OwnCredentialsProvider`; the OWN cache is cache-manager (memory) wired inside
 `OwnCredentialsProvider`, the boundary guards in `utils/credential-sanitize.ts`).
 
@@ -519,7 +518,7 @@ resolver: [`src/credentials/services/credentials.service.ts`](../../src/credenti
   `consumerKey`, the shared `partnerId`. Cache without TTL (rotation via restart).
   Warmed at startup in `onModuleInit` (fail-fast).
 - **`OWN`** → from a [MerchantSecretBundle](#merchantsecretbundle--keymaterial) by the
-  tenant's `secretRef`; cached via **cache-manager** (in-memory store, issue #15): **TTL**
+  tenant's `secretRef`; cached via **cache-manager** (in-memory store): **TTL**
   (`MC_CREDS_CACHE_TTL_MS`, default 10 min) + an **LRU cap (500 entries)** so many tenants
   cannot grow it unbounded + `invalidate()` for rotation; a rejected resolve is not cached.
   cache-manager v5 does not coalesce concurrent misses, so the former in-flight stampede

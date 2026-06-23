@@ -2,9 +2,7 @@
 
 Reflects the **actually implemented** state of the service. Related documents:
 [documentation.md](./documentation.md) (entities, storage, encryption, scenarios),
-[plan.md](./plan.md) (status by phase),
-[production-questions.md](./production-questions.md) (pre-prod blockers),
-[memory.md](./memory.md) (session context).
+[production-questions.md](./production-questions.md) (pre-prod blockers).
 
 > **Topology (current).** The whole integration is ONE embeddable umbrella
 > `MastercardModule` (`src/mastercard.module.ts`, via `ConfigurableModuleBuilder`,
@@ -23,12 +21,12 @@ Reflects the **actually implemented** state of the service. Related documents:
 > `@UseGatewayContract()` composed decorator, see §10), so the embeddable module does not
 > override the host's error handling. Webhook auth is fail-closed in-service
 > (`X-Webhook-Token` + mTLS), not "trust the ingress" (MC does not sign push bodies). `EncryptionService` is collapsed
-> into a provider; payment idempotency / webhook dedup live on Postgres (the separate KV
-> layer is gone, issue #4); health probes moved to the dev harness (not the umbrella). The single
+> into a provider; payment idempotency / webhook dedup live on Postgres (no separate KV
+> layer); health probes live in the dev harness (not the umbrella). The single
 > entity list lives in `src/mastercard.entities.ts` (`MASTERCARD_ENTITIES`, re-exported by
 > the umbrella for the host `DataSource`); entities are co-located in their modules. Host
 > integration is an explicit contract (typed options fail-fast in `GatewayConfig` +
-> `MASTERCARD_ENTITIES` + the README checklist), not a runtime self-check (issue #10). The
+> `MASTERCARD_ENTITIES` + the README checklist), not a runtime self-check. The
 > "standalone" framing in §1 describes the dev-harness run mode.
 
 ## 1. Goal
@@ -206,7 +204,7 @@ owns liveness/readiness).
 |---|---|
 | `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses (PURE data-layer — seeds nothing on boot); `TenantEntity` co-located. Seeding lives outside: `platform` via the dev harness `DevSeedService` (`AppModule`), demo via `npm run seed` (`tenant.seed.ts`); the host provisions its own |
-| `CredentialsModule` | `CredentialsService` facade → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN cache via cache-manager v5 (in-memory, LRU 500 + TTL; issue #15 — no stampede coalescing in v5); boundary guards in `utils/credential-sanitize` (issue #14) |
+| `CredentialsModule` | `CredentialsService` facade → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN cache via cache-manager v5 (in-memory, LRU 500 + TTL; no stampede coalescing in v5); boundary guards in `utils/credential-sanitize` |
 | `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |
@@ -214,10 +212,10 @@ owns liveness/readiness).
 | `AuditModule` | `AuditInterceptor` (bound per-controller via `@UseGatewayContract()`) + batched `AuditService` → Postgres; `AuditLogEntity` co-located |
 | `WebhooksModule` | receive MC push notifications (in-service fail-closed `X-Webhook-Token`; mTLS at the ingress optional, additional); ALL events persist/dedup in `tx_status` via one atomic `INSERT ON CONFLICT` on `eventRef` (no KV layer); status events (STATUS_CHG/QUOTE_STATUS_CHG) carry status/stage and are read by the merchant, tenant attribution (OWN→partnerId / PLATFORM→shared pool), camel/snake normalization |
 | `TransactionStatusModule` | `TransactionStatusStore` + `TransactionStatusEntity` (`tx_status`); shared by `WebhooksModule` (writes) and `CrossBorderModule` (tenant-scoped reads for polling) |
-| `CrossBorderModule` | business endpoints (all 15 MC API groups) **split by API area** (issue #16): one controller+service per area (accounts/quotes/payments/validations/cash-pickup/rfi) over a shared `CrossBorderGateway` (gating + MC call/unwrap + URL/header helpers); status polling (`GET /crossborder/status-events`); `mc-paths.ts` (centralized MC URL builder); private `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
+| `CrossBorderModule` | business endpoints (all 15 MC API groups) **split by API area**: one controller+service per area (accounts/quotes/payments/validations/cash-pickup/rfi) over a shared `CrossBorderGateway` (gating + MC call/unwrap + URL/header helpers); status polling (`GET /crossborder/status-events`); `mc-paths.ts` (centralized MC URL builder); private `PaymentIdempotencyStore` (Postgres `payment_idempotency`) |
 | `database/` (dev-harness only) | `DatabaseModule` (TypeORM `forRoot`) used only standalone via `main.ts`; when embedded the host owns the `DataSource` |
 | `HealthController` (dev harness) | `@nestjs/terminus` — `/health` (liveness), `/ready` (readiness + DB ping); registered in `AppModule` (harness), NOT the umbrella — root probes would collide with the host; when embedded the host owns probes |
-| `PaymentIdempotencyStore` | private `CrossBorderModule` provider; payment idempotency on Postgres (`payment_idempotency`); replaced the old KV-based `IdempotencyService` (issue #4) |
+| `PaymentIdempotencyStore` | private `CrossBorderModule` provider; payment idempotency on Postgres (`payment_idempotency`); replaced the old KV-based `IdempotencyService` |
 | `common/` | shared cross-cutting utilities (see below) |
 
 **`common/` (shared utilities & patterns):**
@@ -229,13 +227,13 @@ owns liveness/readiness).
   with two presets. `Strict` (whitelist + forbid extras + transform) for our boundaries
   (admin/oauth); `Passthrough` (no `transform`/`whitelist`) for bodies forwarded to MC verbatim.
   Shared, stateless pipe instances bound per-route via `@UsePipes`. Replaced the two earlier
-  ad-hoc factories `mcPassthroughPipe`/`strictDtoPipe` (issue #12).
+  ad-hoc factories `mcPassthroughPipe`/`strictDtoPipe`.
 - `secret-strength.ts` — `isWeakSecret()` shared by `main.ts` and the `GatewayConfig` prod gate.
 - `api-error-responses.decorator.ts` — `ApiErrorResponses()` documenting the unified error shape in Swagger.
 - `string-query.pipe.ts` — `StringQueryPipe` rejects non-string query params (objects/arrays).
 - The RFI document upload (`POST /crossborder/rfi/documents`) needs a 2MB body limit (base64
   file). The dev harness applies it as Nest middleware (`AppModule.configure`, ordered before the
-  256kb global parser); when embedded the host owns body parsing (issue #11).
+  256kb global parser); when embedded the host owns body parsing.
 - `safe-id.pipe.ts`, `oauth-throttler.guard.ts`, `tenant-throttler.guard.ts`, p12/crypto utils,
   `gateway-exception.filter.ts`, `upstream.exception.ts`.
 
@@ -291,10 +289,9 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   account-validations, bank-lookups, iban-generations, cash-pickup, endpoint-guide,
   RFI requests/documents) + **Push Notifications**: the webhook persists statuses to
   `tx_status`, the merchant reads via `GET /crossborder/status-events`.
-- ✅ **Quality:** a 10-round security/bug/optimization audit + 2 regression rounds + a
-  4-lens code review (Tier 1 applied); the coverage follow-up (confirm-suite 3/3, carded-rate
-  GET, push persistence) went through 3 more analysis rounds (bugs/optimization/security).
-  Tests: unit 20 suites / 159, e2e on the live sandbox.
+- ✅ **Quality:** coverage includes the confirm suite (3/3), carded-rate GET and push
+  persistence; a centralized MC path map, the composed `UseGatewayContract()` decorator, and
+  the `src/index.ts` barrel. Tests: unit 20 suites / 159, e2e on the live sandbox.
 - ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
   key — see §6), **encrypted-push decryption** (the Client decryption key + the per-tenant seam),
   Vault implementation, metrics/tracing (Prometheus/OTel) —
