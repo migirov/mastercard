@@ -525,11 +525,11 @@ resolver: [`src/credentials/services/credentials.service.ts`](../../src/credenti
   dedup was dropped (concurrent cold resolves of one tenant may each hit the store). (P12→PEM
   conversions are memoized separately in a synchronous LRU `pemCache`, cap 256.)
 
-> ⚠️ **Known limitation:** the encryption fields (`encryptionCertPem` etc.) are
-> resolved per-tenant, but the interceptor encrypts with the **platform** key
-> (`EncryptionService` is global-level). The platform FLE itself **works** (proven on
-> sandbox 2026-06-16); only the per-tenant seam for OWN partners with their own keys
-> is still open — see [production-questions.md](./production-questions.md).
+> **Per-tenant encryption is wired:** the interceptor passes `creds`, and `EncryptionService`
+> builds a per-tenant `JweEncryption` from the partner's PEM keys (`useCertificateContent`,
+> cached by fingerprint); PLATFORM tenants use the shared key; incomplete OWN keys → fail-loud.
+> Platform FLE itself works (proven on sandbox 2026-06-16). Remaining: live cross-tenant
+> validation with a 2nd real OWN key set on MTF — see [production-questions.md](./production-questions.md).
 
 ---
 
@@ -608,10 +608,11 @@ MC sends fields in TWO notations — camelCase and snake_case; the handler norma
 - **Other events** (Carded Rate Push, RFI, …) → `statusStore.record` (atomic
   `INSERT … ON CONFLICT (eventRef) DO NOTHING` in `tx_status`) + log; events with no ref are
   accepted without persisting (NULLs are distinct, so dedup is impossible).
-- **Encrypted push** (`encrypted_payload.data`): the raw envelope is **PERSISTED** to
-  `tx_status` with `eventType='ENCRYPTED'` **BEFORE** the 200 ack (dedup key = a top-level ref
-  if MC sends one outside the cipher, else `enc:sha256(ciphertext)`); a write failure → **500**
-  so MC retries (otherwise the event is lost for good). Decryption is threaded later
-  (MTF/Prod — sandbox is "Not Applicable"; + the per-tenant seam).
+- **Encrypted push** (`encrypted_payload.data`): **decrypted by the `kid`** in the cleartext JWE
+  header (PLATFORM key / per-tenant key); a decrypted event is processed like any other. What
+  can't be decrypted (no key for the `kid`, FLE off, failure) is **PERSISTED** to `tx_status`
+  with `eventType='ENCRYPTED'` **BEFORE** the 200 ack (dedup key = a top-level ref if MC sends
+  one outside the cipher, else `enc:sha256(ciphertext)`); a write failure → **500** so MC retries
+  (no loss). Live decryption confirmation is on MTF/Prod (sandbox is "Not Applicable").
 - **Always responds 200** (otherwise MC retries). Repeat → `{status:'duplicate'}`,
   otherwise `{status:'accepted'}`.

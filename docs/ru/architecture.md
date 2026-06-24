@@ -147,9 +147,10 @@ interface McCredentials {
 - **Секреты не логируются и не уходят в ответы.** Подпись **stateless** —
   `McCredentials` передаются на каждый вызов.
 
-> ⚠️ Поля шифрования резолвятся per-tenant, но `EncryptionService` сейчас
-> платформенного уровня — per-tenant encryption не подключён (блокер OWN+Prod, см.
-> [production-questions.md](./production-questions.md)).
+> Поля шифрования резолвятся per-tenant и **подключены**: `EncryptionService` строит
+> per-tenant `JweEncryption` из PEM-ключей партнёра (кэш по fingerprint); PLATFORM-тенанты
+> на общем ключе. Остаётся живая кросс-тенант проверка на реальных ключах на MTF — см.
+> [production-questions.md](./production-questions.md).
 
 ## 7. Шифрование и подпись — axios-интерцепторы
 
@@ -293,7 +294,7 @@ address-validation; теперь в одном аудируемом месте).
   мерчант читает через `GET /crossborder/status-events`.
 - ✅ **Качество:** покрытие включает confirm-suite (3/3), carded-rate GET и персист push;
   централизованная карта путей MC, композитный декоратор `UseGatewayContract()`, barrel
-  `src/index.ts`. Тесты: unit 20 сьютов / 159, e2e на живом sandbox.
+  `src/index.ts`. Тесты: unit 29 сьютов / 225, герметичный e2e 18, live sandbox e2e 23.
 - ✅ **Per-tenant encryption, декрипт зашифрованного push (kid-роутинг) и AWS Secrets Manager
   secret store** — реализованы.
 - ⬜ **Перед прод (деплойное):** сильные секреты, mTLS для вебхуков MC, OWN-ключи в AWS Secrets

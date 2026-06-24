@@ -1,6 +1,9 @@
 # Вопросы и блокеры перед production
 
-Что решить/доделать перед боевым запуском. Архитектура — [documentation.md](./documentation.md).
+Что решить/доделать перед боевым запуском. Архитектура и уже решённые дизайн-решения
+(FLE, per-tenant encryption, декрипт зашифрованного push, AWS Secrets Manager store,
+встраивание TypeORM) — в [documentation.md](./documentation.md) и
+[architecture.md](./architecture.md).
 
 ---
 
@@ -14,7 +17,7 @@
 
 ---
 
-## Блокеры перед прод
+## Блокеры перед прод (все деплойные)
 
 - [ ] **Сильные секреты** вместо dev-дефолтов: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
   `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (прод-гейт проверяет на старте).
@@ -23,7 +26,7 @@
   через KMP-портал; уточнить доставку `X-Webhook-Token` (вопрос 2). До этого активный
   фактор — fail-closed `X-Webhook-Token`.
 - [ ] **OWN partner-id и ключи** (включая их decryption key) заведены в AWS Secrets Manager
-  (один секрет на партнёра, значение = JSON `MerchantSecretBundle`; см. «Решено»).
+  — один секрет на партнёра, значение = JSON `MerchantSecretBundle`.
 - [ ] **`migration:run`** на прод-БД при деплое.
 
 ---
@@ -31,7 +34,8 @@
 ## Чек-лист прод-конфига
 
 - [ ] **Живая кросс-тенант проверка FLE** на sandbox со 2-м реальным комплектом OWN-ключей
-  перед включением FLE для OWN-партнёров в проде (сам seam уже реализован — см. «Решено»).
+  перед включением FLE для OWN-партнёров в проде (сам per-tenant seam уже реализован — это
+  только проверка на реальных ключах).
 - [ ] **Подтвердить декрипт push на MTF**: реальный зашифрованный push несёт `kid`; для OWN
   при «холодном» кэше добавить проактивный резолв ключа тенанта по `kid` (сейчас OWN-push
   декриптится, только если ключ уже в кэше от API-активности, иначе durably персистится).
@@ -45,40 +49,23 @@
   (pino + correlation-id) уже есть.
 - [ ] (Опц.) Rate-limit на ингрессе как доп. защита — per-pod `@nestjs/throttler`
   самодостаточен (корректность от ингресса не зависит).
-- [x] `MC_ENCRYPTION_ENABLED=true` — FLE работает во всех средах, sandbox в т.ч.
-- [x] Приватный Mastercard Encryption key для расшифровки ответов (`MC_DECRYPTION_KEY_PATH`) — есть.
 
 ---
 
-## Решено
+## Решено (детали в [architecture.md](./architecture.md) / [documentation.md](./documentation.md))
 
-- **Хранилище секретов — AWS Secrets Manager (реализовано).** Хост b24club-api на AWS,
-  поэтому прод-`SecretStore` — `AwsSecretsManagerSecretStore` (`@aws-sdk/client-secrets-manager`,
-  запинен на `^3.975.0` хоста). `secretRef` тенанта — имя или ARN секрета; значение — JSON
-  `MerchantSecretBundle` (ключи `.p12` в base64). Регион/креды — из стандартной AWS-цепочки
-  (IAM-роль на ECS/EKS, как у хоста для S3/Cognito), с опциональным override
-  `MC_SECRET_STORE_REGION`. Выбор — `MC_SECRET_STORE=aws-secrets-manager` (прод-гейт требует
-  именно это). Кэш остаётся выше (cache-manager TTL+LRU). Прежнее имя «Vault» было
-  placeholder'ом вендора-TBD, не привязкой к HashiCorp.
-- **Per-tenant encryption — реализован.** У каждого OWN-партнёра свой ключ; `EncryptionService`
-  строит per-tenant `JweEncryption` из PEM-ключей партнёра (`encryptionCertPem`/
-  `decryptionKeyPem`, режим `useCertificateContent`), кэшируя по fingerprint; PLATFORM-тенанты
-  используют общий ключ из конфига. Интерцептор `MastercardClient` не менялся (уже передавал
-  `creds`). Неполные OWN-ключи при включённом FLE → fail-loud. Остаётся живая кросс-тенант
-  проверка на реальных ключах (см. чек-лист).
-- **Декрипт зашифрованного push — реализован (kid-роутинг).** `WebhookHandler` декриптит
-  конверт по `kid` из открытого JOSE-заголовка JWE (дока MC: MC ставит `kid`=fingerprint
-  ключа для расшифровки): PLATFORM — платформенным ключом; OWN — per-tenant ключом по `kid`,
-  если он уже построен (кэш от API-активности тенанта). Расшифрованное обрабатывается как
-  обычное событие; что не расшифровать (нет ключа под `kid` / FLE off / ошибка) — durably
-  персистится в `tx_status` (ENCRYPTED) до ack для reprocess (потерь нет). Остаётся
-  MTF-подтверждение и проактивный OWN-резолв по `kid` для холодного кэша (см. чек-лист).
-- **TypeORM / встраивание.** Сервис — один зонтичный `MastercardModule`; хост даёт
-  `DataSource` (наши сущности через `forFeature`/`autoLoadEntities`) и ведёт свои миграции;
-  `DatabaseModule.forRoot` — только для dev-харнесса.
-- **Механизм FLE** доказан на sandbox: запрос шифруется Client Encryption Key, ответ
-  расшифровывается Mastercard Encryption private key (раньше путали ключи → `082000`).
-- Инфраструктура миграций, RFI-подсистема, Swagger-аннотации — готовы.
+- **AWS Secrets Manager** — secret store `AwsSecretsManagerSecretStore`
+  (`MC_SECRET_STORE=aws-secrets-manager`); `secretRef` = имя/ARN секрета, значение = JSON
+  `MerchantSecretBundle`. (Прежнее имя «Vault» было placeholder'ом вендора-TBD.)
+- **Per-tenant encryption** — per-tenant `JweEncryption` из PEM-ключей партнёра, кэш по
+  fingerprint; PLATFORM-тенанты на общем ключе; неполные OWN-ключи → fail-loud.
+- **Декрипт зашифрованного push** — `kid`-роутинг (PLATFORM / per-tenant); что не расшифровать
+  — durably персистится в `tx_status` (ENCRYPTED) до ack (потерь нет).
+- **FLE** работает во всех средах, sandbox в т.ч. (`MC_ENCRYPTION_ENABLED=true`,
+  `MC_DECRYPTION_KEY_PATH` есть); запрос шифруется Client Encryption Key, ответ
+  расшифровывается Mastercard Encryption private key.
+- **Встраивание TypeORM** — один зонтичный `MastercardModule`; хост даёт `DataSource` и ведёт
+  свои миграции. Инфраструктура миграций, RFI-подсистема и Swagger — готовы.
 
 ---
 
