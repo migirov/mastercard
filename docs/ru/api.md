@@ -98,8 +98,9 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
   `production-questions.md`.
 - На практике: **POST с телом** (quotes/validations/bank-lookup/iban/payment/confirm/RFI
   update/upload) — тело шифруется; **GET-каталоги** (balances/rates/cash-pickup/endpoint-guide/
-  RFI retrieve/download) тела не шлют — шифровать нечего. Per-tenant ключи (OWN со своими) пока
-  не подключены — это единственный открытый пункт по шифрованию.
+  RFI retrieve/download) тела не шлют — шифровать нечего. Per-tenant ключи (OWN со своими)
+  подключены — `EncryptionService` строит per-tenant `JweEncryption` по fingerprint; живая
+  кросс-тенант проверка на реальных ключах остаётся на MTF.
 
 ### Валидация на границе (pipes)
 
@@ -359,11 +360,12 @@ MTF/Prod на сконфигурированном коридоре.
 - **Нотации:** MC шлёт поля в camelCase и snake_case — хендлер нормализует обе.
 - **Атрибуция тенанту:** OWN — по `partnerId` (→ его `tenantId`); PLATFORM/неизвестный → общий пул (`tenantId=NULL`).
 - **Доставка мерчанту:** polling через `GET /crossborder/status-events?ref=…`.
-- **Зашифрованный push** (`{encrypted_payload:{data}}`): декрипт ещё не подключён (открытый блокер
-  MTF/Prod: ключ расшифровки + per-tenant seam), но сырой конверт **персистится в `tx_status`
-  (`eventType='ENCRYPTED'`) ДО `200`** — иначе после ack событие терялось бы (MC не
-  ретраит). Дедуп по `enc:sha256(шифротекста)` (или внешнему ref, если есть). Обработка — позже из
-  БД, когда подключим декрипт. В sandbox push «Not Applicable».
+- **Зашифрованный push** (`{encrypted_payload:{data}}`): **декриптится по `kid`** из открытого
+  JOSE-заголовка JWE (PLATFORM / per-tenant ключ); расшифрованное событие обрабатывается как
+  обычное. Что не расшифровать (нет ключа под `kid`, FLE off) — сырой конверт **персистится в
+  `tx_status` (`eventType='ENCRYPTED'`) ДО `200`** — иначе после ack событие терялось бы (MC не
+  ретраит). Дедуп по `enc:sha256(шифротекста)` (или внешнему ref, если есть), обработка позже из
+  БД. Живое подтверждение — на MTF; в sandbox push «Not Applicable».
 
 ---
 

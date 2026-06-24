@@ -145,9 +145,10 @@ interface McCredentials {
 - **Secrets are not logged and never leave in responses.** Signing is **stateless** —
   `McCredentials` are passed on every call.
 
-> ⚠️ Encryption fields are resolved per-tenant, but `EncryptionService` is currently
-> platform-level — per-tenant encryption is not wired (an OWN+Prod blocker, see
-> [production-questions.md](./production-questions.md)).
+> Encryption fields are resolved per-tenant and **wired**: `EncryptionService` builds a
+> per-tenant `JweEncryption` from the partner's PEM keys (cached by fingerprint); PLATFORM
+> tenants use the shared key. Remaining: live cross-tenant validation with real keys on MTF —
+> see [production-questions.md](./production-questions.md).
 
 ## 7. Encryption and signing — axios interceptors
 
@@ -291,7 +292,7 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   `tx_status`, the merchant reads via `GET /crossborder/status-events`.
 - ✅ **Quality:** coverage includes the confirm suite (3/3), carded-rate GET and push
   persistence; a centralized MC path map, the composed `UseGatewayContract()` decorator, and
-  the `src/index.ts` barrel. Tests: unit 20 suites / 159, e2e on the live sandbox.
+  the `src/index.ts` barrel. Tests: unit 29 suites / 225, hermetic e2e 18, live sandbox e2e 23.
 - ✅ **Per-tenant encryption, encrypted-push decryption (kid routing), and the AWS Secrets
   Manager secret store** — implemented.
 - ⬜ **Before prod (deploy-time):** strong secrets, mTLS for MC webhooks, OWN keys loaded into

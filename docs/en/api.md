@@ -98,7 +98,8 @@ JWE (RSA-OAEP-256 + A256GCM), implemented as an **axios interceptor inside `Mast
 - In practice: **POST with a body** (quotes/validations/bank-lookup/iban/payment/confirm/RFI
   update/upload) → body encrypted; **GET catalogs** (balances/rates/cash-pickup/endpoint-guide/
   RFI retrieve/download) send no body → nothing to encrypt. Per-tenant keys (OWN with their own)
-  are not yet wired — the only open encryption item.
+  are wired — `EncryptionService` builds a per-tenant `JweEncryption` by fingerprint; live
+  cross-tenant validation with real keys remains on MTF.
 
 ### Boundary validation (pipes)
 
@@ -359,11 +360,12 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 - **Notations:** MC sends fields in both camelCase and snake_case — the handler normalizes both.
 - **Tenant attribution:** OWN — by `partnerId` (→ its `tenantId`); PLATFORM/unknown → the shared pool (`tenantId=NULL`).
 - **Merchant delivery:** polling via `GET /crossborder/status-events?ref=…`.
-- **Encrypted push** (`{encrypted_payload:{data}}`): decryption isn't wired yet (open MTF/Prod
-  blocker: decryption key + per-tenant seam), but the raw envelope is **persisted to `tx_status`
-  (`eventType='ENCRYPTED'`) BEFORE the `200`** — otherwise the event would be lost after
-  the ack (MC won't retry). Deduped by `enc:sha256(ciphertext)` (or an outer ref if present).
-  Processed later from the DB once decryption is wired. Sandbox push is “Not Applicable”.
+- **Encrypted push** (`{encrypted_payload:{data}}`): **decrypted by the `kid`** in the cleartext
+  JWE header (PLATFORM / per-tenant key); a decrypted event is processed like any other. What
+  can't be decrypted (no key for the `kid`, FLE off) is **persisted to `tx_status`
+  (`eventType='ENCRYPTED'`) BEFORE the `200`** — otherwise the event would be lost after the ack
+  (MC won't retry). Deduped by `enc:sha256(ciphertext)` (or an outer ref if present), reprocessed
+  later from the DB. Live confirmation on MTF; sandbox push is “Not Applicable”.
 
 ---
 
