@@ -1,8 +1,8 @@
 /**
- * Проверка end-to-end через тенанта (Фаза 1):
+ * End-to-end check via a tenant (Phase 1):
  *   npm run ping            — tenant 'platform'
- *   npm run ping -- acme    — другой тенант
- *   npm run ping -- own-demo — должен быть отказ (gating)
+ *   npm run ping -- acme    — a different tenant
+ *   npm run ping -- own-demo — should be rejected (gating)
  */
 import { NestFactory } from '@nestjs/core';
 import { HttpException, Logger } from '@nestjs/common';
@@ -22,11 +22,11 @@ async function main() {
   let exitCode = 0;
   try {
     const data = await cb.getBalances(tenantId);
-    log.log('✅ 2xx — мульти-тенант поток работает, credentials рабочие');
-    log.log('Тело: ' + JSON.stringify(data).slice(0, 600));
+    log.log('✅ 2xx — the multi-tenant flow works, credentials are valid');
+    log.log('Body: ' + JSON.stringify(data).slice(0, 600));
   } catch (e) {
     const status = e instanceof HttpException ? e.getStatus() : '—';
-    log.error(`❌ отказ (HTTP ${status}): ${(e as Error).message}`);
+    log.error(`❌ rejected (HTTP ${status}): ${(e as Error).message}`);
     exitCode = 1;
   }
 

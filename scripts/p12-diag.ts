@@ -1,4 +1,4 @@
-/* Диагностика .p12: точная ошибка forge + состав «мешков». npm run p12-diag */
+/* .p12 diagnostics: the exact forge error + the make-up of the "bags". npm run p12-diag */
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('dotenv').config();
 import * as fs from 'fs';
@@ -8,19 +8,19 @@ import * as forge from 'node-forge';
 function diag(label: string, p12Path?: string, password?: string) {
   console.log(`\n=== ${label} ===`);
   if (!p12Path) {
-    console.log('путь не задан');
+    console.log('path not set');
     return;
   }
   const abs = path.resolve(process.cwd(), p12Path);
   const der = fs.readFileSync(abs, 'binary');
-  console.log(`файл: ${path.basename(abs)} | размер: ${der.length} байт`);
-  console.log(`пароль (длина): ${password ? password.length : 0}`);
+  console.log(`file: ${path.basename(abs)} | size: ${der.length} bytes`);
+  console.log(`password (length): ${password ? password.length : 0}`);
 
   let asn1: forge.asn1.Asn1;
   try {
     asn1 = forge.asn1.fromDer(der);
   } catch (e) {
-    console.log(`asn1.fromDer ОШИБКА: ${(e as Error).message}`);
+    console.log(`asn1.fromDer ERROR: ${(e as Error).message}`);
     return;
   }
 

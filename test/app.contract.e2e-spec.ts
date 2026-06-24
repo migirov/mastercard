@@ -1,14 +1,14 @@
 /**
- * ГЕРМЕТИЧНЫЙ e2e (CI-дефолт). Поднимает всё приложение, но MastercardClient и
- * CredentialsService подменены стабами — НЕ ходит в живой MC и НЕ требует
- * реальных certs/p12. Это позволяет детерминированно проверить ветки маппинга
- * ответа, которые live-сьют (app.e2e-spec.ts) структурно достать НЕ может:
- * MC 401/5xx → 502 (тело скрыто), MC 4xx-объект → единый конверт с `upstream`,
- * MC 4xx-не-объект (HTML) → 502, успех → форма ответа. Плюс input-валидация.
+ * HERMETIC e2e (the CI default). Brings up the whole application, but MastercardClient and
+ * CredentialsService are replaced with stubs — it does NOT call the live MC and does NOT
+ * require real certs/p12. This lets us deterministically test the response-mapping branches
+ * that the live suite (app.e2e-spec.ts) structurally CANNOT reach:
+ * MC 401/5xx → 502 (body hidden), MC 4xx-object → the single envelope with `upstream`,
+ * MC 4xx-non-object (HTML) → 502, success → the response shape. Plus input validation.
  *
- * Нужен только Postgres (сиды/идемпотентность/дедуп/audit) + dev-.env (dummy-секреты). Запуск:
+ * Needs only Postgres (seeds/idempotency/dedup/audit) + a dev .env (dummy secrets). Run:
  *   node node_modules\jest\bin\jest.js --config ./test/jest-e2e.json
- * Живой sandbox-сьют — отдельно: --config ./test/jest-e2e-live.json.
+ * The live sandbox suite is separate: --config ./test/jest-e2e-live.json.
  */
 import { Test } from '@nestjs/testing';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -24,7 +24,7 @@ import { DEMO_TENANTS, seedTenants } from '../src/tenants/services/tenant.seed';
 const PORT = 3998;
 const BASE = `http://127.0.0.1:${PORT}`;
 
-// Управляемый стаб MC: тест задаёт следующий ответ (или throw) перед вызовом.
+// Controllable MC stub: the test sets the next response (or a throw) before the call.
 const stubMc: {
   next: { status: number; data: unknown };
   shouldThrow: boolean;
@@ -92,16 +92,16 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     stubMc.next = { status: 200, data: { ok: true } };
   });
 
-  // --- response-mapping ветки (live-сьют их достать не может) ---
+  // --- response-mapping branches (the live suite cannot reach them) ---
 
-  it('MC 2xx → данные мерчанту как есть', async () => {
+  it('MC 2xx → data to the merchant as-is', async () => {
     stubMc.next = { status: 200, data: { accounts: [{ id: 'a' }] } };
     const r = await http.get('/crossborder/balances', { headers: internal });
     expect(r.status).toBe(200);
     expect(r.data).toEqual({ accounts: [{ id: 'a' }] });
   });
 
-  it('MC бизнес-4xx (объект) → 422 с единым конвертом и upstream-телом', async () => {
+  it('MC business 4xx (object) → 422 with the single envelope and an upstream body', async () => {
     const mcBody = { Errors: { Error: { ReasonCode: 'DECLINE' } } };
     stubMc.next = { status: 422, data: mcBody };
     const r = await http.get('/crossborder/balances', { headers: internal });
@@ -110,14 +110,14 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(r.data.upstream).toEqual(mcBody);
   });
 
-  it('MC 401 → 502, тело/детали НЕ утекают', async () => {
+  it('MC 401 → 502, the body/details do NOT leak', async () => {
     stubMc.next = { status: 401, data: { secret: 'internal-cred-detail' } };
     const r = await http.get('/crossborder/balances', { headers: internal });
     expect(r.status).toBe(502);
     expect(JSON.stringify(r.data)).not.toContain('internal-cred-detail');
   });
 
-  it('MC 4xx с НЕ-объектным телом (HTML) → 502 (не форвардим)', async () => {
+  it('MC 4xx with a NON-object body (HTML) → 502 (not forwarded)', async () => {
     stubMc.next = { status: 429, data: '<html>rate limited</html>' };
     const r = await http.get('/crossborder/balances', { headers: internal });
     expect(r.status).toBe(502);
@@ -130,13 +130,13 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(r.status).toBe(502);
   });
 
-  it('сетевой сбой к MC → 502', async () => {
+  it('a network failure to MC → 502', async () => {
     stubMc.shouldThrow = true;
     const r = await http.get('/crossborder/balances', { headers: internal });
     expect(r.status).toBe(502);
   });
 
-  // --- input-валидация (до MC; детерминированно без сети) ---
+  // --- input validation (before MC; deterministic, no network) ---
 
   it('POST /crossborder/quotes amount=number → 400 (Passthrough preset DTO)', async () => {
     const r = await http.post(
@@ -157,32 +157,32 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(r.data.error).toBeDefined();
   });
 
-  it('POST /webhooks/mastercard/webhook без токена → 401 (fail-closed)', async () => {
+  it('POST /webhooks/mastercard/webhook without a token → 401 (fail-closed)', async () => {
     const r = await http.post('/webhooks/mastercard/webhook', { eventType: 'noop' });
     expect(r.status).toBe(401);
   });
 
-  it('GET /crossborder/payments?ref=a/b → 400 (SafeIdPipe анти-инъекция)', async () => {
+  it('GET /crossborder/payments?ref=a/b → 400 (SafeIdPipe anti-injection)', async () => {
     const r = await http.get('/crossborder/payments?ref=a%2Fb', {
       headers: internal,
     });
     expect(r.status).toBe(400);
   });
 
-  // --- новые эндпоинты (доработка покрытия) ---
+  // --- newer endpoints (coverage completion) ---
 
-  it('GET /crossborder/rates (Carded/FX Rate Pull) → MC 2xx форвардится', async () => {
+  it('GET /crossborder/rates (Carded/FX Rate Pull) → MC 2xx is forwarded', async () => {
     stubMc.next = { status: 200, data: { rates: [{ rate_id: 'r1' }] } };
     const r = await http.get('/crossborder/rates', { headers: internal });
     expect(r.status).toBe(200);
     expect(r.data).toEqual({ rates: [{ rate_id: 'r1' }] });
-    // путь и метод, ушедшие в MC (Pull = GET, без тела)
+    // the path and method sent to MC (Pull = GET, no body)
     const sent = stubMc.request.mock.calls.at(-1)?.[1];
     expect(sent).toMatchObject({ method: 'GET' });
     expect(sent.path).toContain('/crossborder/rates');
   });
 
-  it('POST /crossborder/quotes/cancellations → MC 2xx форвардится', async () => {
+  it('POST /crossborder/quotes/cancellations → MC 2xx is forwarded', async () => {
     stubMc.next = { status: 200, data: { status: 'CANCELLED' } };
     const r = await http.post(
       '/crossborder/quotes/cancellations',
@@ -196,7 +196,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     );
   });
 
-  it('GET /crossborder/quotes/:ref/proposals/:id (Retrieve Confirmed Quote) → MC 2xx форвардится', async () => {
+  it('GET /crossborder/quotes/:ref/proposals/:id (Retrieve Confirmed Quote) → MC 2xx is forwarded', async () => {
     stubMc.next = {
       status: 200,
       data: { confirmStatus: { status: 'CONFIRMED' } },
@@ -249,28 +249,28 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(stubMc.request.mock.calls.length).toBe(before + 1);
   });
 
-  it('Status Change Push: вебхук → персист в tx_status → polling → дедуп (без MC)', async () => {
+  it('Status Change Push: webhook → persist to tx_status → polling → dedup (no MC)', async () => {
     const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
-    // Уникальные ref/eventRef на прогон — tx_status персистентна между запусками.
+    // Unique ref/eventRef per run — tx_status is persistent between runs.
     const ref = `E2ETX_${Date.now()}`;
     const eventRef = `whe2e_${Date.now()}`;
     const body = {
       eventRef,
       eventType: 'STATUS_CHG',
       transactionReference: ref,
-      partnerId: 'NOT_AN_OWN_PARTNER', // нет OWN-тенанта → общий пул (tenantId=null)
+      partnerId: 'NOT_AN_OWN_PARTNER', // no OWN tenant → the shared pool (tenantId=null)
       transactionType: 'PAYMENT',
       quote: { confirmStatus: { status: 'CONFIRMED' } },
     };
 
-    // 1) приём + атомарный персист
+    // 1) receive + atomic persist
     const post1 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
     expect(post1.status).toBe(200);
     expect(post1.data).toEqual({ status: 'accepted' });
 
-    // 2) polling мерчантом (acme = PLATFORM → видит общий пул по ref)
+    // 2) polling by the merchant (acme = PLATFORM → sees the shared pool by ref)
     const poll = await http.get(`/crossborder/status-events?ref=${ref}`, {
       headers: internal,
     });
@@ -283,12 +283,12 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
       transactionType: 'PAYMENT',
       status: 'CONFIRMED',
     });
-    // view-DTO whitelist: внутренние поля наружу НЕ отдаются
+    // view-DTO whitelist: internal fields are NOT exposed outward
     expect(poll.data[0].id).toBeUndefined();
     expect(poll.data[0].tenantId).toBeUndefined();
     expect(poll.data[0].payload).toBeDefined();
 
-    // 3) ретрай MC того же eventRef → дубликат (дедуп = UNIQUE(eventRef))
+    // 3) MC retry of the same eventRef → duplicate (dedup = UNIQUE(eventRef))
     const post2 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
@@ -300,7 +300,8 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     // A unique "ciphertext" per run (tx_status persists between runs).
     const body = { encrypted_payload: { data: `E2EENC_${Date.now()}` } };
 
-    // Decryption isn't wired → we do NOT process it, but the envelope is persisted BEFORE the ack.
+    // Decryption is wired (kid routing), but this dummy ciphertext has no valid kid/key → it
+    // cannot be decrypted, so the envelope is persisted BEFORE the ack (no loss).
     const post1 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
@@ -316,9 +317,9 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(post2.data).toEqual({ status: 'duplicate' });
   });
 
-  it('атрибуция/изоляция: OWN видит своё, PLATFORM — общий пул; перекрёстно — нет', async () => {
+  it('attribution/isolation: OWN sees its own, PLATFORM — the shared pool; cross-tenant — no', async () => {
     const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
-    // own-demo — сид OWN с partnerId='OWN_PARTNER_TBD' (см. TenantRegistry).
+    // own-demo — an OWN seed with partnerId='OWN_PARTNER_TBD' (see TenantRegistry).
     const ownInternal = {
       'x-internal-token': process.env.MC_INTERNAL_TOKEN ?? '',
       'x-tenant-id': 'own-demo',
@@ -327,7 +328,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     const refOwn = `E2EOWN_${t}`;
     const refPool = `E2EPOOL_${t}`;
 
-    // A: partnerId совпадает с OWN-тенантом → атрибуция own-demo
+    // A: partnerId matches an OWN tenant → attributed to own-demo
     const a = await http.post(
       '/webhooks/mastercard/webhook',
       {
@@ -340,7 +341,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
       { headers: webhook },
     );
     expect(a.data).toEqual({ status: 'accepted' });
-    // B: неизвестный partnerId → общий пул (tenantId=null)
+    // B: unknown partnerId → the shared pool (tenantId=null)
     const b = await http.post(
       '/webhooks/mastercard/webhook',
       {
@@ -354,7 +355,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     );
     expect(b.data).toEqual({ status: 'accepted' });
 
-    // OWN видит своё событие; PLATFORM (acme) его НЕ видит (оно не в пуле)
+    // OWN sees its own event; PLATFORM (acme) does NOT (it is not in the pool)
     const ownSeesOwn = await http.get(
       `/crossborder/status-events?ref=${refOwn}`,
       { headers: ownInternal },
@@ -366,7 +367,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     );
     expect(platSeesOwn.data).toHaveLength(0);
 
-    // OWN НЕ видит общий пул; PLATFORM видит пул по ref
+    // OWN does NOT see the shared pool; PLATFORM sees the pool by ref
     const ownSeesPool = await http.get(
       `/crossborder/status-events?ref=${refPool}`,
       { headers: ownInternal },
