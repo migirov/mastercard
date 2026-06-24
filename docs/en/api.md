@@ -44,6 +44,11 @@ The 15 Mastercard Cross-Border **API Reference** groups → our routes. ✅ impl
 | 14 | Payload Encryption | `EncryptionService` (axios interceptor) | ✅ FLE works on sandbox |
 | 15 | Push Notifications | `POST /webhooks/mastercard/webhook` (+ `tx_status`) | ✅ |
 
+> **Tested:** every operation above has a **request-shape unit test** (method/path/headers/body
+> vs the MC spec, asserted against the centralized `mc-paths`). For ops the sandbox does not expose
+> (Carded Rate, Account Validation, Endpoint Guide, RFI — the ⚠️ rows) that unit test is the only
+> automated check; the rest are also exercised by the live sandbox e2e.
+
 > “Reference Application” in MC’s sidebar is a sample app, not an API; nothing to implement.
 
 ---

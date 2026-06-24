@@ -294,7 +294,9 @@ address-validation; теперь в одном аудируемом месте).
   мерчант читает через `GET /crossborder/status-events`.
 - ✅ **Качество:** покрытие включает confirm-suite (3/3), carded-rate GET и персист push;
   централизованная карта путей MC, композитный декоратор `UseGatewayContract()`, barrel
-  `src/index.ts`. Тесты: unit 29 сьютов / 225, герметичный e2e 18, live sandbox e2e 23.
+  `src/index.ts`, плюс **request-shape юнит-тест на каждую MC-операцию** (метод/путь/заголовки/тело
+  против спеки MC — единственная авто-проверка для операций, которых нет в sandbox). Тесты:
+  unit 30 сьютов / 246, герметичный e2e 18, live sandbox e2e 23.
 - ✅ **Per-tenant encryption, декрипт зашифрованного push (kid-роутинг) и AWS Secrets Manager
   secret store** — реализованы.
 - ⬜ **Перед прод (деплойное):** сильные секреты, mTLS для вебхуков MC, OWN-ключи в AWS Secrets
