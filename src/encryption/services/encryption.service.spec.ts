@@ -38,6 +38,22 @@ const ownIncomplete = {
   encryptionCertPem: 'OWN_CERT',
 } as McCredentials;
 
+// A JWE compact serialization with a cleartext base64url JOSE header (optionally a kid),
+// wrapped in the MC push envelope. The body is dummy — the JWE library is mocked.
+const makeJwe = (kid?: string) => {
+  const header = Buffer.from(
+    JSON.stringify(
+      kid
+        ? { alg: 'RSA-OAEP-256', enc: 'A256GCM', kid }
+        : { alg: 'RSA-OAEP-256', enc: 'A256GCM' },
+    ),
+  ).toString('base64url');
+  return `${header}.encryptedKey.iv.ciphertext.tag`;
+};
+const pushEnvelope = (kid?: string) => ({
+  encrypted_payload: { data: makeJwe(kid) },
+});
+
 const disabledConfig = { encryptionEnabled: false } as GatewayConfig;
 const enabledConfig = (fingerprint = 'a'.repeat(64)) =>
   ({
@@ -151,6 +167,66 @@ describe('EncryptionService', () => {
     it('rejects a non-64-hex platform fingerprint at init', () => {
       const svc = new EncryptionService(enabledConfig('AB:CD:EF'));
       expect(() => svc.onModuleInit()).toThrow(/64-hex/);
+    });
+  });
+
+  describe('decryptPush — route by JWE kid', () => {
+    it('returns undefined when FLE is disabled', () => {
+      const svc = new EncryptionService(disabledConfig);
+      svc.onModuleInit();
+      expect(svc.decryptPush(pushEnvelope('a'.repeat(64)))).toBeUndefined();
+      expect(decryptMock).not.toHaveBeenCalled();
+    });
+
+    it('returns undefined for a non-enveloped body', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      expect(svc.decryptPush({ plain: true })).toBeUndefined();
+      expect(decryptMock).not.toHaveBeenCalled();
+    });
+
+    it('decrypts with the platform key when the kid is the platform fingerprint', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      expect(svc.decryptPush(pushEnvelope('a'.repeat(64)))).toEqual({
+        decrypted: true,
+      });
+      expect(decryptMock).toHaveBeenCalledTimes(1);
+      expect(jweCtor).toHaveBeenCalledTimes(1); // reused the platform JWE
+    });
+
+    it('decrypts with the platform key when there is no kid', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      expect(svc.decryptPush(pushEnvelope())).toEqual({ decrypted: true });
+      expect(decryptMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('decrypts with the per-tenant key when its kid is cached from prior activity', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      svc.encryptRequest(ownCreds, { a: 1 }); // builds + caches the OWN JWE (kid b*64)
+      expect(svc.decryptPush(pushEnvelope('b'.repeat(64)))).toEqual({
+        decrypted: true,
+      });
+      expect(decryptMock).toHaveBeenCalledTimes(1);
+      expect(jweCtor).toHaveBeenCalledTimes(2); // platform + OWN (reused, not rebuilt)
+    });
+
+    it('returns undefined for an OWN kid whose key is not cached yet', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      expect(svc.decryptPush(pushEnvelope('c'.repeat(64)))).toBeUndefined();
+      expect(decryptMock).not.toHaveBeenCalled();
+    });
+
+    it('returns undefined (no throw) when decryption fails', () => {
+      const svc = new EncryptionService(enabledConfig());
+      svc.onModuleInit();
+      decryptMock.mockImplementationOnce(() => {
+        throw new Error('bad key');
+      });
+      expect(svc.decryptPush(pushEnvelope('a'.repeat(64)))).toBeUndefined();
     });
   });
 });

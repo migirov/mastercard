@@ -24,12 +24,6 @@ What to decide/finish before going live. Architecture — [documentation.md](./d
   At deploy: request the public mTLS cert from MC → add to the trust store; submit our cert
   chain via the KMP portal; confirm `X-Webhook-Token` delivery (question 2). Until then the
   active factor is the fail-closed `X-Webhook-Token`.
-- [ ] **Decrypt encrypted push** (MTF/Prod). `WebhookHandler` detects `{ encrypted_payload }`
-  and persists the envelope to `tx_status` (`eventType=ENCRYPTED`) before the ack, but does not
-  decrypt it. To do: call `decryptResponse` in the handler (per-tenant keys are already built by
-  `EncryptionService` — see "Decided"). The catch: the push has no tenant attribution (partnerId
-  is under the cipher) → PLATFORM decrypts with the platform key, OWN needs key routing. On
-  sandbox push is "Not Applicable" — the case can only be validated on MTF/Prod.
 - [ ] **OWN partner-id and keys** (including their decryption key) loaded into the secret manager.
 - [ ] **`migration:run`** against the prod DB on deploy.
 
@@ -39,6 +33,9 @@ What to decide/finish before going live. Architecture — [documentation.md](./d
 
 - [ ] **Live cross-tenant FLE validation** on sandbox with a 2nd real OWN key set before
   enabling FLE for OWN partners in prod (the seam itself is implemented — see "Decided").
+- [ ] **Confirm push decryption on MTF**: a real encrypted push carries a `kid`; for OWN add a
+  proactive resolution of the tenant key by `kid` for a cold cache (today an OWN push decrypts
+  only if the key is already cached from API activity, otherwise it is durably persisted).
 - [ ] `TRUST_PROXY` = number of ingress hops (not `true`) — only for a correct `req.ip` behind a proxy.
 - [ ] k8s liveness/readiness on `/health` and `/ready` (probes are ready).
 - [ ] Tenant provisioning by the host: `platform` and its own — via the admin API
@@ -62,6 +59,14 @@ What to decide/finish before going live. Architecture — [documentation.md](./d
   the shared key from config. The `MastercardClient` interceptor was unchanged (it already passes
   `creds`). Incomplete OWN keys with FLE on → fail-loud. Remaining: live cross-tenant validation
   with real keys (see the checklist).
+- **Encrypted push decryption — implemented (kid routing).** `WebhookHandler` decrypts the
+  envelope by the `kid` in the cleartext JWE JOSE header (per the MC docs, MC sets `kid` to the
+  fingerprint of the decryption key): PLATFORM → the platform key; OWN → the per-tenant key by
+  `kid` if already built (cached from that tenant's API activity). Decrypted events are processed
+  like any other; anything that can't be decrypted (no key for the `kid` / FLE off / failure) is
+  durably persisted to `tx_status` (ENCRYPTED) before the ack for reprocessing (no loss).
+  Remaining: MTF confirmation and a proactive OWN-key resolution by `kid` for a cold cache (see
+  the checklist).
 - **TypeORM / embedding.** The service is one umbrella `MastercardModule`; the host provides
   the `DataSource` (our entities via `forFeature`/`autoLoadEntities`) and runs its own
   migrations; `DatabaseModule.forRoot` is only for the dev harness.

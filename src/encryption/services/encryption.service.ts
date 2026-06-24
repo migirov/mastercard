@@ -20,6 +20,26 @@ interface EncryptedEnvelope {
 }
 
 /**
+ * Read the `kid` (public-key fingerprint) from a JWE compact serialization's
+ * protected JOSE header — base64url and in cleartext (the segment before the first
+ * dot). MC sets `kid` to the fingerprint of the key needed to decrypt the message,
+ * so it lets us pick the right private key BEFORE decrypting.
+ */
+function jweKid(jwe: string): string | undefined {
+  const header = jwe.split('.', 1)[0];
+  if (!header) return undefined;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(header, 'base64url').toString('utf8'),
+    );
+    const kid = (parsed as { kid?: unknown }).kid;
+    return typeof kid === 'string' && kid ? kid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Field-level encryption (JWE) per the Mastercard docs. FLE works in every
  * environment, including sandbox (confirmed live), as well as MTF/Production.
  *
@@ -46,6 +66,8 @@ export class EncryptionService implements OnModuleInit {
   private jwe?: JweEncryption;
   /** Per-tenant OWN-key instances, keyed by encryption fingerprint. */
   private readonly ownJwe = new Map<string, JweEncryption>();
+  /** Platform key fingerprint (lowercased) — to route encrypted pushes by `kid`. */
+  private platformFp?: string;
 
   constructor(private readonly config: GatewayConfig) {
     this.enabled = config.encryptionEnabled;
@@ -67,6 +89,7 @@ export class EncryptionService implements OnModuleInit {
     // harness uses paths from the project root). path.resolve leaves already-absolute
     // paths unchanged.
     const cwd = process.cwd();
+    const fingerprint = this.config.require('encryptionFingerprint');
     this.jwe = this.buildJwe({
       useCertificateContent: false,
       encryptionCertificate: path.resolve(
@@ -74,8 +97,9 @@ export class EncryptionService implements OnModuleInit {
         this.config.require('encryptionCertPath'),
       ),
       privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
-      fingerprint: this.config.require('encryptionFingerprint'),
+      fingerprint,
     });
+    this.platformFp = fingerprint.toLowerCase();
     this.logger.log('Field-level encryption ENABLED (works on sandbox too)');
   }
 
@@ -101,6 +125,36 @@ export class EncryptionService implements OnModuleInit {
   }
 
   /**
+   * Decrypt an encrypted PUSH envelope `{encrypted_payload:{data:<JWE>}}`, routing on
+   * the JWE `kid` (the fingerprint MC puts in the JOSE header — see the MC encryption
+   * docs): no kid / the PLATFORM fingerprint → the platform key; an OWN tenant's
+   * fingerprint → its per-tenant key IF already built (cached from that tenant's API
+   * activity). Returns the decrypted body, or `undefined` if FLE is off, the body is
+   * not an encrypted envelope, no key matches the `kid`, or decryption fails — the
+   * caller then persists the envelope as-is (no data loss) for later reprocessing.
+   *
+   * A real encrypted push only occurs in MTF/Prod (sandbox push is "Not Applicable"),
+   * where the assumption that the push carries a `kid` and the OWN cold-cache path are
+   * confirmed.
+   */
+  decryptPush(envelope: unknown): unknown | undefined {
+    if (!this.enabled || !this.jwe) return undefined;
+    const data = (envelope as EncryptedEnvelope)?.encrypted_payload?.data;
+    if (typeof data !== 'string' || !data) return undefined;
+    const kid = jweKid(data);
+    const jwe = this.jweForKid(kid);
+    if (!jwe) return undefined;
+    try {
+      return jwe.decrypt({ request: { url: ENDPOINT }, body: envelope });
+    } catch (e) {
+      this.logger.warn(
+        `Push decryption failed (kid=${kid ?? 'none'}): ${(e as Error).message}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Pick the `JweEncryption` for these creds: a per-tenant instance for an OWN
    * tenant (its own keys), otherwise the shared platform instance.
    */
@@ -111,6 +165,16 @@ export class EncryptionService implements OnModuleInit {
       throw new Error('platform field-level encryption is not initialized');
     }
     return this.jwe;
+  }
+
+  /**
+   * The JWE able to decrypt a message tagged with `kid`: the platform key (no kid or
+   * the platform fingerprint), or a cached OWN per-tenant key. Returns undefined when
+   * the kid belongs to an OWN tenant whose key has not been built yet.
+   */
+  private jweForKid(kid: string | undefined): JweEncryption | undefined {
+    if (!kid || kid.toLowerCase() === this.platformFp) return this.jwe;
+    return this.ownJwe.get(kid.toLowerCase());
   }
 
   /** Build (or reuse) the per-tenant `JweEncryption` for an OWN tenant. */
@@ -125,7 +189,8 @@ export class EncryptionService implements OnModuleInit {
           'field-level encryption.',
       );
     }
-    let jwe = this.ownJwe.get(fp);
+    const key = fp.toLowerCase(); // fingerprints are hex; match the JWE `kid` case-insensitively
+    let jwe = this.ownJwe.get(key);
     if (!jwe) {
       if (this.ownJwe.size >= OWN_JWE_CACHE_MAX) this.ownJwe.clear();
       jwe = this.buildJwe({
@@ -134,7 +199,7 @@ export class EncryptionService implements OnModuleInit {
         privateKey: creds.decryptionKeyPem,
         fingerprint: fp,
       });
-      this.ownJwe.set(fp, jwe);
+      this.ownJwe.set(key, jwe);
     }
     return jwe;
   }

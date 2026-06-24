@@ -4,11 +4,11 @@ import { MastercardClient } from './services/mastercard-client.service';
 
 /**
  * Low-level Mastercard client (axios + encrypt/sign/decrypt interceptors).
- * `EncryptionService` is a private provider of this same module (its only
- * consumer is `MastercardClient`), so a separate module for it is unnecessary.
+ * `EncryptionService` is provided here (its main consumer is `MastercardClient`) and
+ * exported so `WebhookHandler` can also decrypt incoming push notifications.
  */
 @Module({
   providers: [EncryptionService, MastercardClient],
-  exports: [MastercardClient],
+  exports: [MastercardClient, EncryptionService],
 })
 export class MastercardClientModule {}
