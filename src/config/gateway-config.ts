@@ -20,8 +20,13 @@ export interface MastercardModuleOptions {
   readonly encryptionCertPath?: string;
   readonly encryptionFingerprint?: string;
   readonly decryptionKeyPath?: string;
-  /** Merchant secrets source: 'local' (dev) | 'vault' (prod). */
-  readonly secretStore?: 'local' | 'vault';
+  /** Merchant secrets source: 'local' (dev) | 'aws-secrets-manager' (prod). */
+  readonly secretStore?: 'local' | 'aws-secrets-manager';
+  /**
+   * AWS region for the secret store. Optional — when omitted the AWS SDK
+   * resolves it from the standard chain (`AWS_REGION` / shared config).
+   */
+  readonly secretStoreRegion?: string;
   /** OWN credentials cache TTL, ms. */
   readonly credsCacheTtlMs?: number;
   /** Signing secret for internal merchant JWTs. */
@@ -33,7 +38,8 @@ export interface MastercardModuleOptions {
   /** Shared secret for MC webhook authentication (required — guard fail-closed). */
   readonly webhookToken?: string;
   /**
-   * Host environment. `'production'` enables prod gates (strong secrets + vault)
+   * Host environment. `'production'` enables prod gates (strong secrets + the AWS
+   * Secrets Manager store)
    * and disables seeding of test tenants. The host MUST pass it in prod; if it is
    * not passed, the module treats the environment as non-production (gates off).
    * The module does NOT read `process.env.NODE_ENV` itself — the value comes only
@@ -80,9 +86,10 @@ export class GatewayConfig {
           `production: weak/default secrets — set strong values: ${bad.join(', ')}`,
         );
       }
-      if (this.secretStore !== 'vault') {
+      if (this.secretStore !== 'aws-secrets-manager') {
         throw new Error(
-          'production: secretStore must be "vault" — LocalSecretStore is for dev only',
+          'production: secretStore must be "aws-secrets-manager" — ' +
+            'LocalSecretStore is for dev only',
         );
       }
     }
@@ -115,8 +122,11 @@ export class GatewayConfig {
   get decryptionKeyPath(): string | undefined {
     return this.opts.decryptionKeyPath;
   }
-  get secretStore(): 'local' | 'vault' {
+  get secretStore(): 'local' | 'aws-secrets-manager' {
     return this.opts.secretStore ?? 'local';
+  }
+  get secretStoreRegion(): string | undefined {
+    return this.opts.secretStoreRegion;
   }
   get credsCacheTtlMs(): number {
     return this.opts.credsCacheTtlMs && this.opts.credsCacheTtlMs > 0

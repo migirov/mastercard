@@ -60,7 +60,8 @@ describe('validateEnv (zod)', () => {
     const env = {
       ...validEnv(),
       MC_ENCRYPTION_ENABLED: 'true',
-      MC_SECRET_STORE: 'vault',
+      MC_SECRET_STORE: 'aws-secrets-manager',
+      MC_SECRET_STORE_REGION: 'us-east-1',
       DB_POOL_MAX: '10',
       MC_WEBHOOK_TOKEN: 'wh',
     };

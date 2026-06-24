@@ -100,7 +100,10 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
         encryptionFingerprint: c.get<string>('MC_ENCRYPTION_FINGERPRINT'),
         decryptionKeyPath: c.get<string>('MC_DECRYPTION_KEY_PATH'),
         secretStore:
-          (c.get<string>('MC_SECRET_STORE') as 'local' | 'vault') ?? 'local',
+          (c.get<string>('MC_SECRET_STORE') as
+            | 'local'
+            | 'aws-secrets-manager') ?? 'local',
+        secretStoreRegion: c.get<string>('MC_SECRET_STORE_REGION'),
         credsCacheTtlMs:
           Number(c.get<string>('MC_CREDS_CACHE_TTL_MS')) || undefined,
         jwtSecret: c.getOrThrow<string>('MC_JWT_SECRET'),

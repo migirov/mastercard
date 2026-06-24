@@ -15,7 +15,9 @@ function ownTenant(): TenantEntity {
     name: 'Own Sandbox',
     credentialMode: CredentialMode.OWN,
     partnerId: 'SANDBOX_1234567',
-    secretRef: 'vault://merchants/own-sandbox', // ← must NOT leak outward
+    // AWS Secrets Manager ARN — must NOT leak outward
+    secretRef:
+      'arn:aws:secretsmanager:us-east-1:123456789012:secret:mc/own/own-sandbox',
     platformApproved: true,
     mcApproved: true,
     suspended: false,

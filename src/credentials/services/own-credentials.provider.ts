@@ -28,7 +28,7 @@ import { safePartnerId, safeSecretRef } from '../utils/credential-sanitize';
 const OWN_CACHE_MAX = 500;
 
 /**
- * OWN credentials: a merchant's own keys from the SecretStore (Vault/KMS),
+ * OWN credentials: a merchant's own keys from the SecretStore (AWS Secrets Manager),
  * fetched, validated and normalised to PEM, then cached. Caching is delegated to
  * cache-manager (in-memory store: TTL + LRU(500)); a rejected resolve is NOT
  * cached, so a transient failure does not stick. Issue #15 replaced the bespoke

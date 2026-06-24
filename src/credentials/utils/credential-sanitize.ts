@@ -18,11 +18,12 @@ const logger = new Logger('CredentialSanitize');
 // partnerId from a SecretStore bundle too (it does not pass DTO validation).
 const SAFE_PARTNER_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
-// secretRef is interpolated into a Vault key path (once the store is wired) → the
-// same traversal / key-confusion guard at the boundary (the DTO only covers
-// admin-create; seeds / other paths construct a tenant directly). `/` is allowed
-// (Vault key hierarchy) but `..` segments are not (checked explicitly).
-const SAFE_SECRET_REF = /^[A-Za-z0-9._/-]{1,256}$/;
+// secretRef is an AWS Secrets Manager secret name or ARN passed to GetSecretValue →
+// the same key-confusion guard at the boundary (the DTO only covers admin-create;
+// seeds / other paths construct a tenant directly). The charset is the AWS-allowed set
+// (name: [A-Za-z0-9/_+=.@-]; ARN adds `:`); `/` is allowed (name hierarchy) but `..`
+// segments are not (checked explicitly).
+const SAFE_SECRET_REF = /^[A-Za-z0-9._/+=@:-]{1,256}$/;
 
 /** Asserts partnerId is set and safe for a URL path (strict allowlist). */
 export function safePartnerId(

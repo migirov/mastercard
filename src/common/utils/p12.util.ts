@@ -95,7 +95,7 @@ export function loadPrivateKeyFromP12(
 
 /**
  * Loads the private key from a base64-encoded .p12 and returns the PEM.
- * (This is how keys arrive from Vault/KMS in OWN mode.)
+ * (This is how keys arrive from AWS Secrets Manager in OWN mode.)
  */
 export function loadPrivateKeyFromP12Base64(
   p12Base64: string,
