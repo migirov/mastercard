@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { sha256hex } from '../../common/utils/crypto.util';
 import { clipForLog } from '../../common/utils/sanitize.util';
+import { EncryptionService } from '../../encryption/services/encryption.service';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { McWebhookEventDto } from '../dto/mc-webhook-event.dto';
 import { TransactionStatusStore } from './transaction-status.store';
@@ -42,10 +43,11 @@ type Ack = { status: 'accepted' | 'duplicate' };
  *   dedup AND write are atomic (INSERT ON CONFLICT DO NOTHING).
  * - Other events (Carded Rate Push, RFI, etc.) → the same atomic dedup+audit in `tx_status`
  *   (without status/stage); business processing as needed.
- * - Encrypted push (`{encrypted_payload}`) → decryption isn't wired yet (open MTF/Prod
- *   blocker), but the raw envelope is PERSISTED to `tx_status` (`eventType='ENCRYPTED'`)
- *   BEFORE the ack — otherwise MC won't retry after 200 and the event is lost; decryption/
- *   processing happens later.
+ * - Encrypted push (`{encrypted_payload}`) → decrypted by the JWE `kid` (platform key, or
+ *   an OWN tenant key when available) and processed like any other event; if it can't be
+ *   decrypted, the raw envelope is PERSISTED to `tx_status` (`eventType='ENCRYPTED'`) BEFORE
+ *   the ack — otherwise MC won't retry after 200 and the event is lost — then reprocessed
+ *   once the key exists.
  * - MC sends fields in both camelCase and snake_case → we normalize both notations.
  */
 @Injectable()
@@ -55,13 +57,13 @@ export class WebhookHandler {
   constructor(
     private readonly statusStore: TransactionStatusStore,
     private readonly tenants: TenantRegistry,
+    private readonly encryption: EncryptionService,
   ) {}
 
   async handle(event: McWebhookEventDto): Promise<Ack> {
-    // Encrypted push (mTLS channel + JWE body). Decryption is NOT wired yet (needs the
-    // client decryption key + a per-tenant seam — open MTF/Prod blocker; in sandbox push is
-    // "Not Applicable"). We do NOT process it (fields are under the cipher) but we PERSIST
-    // the envelope BEFORE the ack — see handleEncrypted.
+    // Encrypted push (mTLS channel + JWE body). We try to decrypt by the JWE `kid` (the
+    // platform key, or an OWN tenant key when available); on success we process the plain
+    // event, otherwise we PERSIST the envelope BEFORE the ack — see handleEncrypted.
     if (this.isEncrypted(event)) {
       return this.handleEncrypted(event);
     }
@@ -75,24 +77,36 @@ export class WebhookHandler {
   }
 
   /**
-   * Encrypted push: decryption isn't wired, but we PERSIST the raw envelope to `tx_status`
-   * (`eventType='ENCRYPTED'`) BEFORE acking — otherwise MC won't retry after 200 and the
-   * event is lost for good. If the write fails we do NOT swallow it: the exception → 500 →
-   * MC retries (persist-before-ack). Once decryption is wired, these rows are processed from
-   * the DB.
-   *
-   * Dedup key: a top-level ref if MC sends one OUTSIDE the cipher, else the ciphertext hash
-   * (`enc:sha256`). A retry of the identical envelope → dedup; if MC re-encrypts per retry
-   * (different IV/CEK) the hash changes → a possible duplicate, reconciled after decryption.
-   * tenantId=null: attribution is impossible (partnerId is under the cipher); such rows are
-   * filtered out of the merchant status read (findForTenant → status types only).
+   * Encrypted push: try to decrypt by the JWE `kid` (the platform key, or an OWN tenant
+   * key when available — see `EncryptionService.decryptPush`). On success we process the
+   * plain event like any other. If we can't decrypt (FLE off, no key for the kid, or a
+   * decryption failure) we PERSIST the raw envelope BEFORE acking — otherwise MC won't
+   * retry after 200 and the event is lost; these rows are reprocessed once the key exists.
    */
   private async handleEncrypted(event: McWebhookEventDto): Promise<Ack> {
     const r = (event ?? {}) as unknown as Record<string, any>;
+    const decrypted = this.encryption.decryptPush(r);
+    if (decrypted !== undefined) {
+      const n = this.normalize(decrypted as McWebhookEventDto);
+      this.logger.log('Encrypted push decrypted — processing.');
+      return n.eventType && STATUS_EVENT_TYPES.has(n.eventType)
+        ? this.handleStatus(n)
+        : this.handleOther(n);
+    }
+    return this.persistEncrypted(r);
+  }
+
+  /**
+   * Persist the raw encrypted envelope to `tx_status` (`eventType='ENCRYPTED'`) BEFORE the
+   * ack — if the write fails we do NOT swallow it: the exception → 500 → MC retries
+   * (persist-before-ack). Dedup key: a top-level ref if MC sends one OUTSIDE the cipher,
+   * else the ciphertext hash (`enc:sha256`) — a retry of the identical envelope dedups; if
+   * MC re-encrypts per retry the hash changes → a possible duplicate, reconciled later.
+   * tenantId=null: attribution is impossible (partnerId is under the cipher); such rows are
+   * filtered out of the merchant status read (findForTenant → status types only).
+   */
+  private async persistEncrypted(r: Record<string, any>): Promise<Ack> {
     const cipher = String(r.encrypted_payload?.data ?? '');
-    // A top-level (outside the cipher) ref, if MC sends one — more stable than the hash
-    // (survives re-encryption per retry); otherwise the ciphertext hash. `firstRef` drops
-    // empties.
     const ref =
       firstRef(r.eventRef, r.event_ref, r.notificationId, r.notification_id) ??
       (cipher ? `enc:${sha256hex(cipher)}` : null);
@@ -110,7 +124,7 @@ export class WebhookHandler {
 
     this.logger.warn(
       fresh
-        ? 'Encrypted push stored (decryption not wired, MTF/Prod) — acked without processing.'
+        ? 'Encrypted push stored (no decryption key for its kid) — acked without processing.'
         : 'Encrypted push — duplicate (already stored), acked without processing.',
     );
     return { status: fresh ? 'accepted' : 'duplicate' };

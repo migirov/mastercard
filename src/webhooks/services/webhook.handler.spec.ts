@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { sha256hex } from '../../common/utils/crypto.util';
+import { EncryptionService } from '../../encryption/services/encryption.service';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { TransactionStatusStore } from './transaction-status.store';
 import { WebhookHandler } from './webhook.handler';
@@ -7,16 +8,20 @@ import { WebhookHandler } from './webhook.handler';
 describe('WebhookHandler', () => {
   let statusStore: { record: jest.Mock };
   let tenants: { findOwnTenantIdByPartnerId: jest.Mock };
+  let encryption: { decryptPush: jest.Mock };
   let handler: WebhookHandler;
 
   beforeEach(async () => {
     statusStore = { record: jest.fn(async () => true) };
     tenants = { findOwnTenantIdByPartnerId: jest.fn(async () => null) };
+    // By default a push cannot be decrypted (no key / FLE off) → the persist path.
+    encryption = { decryptPush: jest.fn(() => undefined) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         WebhookHandler,
         { provide: TransactionStatusStore, useValue: statusStore },
         { provide: TenantRegistry, useValue: tenants },
+        { provide: EncryptionService, useValue: encryption },
       ],
     }).compile();
     handler = moduleRef.get(WebhookHandler);
@@ -155,8 +160,29 @@ describe('WebhookHandler', () => {
     });
   });
 
-  describe('encrypted push → persist BEFORE ack (decryption not wired)', () => {
-    it('persisted to tx_status (eventType=ENCRYPTED, tenantId=null) → accepted', async () => {
+  describe('encrypted push → decrypt by kid, else persist before ack', () => {
+    it('decrypts to a STATUS event → processed (recorded with status, not ENCRYPTED)', async () => {
+      encryption.decryptPush.mockReturnValue({
+        eventRef: 'd1',
+        eventType: 'STATUS_CHG',
+        transactionReference: 'TXD',
+        status: 'COMPLETED',
+      });
+      const r = await handler.handle({
+        encrypted_payload: { data: 'JWE' },
+      } as never);
+      expect(r).toEqual({ status: 'accepted' });
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventRef: 'd1',
+          eventType: 'STATUS_CHG',
+          transactionReference: 'TXD',
+          status: 'COMPLETED',
+        }),
+      );
+    });
+
+    it('persisted to tx_status (eventType=ENCRYPTED, tenantId=null) when undecryptable → accepted', async () => {
       statusStore.record.mockResolvedValue(true);
       const r = await handler.handle({
         encrypted_payload: { data: 'JWE...' },
