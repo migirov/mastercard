@@ -27,7 +27,6 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 | [api.md](docs/ru/api.md) | **Справочник по нашему API** — все эндпоинты (OAuth, Cross-Border, Admin, Webhooks), аутентификация, примеры запросов/ответов, rate-limits. |
 | [api-mastercard.md](docs/ru/api-mastercard.md) | **Официальная дока Mastercard** Cross-Border (полный референс, ~540 КБ). Источник истины по форматам payload. |
 | [production-questions.md](docs/ru/production-questions.md) | **Блокеры и вопросы перед production** (в т.ч. per-tenant encryption, выбор секрет-менеджера, TypeORM-интеграция). |
-| [client-questions.md](docs/ru/client-questions.md) | Открытые вопросы к клиенту по интеграции. |
 
 ---
 

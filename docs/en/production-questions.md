@@ -1,120 +1,81 @@
 # Questions and blockers before production
 
-What needs to be decided/finished before going live. Complements
-[documentation.md](./documentation.md) (architecture).
+What to decide/finish before going live. Architecture — [documentation.md](./documentation.md).
 
 ---
 
-## 🔴 BLOCKER: per-tenant encryption is not wired
+## Open questions (decisions needed)
 
-**Summary.** Field-level encryption (JWE) is currently **platform-level**: the
-interceptor encrypts the request with the key from `.env`
-(`MC_ENCRYPTION_CERT_PATH` / `MC_ENCRYPTION_FINGERPRINT` / `MC_DECRYPTION_KEY_PATH`)
-through a single `EncryptionService`. Meanwhile `OwnCredentialsProvider` already
-resolves **per-tenant** encryption keys (`encryptionCertPem`,
-`encryptionFingerprint`, `decryptionKeyPem`) into `McCredentials` — but **nobody
-uses them**.
-
-**Why this is a blocker for OWN.** Each OWN partner has their own MC project →
-their own Client Encryption Key (their own fingerprint). Encrypting their request
-with the platform key makes Mastercard reject the payload (`082000 Crypto Key`).
-
-> **Important (2026-06-16): the FLE mechanism itself is NO LONGER a blocker.**
-> Platform field-level encryption is **proven live on sandbox** — the request is
-> encrypted with the Client Encryption Key, the response is decrypted with our
-> Mastercard Encryption private key, and the validation APIs return real data (live
-> e2e 23/23). The old belief "sandbox doesn't support FLE" was wrong — we were
-> encrypting with the wrong key (Mastercard Encryption instead of Client Encryption
-> → `082000`). So the per-tenant seam can now be built and debugged **right on
-> sandbox**, no waiting for MTF; the only open item is wiring the per-tenant keys
-> themselves (needs a 2nd OWN key set, and the JWE lib needs file paths, not PEM
-> strings).
-
-**Question for the client/architecture.**
-- Does each OWN partner really have **their own** MC Encryption Key, or does the
-  platform use one shared encryption key for everyone? The fix scope depends on this.
-
-**What to do (if per-tenant).** Thread the keys from `McCredentials` into encryption:
-`EncryptionService` should accept cert/fingerprint/privateKey per-request (not from a
-global config), or build `JweEncryption` on the fly from `creds`. Then the
-`MastercardClient` interceptor passes `creds` into both encryption and signing. Cache
-the built `JweEncryption` by fingerprint (rebuilding is expensive).
+1. **Per-tenant encryption.** Does each OWN partner have their own MC Client Encryption Key
+   (own fingerprint), or does the platform use one shared encryption key for everyone? This
+   determines the scope of the per-tenant seam (see the blocker below).
+2. **DB retention.** What retention window is required for `payment_idempotency` and
+   `tx_status`, and what mechanism prunes old rows? There is no app-level TTL, both tables
+   grow unbounded; `payment_idempotency.result` stores the full MC response (possibly PII).
+3. **`X-Webhook-Token` delivery.** MC doesn't know the token — inject it at the ingress TLS
+   layer, or set it as a custom header in the portal push config?
 
 ---
 
-## ✅ Decided: TypeORM / embedding
+## Blockers before prod
 
-The service is **ONE umbrella module (`MastercardModule`)** embedded into the host
-monolith `b24club-api`. The **host** provides the TypeORM `DataSource` (our entities
-via `forFeature` / `autoLoadEntities`) and runs **its own migrations** (not
-`synchronize`). Our own `DatabaseModule.forRoot` + `DATABASE_URL` remain only for the
-standalone dev-harness (`main.ts`). Question closed.
-
----
-
-## Prod prerequisites (checklist)
-
-- [ ] **Per-tenant encryption** (see the blocker above) — if OWN partners have different keys.
-- [x] **Private Mastercard Encryption key** to decrypt responses
-      (`MC_DECRYPTION_KEY_PATH`) — we have it (our `fintory-decrypt`, fingerprint `75ea7e15…`,
-      activated on the MC portal). OWN partners will need their own.
-- [x] **`MC_ENCRYPTION_ENABLED=true`** — FLE works in all environments, sandbox included
-      (verified 2026-06-16); enable as soon as keys are configured (not only MTF/Prod).
-- [ ] **`MC_SECRET_STORE=vault`** + an implemented `VaultSecretStore` (currently a
-      `NotImplemented` stub). The prod gate in `main.ts` already requires `vault` and fails without it.
+- [ ] **Per-tenant encryption seam** (if OWN partners have different keys). FLE is currently
+  platform-level — the interceptor encrypts with the key from `.env`. `OwnCredentialsProvider`
+  already resolves per-tenant keys into `McCredentials`, but nobody uses them → an OWN
+  partner's request encrypted with the platform key is rejected by MC (`082000`). To do: thread
+  cert/fingerprint/privateKey from `McCredentials` into `EncryptionService` per-request (build
+  and cache `JweEncryption` by fingerprint). The FLE mechanism itself is not a blocker (proven
+  on sandbox, see "Decided"); the seam can be debugged there too.
+- [ ] **`VaultSecretStore`** implemented + `MC_SECRET_STORE=vault` (currently a `NotImplemented`
+  stub; the prod gate already requires `vault` and fails without it).
 - [ ] **Strong secrets** instead of dev defaults: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
-      `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (mandatory — the webhook guard is fail-closed).
-      The prod gate checks this at startup.
-- [ ] **`TRUST_PROXY`** = number of ingress hops (not `true`) — only for deriving a correct `req.ip` behind a proxy (used by the rate-limit IP fallback); not related to authentication.
-- [ ] **mTLS for Mastercard webhooks (authoritative push-notification authenticity).** Per the MC docs, webhook authenticity is provided by **mTLS**, NOT a payload signature (MC has no JWS/HMAC payload signature; the former "question C1" is closed by reading the docs). Do at deployment: (1) request the public mTLS push-notification cert from the MC representative; (2) add it to the receiving app's/ingress trust store; (3) submit our server cert chain via the KMP portal; (4) confirm with MC how `X-Webhook-Token` is delivered (MC doesn't know it — inject at the TLS layer or a custom header in the portal push config). Until then the active factor is the in-service fail-closed `X-Webhook-Token`. MC quote and details — `api.md` → Webhooks. There is no in-code payload-signature check — MC does not sign push bodies.
-- [ ] **Decrypt encrypted push notifications (MTF/Prod).** The `WebhookHandler` currently detects
-      an encrypted body (`{ encrypted_payload: { data } }`) and acks `200` WITHOUT processing (in
-      sandbox push is "Not Applicable", so the case itself can't be tested on sandbox). The
-      decryption key (`MC_DECRYPTION_KEY_PATH`) already exists and is proven on validation
-      responses — what's left is threading `decryptResponse` into the push handler + the per-tenant
-      seam (the same per-tenant item as in `EncryptionService`). Until then encrypted status events
-      are not persisted to `tx_status`.
-- [ ] **Optional ingress rate-limit** as defense-in-depth — the authoritative limit is the in-service self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress); an ingress limit, if any, is not authoritative.
-- [ ] **Personal partner-id and keys** of OWN partners loaded into the secret manager.
-- [x] **DB migrations** — infrastructure is ready (`data-source.ts`, npm scripts
-      `migration:generate/run/revert`, the single `InitialSchema` migration (creates the
-      `tx_status` table for push-status persistence AND `payment_idempotency`), `synchronize`
-      off in prod). Remaining: run `migration:run` against the prod DB on deploy.
+  `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (the prod gate checks this at startup).
+- [ ] **mTLS for MC webhooks.** Push authenticity at MC is via mTLS, not a payload signature.
+  At deploy: request the public mTLS cert from MC → add to the trust store; submit our cert
+  chain via the KMP portal; confirm `X-Webhook-Token` delivery (question 3). Until then the
+  active factor is the fail-closed `X-Webhook-Token`.
+- [ ] **Decrypt encrypted push** (MTF/Prod). `WebhookHandler` detects `{ encrypted_payload }`
+  and persists the envelope to `tx_status` (`eventType=ENCRYPTED`) before the ack, but does not
+  decrypt it. To do: thread `decryptResponse` into the handler + the per-tenant seam (same
+  item). On sandbox push is "Not Applicable" — the case can't be reproduced there.
+- [ ] **OWN partner-id and keys** (including their decryption key) loaded into the secret manager.
+- [ ] **`migration:run`** against the prod DB on deploy.
 
 ---
 
-## Dependency note: axios
+## Prod config checklist
 
-`axios` is pinned to **1.6.0** — this **exactly matches** the host `b24club-api`
-(their `package.json` also pins `axios 1.6.0`), and `@nestjs/axios@4` (which the host
-uses) peer-requires `axios ^1.3.1` → no conflict. However `npm audit` flags axios
-1.0.0–1.15.2 with HIGH advisories (SSRF / prototype-pollution / ReDoS); latest is
-1.17.0. Our practical exposure is low (fixed `baseURL`, relative paths we build
-ourselves, no client-supplied absolute URLs, no proxy trust). **Recommendation:** the
-axios bump should be driven by the **host** (it owns the single deduped axios in the
-monolith); we follow in lockstep. We use raw axios (not `@nestjs/axios`) deliberately
-for interceptor control.
+- [ ] `TRUST_PROXY` = number of ingress hops (not `true`) — only for a correct `req.ip` behind a proxy.
+- [ ] k8s liveness/readiness on `/health` and `/ready` (probes are ready).
+- [ ] Tenant provisioning by the host: `platform` and its own — via the admin API
+  (double-approval onboarding) or `SEED_DEMO=false npm run seed`. The module does not seed
+  tenants on boot, otherwise PLATFORM mode won't work.
+- [ ] Retention policy for `payment_idempotency`/`tx_status` (question 2).
+- [ ] (Optional) Metrics/tracing (Prometheus `/metrics` / OpenTelemetry) + alerts. Logs
+  (pino + correlation-id) are already in place.
+- [ ] (Optional) Ingress rate-limit as defense-in-depth — the per-pod `@nestjs/throttler` is
+  self-standing (correctness independent of the ingress).
+- [x] `MC_ENCRYPTION_ENABLED=true` — FLE works in all environments, sandbox included.
+- [x] Private Mastercard Encryption key to decrypt responses (`MC_DECRYPTION_KEY_PATH`) — present.
 
 ---
 
-## Business-driven enhancements (not blockers)
+## Decided
 
-- ~~RFI subsystem~~ — **implemented** (retrieve / update / upload / download).
-- Observability: **logs are ready** (structured JSON pino + correlation-id);
-  remaining are **metrics/tracing** (Prometheus `/metrics` or OpenTelemetry) + alerts.
-- **Health probes are ready** (`/health`, `/ready`) — wire liveness/readiness in the k8s manifest.
-- **DB retention (open item, infra).** There is no TTL'd KV layer — payment
-  idempotency (`payment_idempotency`) and webhook dedup/persistence (`tx_status`) live in Postgres
-  with **no app-level TTL** (there is no cron cleanup). Implications: (1) both
-  tables grow unbounded — especially `tx_status` from frequent non-status pushes (Carded Rate); (2)
-  `payment_idempotency.result` stores the full MC response (possibly PII) permanently — the KV layer
-  used to expire it after 24h. **Needs a host/infra decision:** a retention policy (partition by
-  `receivedAt` / periodic prune of old rows), particularly for data minimization (PII/PCI). Payment
-  idempotency is practically only needed within the retry window (minutes–a day), so pruning old
-  `done` rows is safe. Question for the client: required retention window and mechanism.
-- **Tenant provisioning on embedding.** The embeddable `MastercardModule` does not
-  create tenants on boot (`TenantRegistry` is a pure data layer; `platform` is seeded only by the
-  dev harness). The host MUST provision tenants itself: the baseline `platform` and its own — via
-  the admin API (double-approval onboarding) or `SEED_DEMO=false npm run seed` at provisioning time.
-  Otherwise PLATFORM mode won't work (no PLATFORM tenant exists).
-- ~~Expand Swagger annotations~~ — **done**.
+- **TypeORM / embedding.** The service is one umbrella `MastercardModule`; the host provides
+  the `DataSource` (our entities via `forFeature`/`autoLoadEntities`) and runs its own
+  migrations; `DatabaseModule.forRoot` is only for the dev harness.
+- **FLE mechanism** proven on sandbox: the request is encrypted with the Client Encryption
+  Key, the response decrypted with our Mastercard Encryption private key (the keys used to be
+  swapped → `082000`).
+- Migration infrastructure, the RFI subsystem, and Swagger annotations — ready.
+
+---
+
+## Note: axios
+
+`axios` is pinned to `1.6.0` (matches the host `b24club-api`; `@nestjs/axios@4` peer-requires
+`^1.3.1` — no conflict). `npm audit` flags 1.x as HIGH (SSRF/ReDoS), but exposure is low (fixed
+`baseURL`, our own relative paths, no client-supplied absolute URLs). The bump is driven by the
+host (it owns the single axios in the monolith) — we follow in lockstep. Raw axios (not
+`@nestjs/axios`) is deliberate, for interceptor control.
