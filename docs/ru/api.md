@@ -44,6 +44,11 @@
 | 14 | Payload Encryption | `EncryptionService` (axios-интерцептор) | ✅ FLE работает на sandbox |
 | 15 | Push Notifications | `POST /webhooks/mastercard/webhook` (+ `tx_status`) | ✅ |
 
+> **Покрытие тестами:** у каждой операции выше есть **request-shape юнит-тест**
+> (метод/путь/заголовки/тело против спеки MC, сверка с централизованным `mc-paths`). Для операций,
+> которых нет в sandbox (Carded Rate, Account Validation, Endpoint Guide, RFI — строки ⚠️), этот
+> юнит-тест — единственная авто-проверка; остальные ещё гоняются live-e2e на sandbox.
+
 > «Reference Application» в сайдбаре MC — это пример-приложение, не API; реализовывать нечего.
 
 ---

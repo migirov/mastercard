@@ -291,8 +291,10 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
   RFI requests/documents) + **Push Notifications**: the webhook persists statuses to
   `tx_status`, the merchant reads via `GET /crossborder/status-events`.
 - ✅ **Quality:** coverage includes the confirm suite (3/3), carded-rate GET and push
-  persistence; a centralized MC path map, the composed `UseGatewayContract()` decorator, and
-  the `src/index.ts` barrel. Tests: unit 29 suites / 225, hermetic e2e 18, live sandbox e2e 23.
+  persistence, plus a **request-shape unit test for every MC operation** (method/path/headers/body
+  vs the MC spec — the only automated check for ops the sandbox doesn't expose); a centralized MC
+  path map, the composed `UseGatewayContract()` decorator, and the `src/index.ts` barrel. Tests:
+  unit 30 suites / 246, hermetic e2e 18, live sandbox e2e 23.
 - ✅ **Per-tenant encryption, encrypted-push decryption (kid routing), and the AWS Secrets
   Manager secret store** — implemented.
 - ⬜ **Before prod (deploy-time):** strong secrets, mTLS for MC webhooks, OWN keys loaded into
