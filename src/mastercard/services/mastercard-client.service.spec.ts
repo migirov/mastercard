@@ -47,7 +47,7 @@ function setup(decrypt?: (d: unknown) => unknown) {
 describe('MastercardClient — retry matrix', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('GET ретраит транзиентный 502 до 3 раз, затем 200', async () => {
+  it('GET retries a transient 502 up to 3 times, then 200', async () => {
     const { client, httpRequest } = setup();
     httpRequest
       .mockResolvedValueOnce({ status: 502, data: 'x' })
@@ -59,7 +59,7 @@ describe('MastercardClient — retry matrix', () => {
     expect(httpRequest).toHaveBeenCalledTimes(3);
   });
 
-  it('GET: все попытки транзиентны → возвращает последний статус после 3 вызовов', async () => {
+  it('GET: all attempts transient → returns the last status after 3 calls', async () => {
     const { client, httpRequest } = setup();
     httpRequest.mockResolvedValue({ status: 503, data: 'x' });
     const res = await client.request(creds, { method: 'GET', path: '/p' });
@@ -67,7 +67,7 @@ describe('MastercardClient — retry matrix', () => {
     expect(httpRequest).toHaveBeenCalledTimes(3);
   });
 
-  it('POST НИКОГДА не ретраится (защита от двойного списания)', async () => {
+  it('POST is NEVER retried (protection against double charging)', async () => {
     const { client, httpRequest } = setup();
     httpRequest.mockResolvedValue({ status: 503, data: 'x' });
     const res = await client.request(creds, {
@@ -79,7 +79,7 @@ describe('MastercardClient — retry matrix', () => {
     expect(httpRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('сетевая ошибка на GET ретраится; на POST — нет', async () => {
+  it('network error on GET is retried; on POST — not', async () => {
     const get = setup();
     get.httpRequest.mockRejectedValue(new Error('ECONNRESET'));
     await expect(
@@ -96,10 +96,10 @@ describe('MastercardClient — retry matrix', () => {
   });
 });
 
-describe('MastercardClient — decrypt-no-retry (регресс)', () => {
+describe('MastercardClient — decrypt-no-retry (regression)', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('детерминированная ошибка расшифровки НЕ ретраится даже на GET', async () => {
+  it('a deterministic decryption error is NOT retried even on GET', async () => {
     const { client, httpRequest, getResHandler } = setup(() => {
       throw new Error('bad key');
     });

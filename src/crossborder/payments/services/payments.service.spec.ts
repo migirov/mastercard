@@ -60,7 +60,7 @@ describe('PaymentsService — path & idempotency', () => {
     );
   });
 
-  it('createPayment — ключ идемпотентности = txref:sha256(transaction_reference)', async () => {
+  it('createPayment — idempotency key = txref:sha256(transaction_reference)', async () => {
     const { svc, idempotency } = make();
     const ref = '08POC342598033X';
     await svc.createPayment('acme', {
@@ -71,13 +71,13 @@ describe('PaymentsService — path & idempotency', () => {
     expect(call[1]).toBe(`txref:${sha256hex(ref)}`);
   });
 
-  it('createPayment без transaction_reference → ключ undefined (без идемпотентности)', async () => {
+  it('createPayment without transaction_reference → key undefined (no idempotency)', async () => {
     const { svc, idempotency } = make();
     await svc.createPayment('acme', {} as never);
     expect(idempotency.run.mock.calls[0][1]).toBeUndefined();
   });
 
-  it('id в пути — encodeURIComponent (анти-структурная инъекция)', async () => {
+  it('id in the path — encodeURIComponent (anti structural injection)', async () => {
     const { svc, client } = make();
     await svc.getPayment('acme', 'a b/c');
     expect(reqOf(client).path).toBe(
@@ -86,14 +86,14 @@ describe('PaymentsService — path & idempotency', () => {
   });
 });
 
-describe('PaymentsService — status events (локальное чтение)', () => {
+describe('PaymentsService — status events (local read)', () => {
   const ownTenant = { id: 'own-1', credentialMode: 'OWN' } as unknown as Tenant;
   const platformTenant = {
     id: 'acme',
     credentialMode: 'PLATFORM',
   } as unknown as Tenant;
 
-  it('OWN → findForTenant(id, ref, includePool=false); маппинг в view (без id/tenantId); MC не вызывается', async () => {
+  it('OWN → findForTenant(id, ref, includePool=false); maps to view (no id/tenantId); MC is not called', async () => {
     const rows = [
       {
         id: 1,
@@ -129,7 +129,7 @@ describe('PaymentsService — status events (локальное чтение)', 
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it('PLATFORM → includePool=true (читает общий null-пул)', async () => {
+  it('PLATFORM → includePool=true (reads the shared null pool)', async () => {
     const { svc, statusEvents } = make();
     await svc.getStatusEvents(platformTenant, 'TX2');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(

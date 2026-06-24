@@ -37,7 +37,7 @@ const reqOf = (client: { request: jest.Mock }): McRequest =>
   client.request.mock.calls[0][1] as McRequest;
 
 describe('ValidationsService', () => {
-  it('address-validation — собственная база (без /crossborder и без partner-id)', async () => {
+  it('address-validation — its own base (no /crossborder and no partner-id)', async () => {
     const { svc, client } = make();
     await svc.validateAddress('acme', {} as never);
     expect(reqOf(client).path).toBe(
@@ -45,7 +45,7 @@ describe('ValidationsService', () => {
     );
   });
 
-  it('mcRefHeaders: Partner-Ref-Id со срезанным CRLF + X-Mc-Correlation-Id', async () => {
+  it('mcRefHeaders: Partner-Ref-Id with CRLF stripped + X-Mc-Correlation-Id', async () => {
     const crlfCreds = { ...creds, partnerId: 'PID\r\nX: y' } as McCredentials;
     const { svc, client } = make(crlfCreds);
     await svc.validateAccount('acme', {} as never);

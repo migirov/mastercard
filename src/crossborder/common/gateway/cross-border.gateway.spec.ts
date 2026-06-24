@@ -51,12 +51,12 @@ const ping = (gw: CrossBorderGateway, ctx = 'ctx') =>
   gw.run(ctx, ctx, () => ({ method: 'GET', path: '/x' }) as McRequest);
 
 describe('CrossBorderGateway — call() dispatch', () => {
-  it('2xx → данные', async () => {
+  it('2xx → data', async () => {
     const { gw } = make({ status: 200, data: { proposal: 1 } });
     await expect(ping(gw)).resolves.toEqual({ proposal: 1 });
   });
 
-  it('бизнес-4xx с объектом → UpstreamHttpException с этим телом', async () => {
+  it('business 4xx with an object → UpstreamHttpException with that body', async () => {
     const body = { Errors: { Error: { ReasonCode: 'X' } } };
     const { gw } = make({ status: 422, data: body });
     await expect(ping(gw)).rejects.toMatchObject({ upstream: body });
@@ -65,26 +65,26 @@ describe('CrossBorderGateway — call() dispatch', () => {
     ).rejects.toBeInstanceOf(UpstreamHttpException);
   });
 
-  it('4xx с НЕ-объектом (HTML/строка) → 502, тело НЕ форвардится', async () => {
+  it('4xx with a NON-object (HTML/string) → 502, body is NOT forwarded', async () => {
     const { gw } = make({ status: 429, data: '<html>rate limited</html>' });
     await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
   });
 
-  it('401/403/5xx → 502 (не раскрываем)', async () => {
+  it('401/403/5xx → 502 (not disclosed)', async () => {
     for (const status of [401, 403, 500, 503]) {
       const { gw } = make({ status, data: { secret: 'x' } });
       await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
     }
   });
 
-  it('сетевая ошибка/сбой расшифровки → 502', async () => {
+  it('network error/decryption failure → 502', async () => {
     const { gw } = make({ throws: true });
     await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
   });
 });
 
 describe('CrossBorderGateway — gating', () => {
-  it('не-ACTIVE тенант → Forbidden, MC не вызывается', async () => {
+  it('non-ACTIVE tenant → Forbidden, MC is not called', async () => {
     const inactive = { ...activeTenant, suspended: true } as Tenant;
     const { gw, client } = make({ tenant: inactive });
     await expect(ping(gw)).rejects.toBeInstanceOf(ForbiddenException);

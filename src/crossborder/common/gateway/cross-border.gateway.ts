@@ -85,7 +85,7 @@ export class CrossBorderGateway {
       res = await this.client.request<T>(creds, req);
     } catch (e) {
       this.logger.error(
-        `Mastercard ${ctx}: ошибка вызова/расшифровки — ${(e as Error).message}`,
+        `Mastercard ${ctx}: call/decryption error — ${(e as Error).message}`,
       );
       throw new BadGatewayException('Error contacting Mastercard');
     }

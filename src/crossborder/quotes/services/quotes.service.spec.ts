@@ -60,7 +60,7 @@ describe('QuotesService — path construction', () => {
     });
   });
 
-  it('retrieveConfirmedQuote — GET .../quotes/{ref}/proposals/{proposalId}, оба сегмента кодируются', async () => {
+  it('retrieveConfirmedQuote — GET .../quotes/{ref}/proposals/{proposalId}, both segments are encoded', async () => {
     const { svc, client } = make();
     // both args carry chars that must be percent-encoded → proves BOTH segments
     // go through encodeURIComponent (not just proposalId).

@@ -77,7 +77,9 @@ async function bootstrap() {
   if (!isProd || process.env.SWAGGER_ENABLED === 'true') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('Mastercard Cross-Border Gateway')
-      .setDescription('Мульти-мерчант шлюз к Mastercard Cross-Border Services')
+      .setDescription(
+        'Multi-merchant gateway to Mastercard Cross-Border Services',
+      )
       .setVersion('1.0')
       .addBearerAuth({ type: 'http', scheme: 'bearer' }, 'merchant')
       .addApiKey(
@@ -105,14 +107,14 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Сервер на http://localhost:${port}`);
+  new Logger('Bootstrap').log(`Server on http://localhost:${port}`);
 }
 
 bootstrap().catch((err) => {
   // Explicitly exit the process with a non-zero code — k8s/orchestrator will see a
   // crashloop rather than a "hanging" uninitialized pod.
   new Logger('Bootstrap').error(
-    `Не удалось запустить сервис: ${(err as Error).message}`,
+    `Failed to start the service: ${(err as Error).message}`,
   );
   process.exit(1);
 });
