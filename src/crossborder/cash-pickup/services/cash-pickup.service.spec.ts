@@ -46,4 +46,39 @@ describe('CashPickupService', () => {
     );
     expect(r.headers).toMatchObject({ 'partner-id': PID });
   });
+
+  it('cities — /crossborder/cash-pickup/cities + qs + partner-id header', async () => {
+    const { svc, client } = make();
+    await svc.cashPickupCities('acme', {
+      country: 'IND',
+      currency: 'INR',
+    } as never);
+    const r = reqOf(client);
+    expect(r.path).toBe(
+      '/crossborder/cash-pickup/cities?country=IND&currency=INR',
+    );
+    expect(r.headers).toMatchObject({ 'partner-id': PID });
+  });
+
+  it('providers — /crossborder/cash-pickup/providers + qs', async () => {
+    const { svc, client } = make();
+    await svc.cashPickupProviders('acme', {
+      country: 'IND',
+      cash_pickup_type: 'PANY',
+    } as never);
+    expect(reqOf(client).path).toBe(
+      '/crossborder/cash-pickup/providers?country=IND&cash_pickup_type=PANY',
+    );
+  });
+
+  it('branches — /crossborder/cash-pickup/branches + qs', async () => {
+    const { svc, client } = make();
+    await svc.cashPickupBranches('acme', {
+      provider_id: 'p1',
+      city: 'Delhi',
+    } as never);
+    expect(reqOf(client).path).toBe(
+      '/crossborder/cash-pickup/branches?provider_id=p1&city=Delhi',
+    );
+  });
 });

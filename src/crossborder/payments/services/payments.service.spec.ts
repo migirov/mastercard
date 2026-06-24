@@ -84,6 +84,24 @@ describe('PaymentsService — path & idempotency', () => {
       `/send/v1/partners/${PID}/crossborder/${encodeURIComponent('a b/c')}`,
     );
   });
+
+  it('getPaymentByRef → GET /send/v1/.../crossborder?ref={ref} (ref encoded)', async () => {
+    const { svc, client } = make();
+    await svc.getPaymentByRef('acme', 'a b/c');
+    expect(reqOf(client)).toMatchObject({
+      method: 'GET',
+      path: `/send/v1/partners/${PID}/crossborder?ref=${encodeURIComponent('a b/c')}`,
+    });
+  });
+
+  it('cancelPayment → POST /send/v1/.../{id}/cancel (id encoded)', async () => {
+    const { svc, client } = make();
+    await svc.cancelPayment('acme', 'a b/c');
+    expect(reqOf(client)).toMatchObject({
+      method: 'POST',
+      path: `/send/v1/partners/${PID}/crossborder/${encodeURIComponent('a b/c')}/cancel`,
+    });
+  });
 });
 
 describe('PaymentsService — status events (local read)', () => {
