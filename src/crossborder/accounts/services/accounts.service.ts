@@ -22,7 +22,7 @@ export class AccountsService {
    * (hence NOT POST — the former POST variant was removed as non-existent at MC).
    * Sandbox is NOT available for Carded Rate (per the MC docs) → only the gateway
    * wiring is exercised. The push variant (Carded Rate Push) is a webhook on
-   * /webhooks/mastercard.
+   * /webhooks/mastercard/webhook.
    */
   getRates(tenantId: string) {
     return this.gw.run(tenantId, 'getRates', (c) => ({

@@ -60,7 +60,10 @@ MC_SIGNING_KEY_PATH, MC_SIGNING_KEY_PASSWORD
 MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # for MTF/Prod
 DATABASE_URL, DB_POOL_MAX               # PostgreSQL
-MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
+MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN
+MC_WEBHOOK_TOKEN                        # optional dev/secondary factor (prod uses in-app mTLS)
+MC_WEBHOOK_MTLS_ENABLED, MC_WEBHOOK_ALLOWED_CLIENT_CNS   # in-app webhook mTLS (required in prod)
+TLS_KEY_PATH, TLS_CERT_PATH, TLS_CLIENT_CA_PATH          # app-terminated TLS (mTLS); ingress = L4 passthrough
 MC_SECRET_STORE                         # local (dev) | aws-secrets-manager (prod)
 MC_SECRET_STORE_REGION                  # optional AWS region for the secret store (else AWS_REGION / IAM role)
 TRUST_PROXY                             # number of ingress hops behind a proxy (only for a correct req.ip; used by the rate-limit IP fallback — not related to auth)
@@ -133,7 +136,7 @@ src/
   crossborder/    business endpoints by area (accounts/quotes/payments/validations/
                   cash-pickup/rfi) over a shared gateway; payment idempotency (Postgres)
   audit/          operation log (Postgres, batched writes)
-  webhooks/       push notifications + fail-closed auth (token) + DTO
+  webhooks/       push notifications + in-app auth (mTLS client-cert / dev token) + DTO
   database/       TypeORM (dev harness; a host provides its own DataSource)
   health/         health/readiness probes (@nestjs/terminus) — controller in the dev
                   harness (AppModule), not the embedded module
@@ -177,8 +180,13 @@ warn about these; if an item is omitted, the affected feature fails as noted.
    must allow ≥~1.4MB for that route — either a route-scoped JSON parser for
    `POST /crossborder/rfi/documents` or a high-enough global JSON limit. Missing → RFI
    uploads near MC's ~1MB limit return `413`.
-4. **`webhookToken` set** — required for inbound Mastercard webhooks; empty ⇒
-   fail-closed (every `/webhooks/mastercard` request → `401`).
+4. **Webhook authentication — in-app mTLS.** Mastercard authenticates push only by a client
+   certificate (it sends no token/header). `WebhookAuthGuard` validates it **in the app**
+   (never the ingress): set `webhookMtlsEnabled: true` + `webhookAllowedClientCNs`
+   (`CrossborderServicesNotification-{env}.mastercard.com`) and bootstrap the HTTPS server with
+   `requestCert: true, rejectUnauthorized: false` and MC's DigiCert Outbound CA chain in `ca`
+   (TLS terminated by the app; run the ingress as L4 passthrough). For dev/local without TLS,
+   leave mTLS off and set a fail-closed `webhookToken` (`X-Webhook-Token`). Required in prod.
 5. **Do not pass `isGlobal: false`** to `forRoot/forRootAsync`. The umbrella module
    is global by default so its exported `GatewayConfig` is injectable by every
    sub-module without each re-importing the umbrella; overriding it to `false` would

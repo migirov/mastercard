@@ -107,14 +107,14 @@ describe('Mastercard gateway (e2e, live sandbox)', () => {
     expect(tok.status).toBe(400);
   });
 
-  it('POST /webhooks/mastercard без токена → 401 (fail-closed)', async () => {
-    const wh = await http.post('/webhooks/mastercard', { eventRef: 'x' });
+  it('POST /webhooks/mastercard/webhook без токена → 401 (fail-closed)', async () => {
+    const wh = await http.post('/webhooks/mastercard/webhook', { eventRef: 'x' });
     expect(wh.status).toBe(401);
   });
 
-  it('POST /webhooks/mastercard с токеном → 200', async () => {
+  it('POST /webhooks/mastercard/webhook с токеном → 200', async () => {
     const wh = await http.post(
-      '/webhooks/mastercard',
+      '/webhooks/mastercard/webhook',
       { eventRef: `e2e-${Date.now()}`, eventType: 'STATUS_CHG' },
       { headers: { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' } },
     );

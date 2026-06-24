@@ -37,6 +37,13 @@ const EnvSchema = z.object({
   MC_ENCRYPTION_FINGERPRINT: z.string().optional(),
   MC_DECRYPTION_KEY_PATH: z.string().optional(),
   MC_WEBHOOK_TOKEN: z.string().optional(),
+  // In-app webhook mTLS: validate MC's client cert in the app (not the ingress).
+  MC_WEBHOOK_MTLS_ENABLED: z.enum(['true', 'false']).optional(),
+  MC_WEBHOOK_ALLOWED_CLIENT_CNS: z.string().optional(), // comma-separated subject CNs
+  // Dev-harness server TLS so the app can terminate mTLS locally (host wires its own).
+  TLS_KEY_PATH: z.string().optional(),
+  TLS_CERT_PATH: z.string().optional(),
+  TLS_CLIENT_CA_PATH: z.string().optional(),
   TRUST_PROXY: z.string().optional(),
 });
 

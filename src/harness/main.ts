@@ -4,20 +4,45 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
+import { readFileSync } from 'node:fs';
 import { AppModule } from './app.module';
 import { isWeakSecret } from '../common/utils/secret-strength';
+
+/**
+ * Dev-harness server TLS (gated on TLS_KEY_PATH/TLS_CERT_PATH). `requestCert` makes the app
+ * ASK for a client certificate so `WebhookAuthGuard` can validate MC's cert IN-APP;
+ * `rejectUnauthorized: false` keeps non-webhook routes (merchants, no client cert) working —
+ * the guard enforces the cert only on the webhook route. The host replicates this in its own
+ * bootstrap (TLS terminated by the app; the ingress is L4 passthrough).
+ */
+function httpsOptionsFromEnv():
+  | {
+      key: Buffer;
+      cert: Buffer;
+      ca?: Buffer;
+      requestCert: boolean;
+      rejectUnauthorized: boolean;
+    }
+  | undefined {
+  const key = process.env.TLS_KEY_PATH;
+  const cert = process.env.TLS_CERT_PATH;
+  if (!key || !cert) return undefined;
+  const ca = process.env.TLS_CLIENT_CA_PATH;
+  return {
+    key: readFileSync(key),
+    cert: readFileSync(cert),
+    ca: ca ? readFileSync(ca) : undefined,
+    requestCert: true,
+    rejectUnauthorized: false,
+  };
+}
 
 /** In production, refuse to start with weak/default secrets. */
 function assertProdSecrets(): void {
   if (process.env.NODE_ENV !== 'production') return;
-  // MC_WEBHOOK_TOKEN is now REQUIRED and must be strong: webhook authentication is
-  // fail-closed inside the service itself (we don't rely on mTLS at the ingress).
-  const bad = [
-    'MC_JWT_SECRET',
-    'MC_INTERNAL_TOKEN',
-    'MC_ADMIN_TOKEN',
-    'MC_WEBHOOK_TOKEN',
-  ].filter((k) => isWeakSecret(process.env[k]));
+  const bad = ['MC_JWT_SECRET', 'MC_INTERNAL_TOKEN', 'MC_ADMIN_TOKEN'].filter(
+    (k) => isWeakSecret(process.env[k]),
+  );
   if (bad.length) {
     throw new Error(
       `production: weak/default secrets — set strong values: ${bad.join(', ')}`,
@@ -32,6 +57,24 @@ function assertProdSecrets(): void {
       'production: set MC_SECRET_STORE=aws-secrets-manager — LocalSecretStore is for dev only',
     );
   }
+
+  // Webhook authenticity is decided IN THE APP via mTLS (MC sends no token/header on push):
+  // require it in prod, with the TLS terminated by the app so the guard can see the client cert.
+  if ((process.env.MC_WEBHOOK_MTLS_ENABLED ?? '') !== 'true') {
+    throw new Error(
+      'production: set MC_WEBHOOK_MTLS_ENABLED=true — validate MC client cert in-app, not the ingress',
+    );
+  }
+  if (!(process.env.MC_WEBHOOK_ALLOWED_CLIENT_CNS ?? '').trim()) {
+    throw new Error(
+      'production: set MC_WEBHOOK_ALLOWED_CLIENT_CNS (the MC client-cert CN allowlist)',
+    );
+  }
+  if (!process.env.TLS_KEY_PATH || !process.env.TLS_CERT_PATH) {
+    throw new Error(
+      'production: set TLS_KEY_PATH/TLS_CERT_PATH so the app terminates TLS (mTLS) itself',
+    );
+  }
 }
 
 async function bootstrap() {
@@ -39,9 +82,13 @@ async function bootstrap() {
 
   // Disable bodyParser so we can register the JSON parser with our own limit.
   // bufferLogs: buffer startup logs until the pino logger is attached.
+  // httpsOptions (gated): terminate TLS in the app so the webhook guard can validate MC's
+  // client cert in-app (mTLS) — never the ingress.
+  const httpsOptions = httpsOptionsFromEnv();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     bufferLogs: true,
+    ...(httpsOptions ? { httpsOptions } : {}),
   });
   // Structured logger (pino) for the whole application + correlation-id.
   app.useLogger(app.get(PinoLogger));
@@ -107,7 +154,8 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Server on http://localhost:${port}`);
+  const scheme = httpsOptions ? 'https' : 'http';
+  new Logger('Bootstrap').log(`Server on ${scheme}://localhost:${port}`);
 }
 
 bootstrap().catch((err) => {

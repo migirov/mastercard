@@ -574,7 +574,7 @@ and `signing`. Encryption fields are optional (needed only with `MC_ENCRYPTION_E
 
 # McWebhookEvent
 
-**McWebhookEvent** — a Mastercard push-notification payload (`POST /webhooks/mastercard`).
+**McWebhookEvent** — a Mastercard push-notification payload (`POST /webhooks/mastercard/webhook`).
 Status events are **persisted** to [`tx_status`](#transactionstatus-tx_status); others
 (Carded Rate Push, RFI, etc.) are persisted to `tx_status` too (atomic dedup+audit via
 `INSERT … ON CONFLICT (eventRef) DO NOTHING`); there is **no separate KV layer**.
@@ -597,11 +597,12 @@ MC sends fields in TWO notations — camelCase and snake_case; the handler norma
 
 ## Behavior
 
-- **Authentication:** in-service fail-closed token (`X-Webhook-Token`), required in prod
-  and dev. Mastercard's authoritative authenticity for push notifications is **mTLS**, not a
-  payload signature (MC has no JWS/HMAC payload signature; the former "C1" is closed by reading
-  the docs). There is no in-code signature check — the single active factor is the token. Details
-  and the MC quote — `api.md` → Webhooks.
+- **Authentication:** decided **in the app**, never the ingress. Mastercard authenticates push
+  only by a **client certificate** (mTLS) — it sends no token/header/signature (MC has no
+  JWS/HMAC payload signature; the former "C1" is closed by reading the docs). When
+  `webhookMtlsEnabled`, `WebhookAuthGuard` validates MC's cert in-app: trusted chain
+  (`socket.authorized`) + subject-CN allowlist. The fail-closed `X-Webhook-Token` is an optional
+  dev/secondary factor (used when in-app TLS is off). Details and the MC quote — `api.md` → Webhooks.
 - **Status events** (`STATUS_CHG`/`QUOTE_STATUS_CHG`) → persisted to `tx_status` via a single
   `INSERT … ON CONFLICT (eventRef) DO NOTHING` (dedup+write atomic). Tenant attribution:
   OWN → by `partnerId`, PLATFORM/unknown → the shared pool (`tenantId=NULL`).

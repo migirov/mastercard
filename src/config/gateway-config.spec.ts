@@ -9,7 +9,7 @@ const opts: MastercardModuleOptions = {
   adminToken: 'admin-token',
 };
 
-// Strong secrets + the AWS store — to pass the prod gates in the GatewayConfig constructor.
+// Strong secrets + the AWS store + in-app webhook mTLS — to pass the prod gates.
 const prod: Partial<MastercardModuleOptions> = {
   nodeEnv: 'production',
   jwtSecret: 'x'.repeat(32),
@@ -17,6 +17,10 @@ const prod: Partial<MastercardModuleOptions> = {
   adminToken: 'z'.repeat(32),
   webhookToken: 'w'.repeat(32),
   secretStore: 'aws-secrets-manager',
+  webhookMtlsEnabled: true,
+  webhookAllowedClientCNs: [
+    'CrossborderServicesNotification-prod.mastercard.com',
+  ],
 };
 
 describe('GatewayConfig', () => {
@@ -75,5 +79,22 @@ describe('GatewayConfig', () => {
     expect(
       () => new GatewayConfig({ ...opts, ...prod, secretStore: 'local' }),
     ).toThrow(/aws-secrets-manager/);
+  });
+
+  it('requires in-app webhook mTLS in production', () => {
+    expect(
+      () => new GatewayConfig({ ...opts, ...prod, webhookMtlsEnabled: false }),
+    ).toThrow(/mtls/i);
+    expect(
+      () =>
+        new GatewayConfig({ ...opts, ...prod, webhookAllowedClientCNs: [] }),
+    ).toThrow(/mtls/i);
+  });
+
+  it('treats webhookToken as optional in production (mTLS is the factor)', () => {
+    // no webhookToken at all → still valid because in-app mTLS is configured
+    const { webhookToken, ...noToken } = prod;
+    void webhookToken;
+    expect(() => new GatewayConfig({ ...opts, ...noToken })).not.toThrow();
   });
 });
