@@ -53,4 +53,53 @@ describe('ValidationsService', () => {
     expect(h['Partner-Ref-Id']).toBe('PIDX: y'); // \r\n stripped
     expect(h['X-Mc-Correlation-Id']).toMatch(/[0-9a-f-]{36}/);
   });
+
+  it('validateAccount → POST /send/partners/{pid}/crossborder/accounts/validations + body + ref header', async () => {
+    const { svc, client } = make();
+    const body = { accountUri: { type: 'IBAN', value: 'X' } };
+    await svc.validateAccount('acme', body as never);
+    const r = reqOf(client);
+    expect(r).toMatchObject({
+      method: 'POST',
+      path: `/send/partners/${PID}/crossborder/accounts/validations`,
+      body,
+    });
+    expect(r.headers?.['Partner-Ref-Id']).toBe(PID);
+  });
+
+  it('lookupBank → POST /send/partners/{pid}/crossborder/banks/details + body', async () => {
+    const { svc, client } = make();
+    const body = { bank: { routingNumber: '1' } };
+    await svc.lookupBank('acme', body as never);
+    expect(reqOf(client)).toMatchObject({
+      method: 'POST',
+      path: `/send/partners/${PID}/crossborder/banks/details`,
+      body,
+    });
+  });
+
+  it('generateIban → POST /send/partners/{pid}/crossborder/accounts/generate-ibans + body', async () => {
+    const { svc, client } = make();
+    const body = { country: 'DE' };
+    await svc.generateIban('acme', body as never);
+    expect(reqOf(client)).toMatchObject({
+      method: 'POST',
+      path: `/send/partners/${PID}/crossborder/accounts/generate-ibans`,
+      body,
+    });
+  });
+
+  it('endpointGuide → GET /crossborder/endpoint-guide/specifications (no /send, no partner-id in path), qs built + ref header', async () => {
+    const { svc, client } = make();
+    await svc.endpointGuide('acme', {
+      payment_type: 'P2P',
+      destination_country: 'IND',
+    } as never);
+    const r = reqOf(client);
+    expect(r.method).toBe('GET');
+    expect(r.path).toBe(
+      '/crossborder/endpoint-guide/specifications?payment_type=P2P&destination_country=IND',
+    );
+    expect(r.headers?.['Partner-Ref-Id']).toBe(PID);
+  });
 });
