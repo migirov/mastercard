@@ -27,7 +27,6 @@ The links below point to the English version.
 | [api.md](docs/en/api.md) | **Our API reference** — all endpoints (OAuth, Cross-Border, Admin, Webhooks), authentication, request/response examples, rate-limits. |
 | [api-mastercard.md](docs/en/api-mastercard.md) | **Official Mastercard docs** for Cross-Border (full reference, ~540 KB). The source of truth for payload formats. |
 | [production-questions.md](docs/en/production-questions.md) | **Blockers and questions before production** (incl. per-tenant encryption, secret-manager choice, TypeORM integration). |
-| [client-questions.md](docs/en/client-questions.md) | Open questions for the client about the integration. |
 
 ---
 
