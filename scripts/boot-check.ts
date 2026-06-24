@@ -1,8 +1,8 @@
 /**
- * Дымовая проверка DI-графа: поднимает Nest-приложение (без listen), прогоняет
- * инициализацию (TypeORM-соединение, GatewayConfig, прелоад платформенных
- * credentials) и сразу закрывается. Exit 0 + BOOT_CHECK_OK — граф валиден.
- * Запуск: npx ts-node scripts/boot-check.ts
+ * Smoke check of the DI graph: brings up the Nest application (without listen), runs
+ * initialization (the TypeORM connection, GatewayConfig, preloading the platform
+ * credentials) and closes immediately. Exit 0 + BOOT_CHECK_OK — the graph is valid.
+ * Run: npx ts-node scripts/boot-check.ts
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/harness/app.module';
