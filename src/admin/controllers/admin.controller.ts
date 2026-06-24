@@ -135,7 +135,7 @@ export class AdminController {
       IssuedClientDto,
       {
         ...creds,
-        note: 'client_secret показан один раз — сохраните его сейчас',
+        note: 'client_secret is shown only once — save it now',
       },
       { excludeExtraneousValues: true },
     );

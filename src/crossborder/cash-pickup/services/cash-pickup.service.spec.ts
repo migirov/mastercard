@@ -37,7 +37,7 @@ const reqOf = (client: { request: jest.Mock }): McRequest =>
   client.request.mock.calls[0][1] as McRequest;
 
 describe('CashPickupService', () => {
-  it('countries — база /crossborder (без /send, partner-id в заголовке)', async () => {
+  it('countries — /crossborder base (no /send, partner-id in the header)', async () => {
     const { svc, client } = make();
     await svc.cashPickupCountries('acme', 'PANY');
     const r = reqOf(client);

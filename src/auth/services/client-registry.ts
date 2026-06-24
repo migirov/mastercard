@@ -44,7 +44,7 @@ export class ClientRegistry {
         revoked: false,
       }),
     );
-    this.logger.log(`Выпущен client '${clientId}' для tenant '${tenantId}'`);
+    this.logger.log(`Issued client '${clientId}' for tenant '${tenantId}'`);
     return { clientId, clientSecret };
   }
 
@@ -65,7 +65,7 @@ export class ClientRegistry {
   async revoke(clientId: string): Promise<boolean> {
     const res = await this.repo.update({ clientId }, { revoked: true });
     const ok = (res.affected ?? 0) > 0;
-    if (ok) this.logger.log(`Отозван client '${clientId}'`);
+    if (ok) this.logger.log(`Revoked client '${clientId}'`);
     return ok;
   }
 }

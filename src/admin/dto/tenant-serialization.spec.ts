@@ -25,7 +25,7 @@ function ownTenant(): TenantEntity {
 }
 
 describe('Tenant serialization (secret-leak closure)', () => {
-  it('@Exclude скрывает secretRef при сериализации самой сущности', () => {
+  it('@Exclude hides secretRef when serializing the entity itself', () => {
     // Protection at the source: if a handler returns TenantEntity directly, the secret
     // is still dropped (ClassSerializerInterceptor calls instanceToPlain).
     const plain = instanceToPlain(ownTenant());
@@ -33,7 +33,7 @@ describe('Tenant serialization (secret-leak closure)', () => {
     expect(plain.id).toBe('own-sandbox');
   });
 
-  it('TenantViewDto whitelist: только @Expose-поля, без secretRef и timestamps', () => {
+  it('TenantViewDto whitelist: only @Expose fields, no secretRef or timestamps', () => {
     const t = ownTenant();
     const view = plainToInstance(
       TenantViewDto,
@@ -52,7 +52,7 @@ describe('Tenant serialization (secret-leak closure)', () => {
     expect(instanceToPlain(view)).not.toHaveProperty('secretRef');
   });
 
-  it('гипотетическая новая чувствительная колонка не протекает (whitelist)', () => {
+  it('a hypothetical new sensitive column does not leak (whitelist)', () => {
     const t = ownTenant() as TenantEntity & { apiKey?: string };
     t.apiKey = 'super-secret-future-column';
     const view = plainToInstance(
@@ -63,17 +63,17 @@ describe('Tenant serialization (secret-leak closure)', () => {
     expect(view).not.toHaveProperty('apiKey');
   });
 
-  it('IssuedClientDto показывает clientSecret (его НАДО отдать один раз)', () => {
+  it('IssuedClientDto exposes clientSecret (it MUST be returned once)', () => {
     const dto = plainToInstance(
       IssuedClientDto,
-      { clientId: 'mc_abc', clientSecret: 'raw-secret', note: 'сохраните' },
+      { clientId: 'mc_abc', clientSecret: 'raw-secret', note: 'save it' },
       { excludeExtraneousValues: true },
     );
     expect(dto.clientSecret).toBe('raw-secret');
     expect(instanceToPlain(dto)).toEqual({
       clientId: 'mc_abc',
       clientSecret: 'raw-secret',
-      note: 'сохраните',
+      note: 'save it',
     });
   });
 });

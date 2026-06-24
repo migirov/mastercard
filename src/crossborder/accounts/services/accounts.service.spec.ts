@@ -46,7 +46,7 @@ describe('AccountsService', () => {
     });
   });
 
-  it('rates (Carded/FX Rate Pull) — GET /send/v1/.../rates без тела', async () => {
+  it('rates (Carded/FX Rate Pull) — GET /send/v1/.../rates with no body', async () => {
     const { svc, client } = make();
     await svc.getRates('acme');
     expect(reqOf(client)).toMatchObject({

@@ -56,7 +56,7 @@ describe('AuditService', () => {
     expect(repo.insert).toHaveBeenCalledTimes(2);
   });
 
-  it('recent(): двойной флаш — пишет записи, добавленные во время in-flight флаша', async () => {
+  it('recent(): double flush — writes records added during an in-flight flush', async () => {
     repo.insert = jest.fn().mockResolvedValue(undefined) as never;
     (repo.insert as jest.Mock).mockImplementationOnce(() => {
       // during the FIRST insert one more record arrives
@@ -74,7 +74,7 @@ describe('AuditService', () => {
     );
   });
 
-  it('capBuffer: переполнение сбрасывает САМЫЕ СТАРЫЕ и логирует drop', async () => {
+  it('capBuffer: overflow drops the OLDEST and logs the drop', async () => {
     const d = deferred();
     repo.insert.mockReturnValueOnce(d.promise); // keep the flush in flight
 
@@ -86,7 +86,7 @@ describe('AuditService', () => {
     d.resolve();
   });
 
-  it('insert failure: батч возвращается в буфер для повторной попытки', async () => {
+  it('insert failure: batch is returned to the buffer for a retry', async () => {
     repo.insert.mockRejectedValueOnce(new Error('db down'));
     fill(100); // flush fails → unshift back
     await Promise.resolve();
@@ -96,7 +96,7 @@ describe('AuditService', () => {
     expect(repo.insert.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('backoff: после провала НЕпринудительный флаш пропускается в окне; force (recent/shutdown) его игнорирует', async () => {
+  it('backoff: after a failure a non-forced flush is skipped within the window; force (recent/shutdown) ignores it', async () => {
     // @ts-expect-error: stub find for recent()
     repo.find = jest.fn().mockResolvedValue([]);
     repo.insert.mockRejectedValueOnce(new Error('db down')); // the 1st insert fails

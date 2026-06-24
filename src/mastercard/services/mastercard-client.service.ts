@@ -209,7 +209,7 @@ export class MastercardClient implements OnApplicationShutdown {
         response.data = this.encryption.decryptResponse(creds, response.data);
       } catch (e) {
         this.logger.error(
-          `Расшифровка ответа MC не удалась: ${(e as Error).message}`,
+          `MC response decryption failed: ${(e as Error).message}`,
         );
         // Mark as ResponseDecryptError — the retry loop won't treat it as a
         // network failure; higher up (in call()) it becomes a 502.

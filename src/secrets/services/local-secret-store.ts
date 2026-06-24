@@ -52,8 +52,8 @@ export class LocalSecretStore implements SecretStore {
       };
     } else if (isProd) {
       this.logger.warn(
-        'production + LocalSecretStore: демо-сид отключён. ' +
-          'Используйте VaultSecretStore (MC_SECRET_STORE=vault).',
+        'production + LocalSecretStore: demo seed disabled. ' +
+          'Use VaultSecretStore (MC_SECRET_STORE=vault).',
       );
     }
 
@@ -63,7 +63,7 @@ export class LocalSecretStore implements SecretStore {
       try {
         const fromFile = JSON.parse(fs.readFileSync(file, 'utf8'));
         Object.assign(seed, fromFile);
-        this.logger.log('Секреты подгружены из secrets.local.json');
+        this.logger.log('Secrets loaded from secrets.local.json');
       } catch (e) {
         throw new Error(
           `Failed to parse secrets.local.json: ${(e as Error).message}`,
@@ -73,7 +73,7 @@ export class LocalSecretStore implements SecretStore {
 
     this.cache = seed;
     this.logger.log(
-      `LocalSecretStore готов, записей: ${Object.keys(seed).length}`,
+      `LocalSecretStore ready, entries: ${Object.keys(seed).length}`,
     );
     return seed;
   }
