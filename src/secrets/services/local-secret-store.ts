@@ -10,7 +10,7 @@ import { MerchantSecretBundle, SecretStore } from '../secret-store.types';
  *   2) built-in demo seed for sandbox that reuses the platform keys
  *      from .env — to run the OWN path end-to-end without a second onboarding.
  *
- * In prod it is replaced by VaultSecretStore (same signature).
+ * In prod it is replaced by AwsSecretsManagerSecretStore (same signature).
  */
 @Injectable()
 export class LocalSecretStore implements SecretStore {
@@ -38,7 +38,7 @@ export class LocalSecretStore implements SecretStore {
 
     // Demo seed (ONLY outside production): the OWN tenant in sandbox reuses
     // the platform keys. In prod this would leak platform keys to the OWN tenant,
-    // so the seed is disabled — secrets must come from Vault/file.
+    // so the seed is disabled — secrets must come from AWS Secrets Manager/file.
     const consumerKey = this.config.consumerKey;
     const partnerId = this.config.partnerId;
     const p12Path = this.config.signingKeyPath;
@@ -53,7 +53,7 @@ export class LocalSecretStore implements SecretStore {
     } else if (isProd) {
       this.logger.warn(
         'production + LocalSecretStore: demo seed disabled. ' +
-          'Use VaultSecretStore (MC_SECRET_STORE=vault).',
+          'Use AwsSecretsManagerSecretStore (MC_SECRET_STORE=aws-secrets-manager).',
       );
     }
 

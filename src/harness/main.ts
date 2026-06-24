@@ -24,12 +24,12 @@ function assertProdSecrets(): void {
     );
   }
 
-  // In production, partner secrets MUST come from a secret manager (Vault/KMS), not the
+  // In production, partner secrets MUST come from the AWS Secrets Manager store, not the
   // dev LocalSecretStore: otherwise OWN partners (the main scenario) would be left
   // without keys while the config silently sits on the dev store. Fail loudly at startup.
-  if ((process.env.MC_SECRET_STORE ?? '') !== 'vault') {
+  if ((process.env.MC_SECRET_STORE ?? '') !== 'aws-secrets-manager') {
     throw new Error(
-      'production: set MC_SECRET_STORE=vault — LocalSecretStore is for dev only',
+      'production: set MC_SECRET_STORE=aws-secrets-manager — LocalSecretStore is for dev only',
     );
   }
 }

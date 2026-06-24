@@ -9,14 +9,14 @@ const opts: MastercardModuleOptions = {
   adminToken: 'admin-token',
 };
 
-// Strong secrets + vault — to pass the prod gates in the GatewayConfig constructor.
+// Strong secrets + the AWS store — to pass the prod gates in the GatewayConfig constructor.
 const prod: Partial<MastercardModuleOptions> = {
   nodeEnv: 'production',
   jwtSecret: 'x'.repeat(32),
   internalToken: 'y'.repeat(32),
   adminToken: 'z'.repeat(32),
   webhookToken: 'w'.repeat(32),
-  secretStore: 'vault',
+  secretStore: 'aws-secrets-manager',
 };
 
 describe('GatewayConfig', () => {
@@ -71,9 +71,9 @@ describe('GatewayConfig', () => {
     ).toThrow(/weak\/default/);
   });
 
-  it('requires vault secret store in production', () => {
+  it('requires the AWS Secrets Manager store in production', () => {
     expect(
       () => new GatewayConfig({ ...opts, ...prod, secretStore: 'local' }),
-    ).toThrow(/vault/);
+    ).toThrow(/aws-secrets-manager/);
   });
 });

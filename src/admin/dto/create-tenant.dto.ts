@@ -46,20 +46,21 @@ export class CreateTenantDto {
   // For OWN mode secretRef is REQUIRED (merchant keys from the secret store); for
   // PLATFORM it is not validated (platform keys are used). This conditional check used
   // to be manual in AdminService — now it is declarative in the DTO.
-  // secretRef is interpolated into the secret-store (Vault) key path → we restrict the
-  // charset and forbid `..` segments (path-traversal / key-confusion: otherwise a tenant
-  // could be onboarded with a ref to another/platform secret). Duplicated by the guard at
-  // the resolve boundary (safeSecretRef in credential-sanitize).
+  // secretRef is an AWS Secrets Manager secret name or ARN → we restrict the charset
+  // to the AWS-allowed set (name: [A-Za-z0-9/_+=.@-]; ARN adds `:`) and forbid `..`
+  // segments (key-confusion: otherwise a tenant could be onboarded with a ref to
+  // another/platform secret). Duplicated by the guard at the resolve boundary
+  // (safeSecretRef in credential-sanitize).
   @ApiPropertyOptional({
     maxLength: 256,
-    description: 'Required for credentialMode=OWN.',
+    description: 'Required for credentialMode=OWN. AWS Secrets Manager name or ARN.',
   })
   @ValidateIf((o) => o.credentialMode === CredentialMode.OWN)
   @IsString()
   @IsNotEmpty({ message: 'secretRef is required for OWN' })
   @MaxLength(256)
-  @Matches(/^(?!.*\.\.)[A-Za-z0-9._/-]+$/, {
-    message: 'secretRef: only [A-Za-z0-9._/-], no ".."',
+  @Matches(/^(?!.*\.\.)[A-Za-z0-9._/+=@:-]+$/, {
+    message: 'secretRef: only [A-Za-z0-9._/+=@:-], no ".."',
   })
   secretRef?: string;
 }

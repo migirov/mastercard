@@ -61,12 +61,13 @@ MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # for MTF/Prod
 DATABASE_URL, DB_POOL_MAX               # PostgreSQL
 MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
-MC_SECRET_STORE                         # local (dev) | vault (prod)
+MC_SECRET_STORE                         # local (dev) | aws-secrets-manager (prod)
+MC_SECRET_STORE_REGION                  # optional AWS region for the secret store (else AWS_REGION / IAM role)
 TRUST_PROXY                             # number of ingress hops behind a proxy (only for a correct req.ip; used by the rate-limit IP fallback — not related to auth)
 ```
 
 In production, gates apply (`src/harness/main.ts`): refuse to start with weak/default secrets
-and require `MC_SECRET_STORE=vault`. The schema is migrations-only (no `synchronize`).
+and require `MC_SECRET_STORE=aws-secrets-manager`. The schema is migrations-only (no `synchronize`).
 
 ---
 
@@ -125,7 +126,7 @@ src/
   config/         GatewayConfig (typed module options) + ENV validation (harness)
   tenants/        partner registry (Postgres), statuses/approvals
   credentials/    key resolver (PLATFORM | OWN), cache
-  secrets/        SecretStore: Local (dev) | Vault (prod)
+  secrets/        SecretStore: Local (dev) | AWS Secrets Manager (prod)
   auth/           OAuth2, guards, admin authentication, DTOs
   admin/          onboarding partners, approvals, issuing OAuth clients, DTOs
   mastercard/     low-level client module (axios encrypt/sign/decrypt + EncryptionService)
@@ -194,8 +195,9 @@ warn about these; if an item is omitted, the affected feature fails as noted.
 
 ## Status
 
-The transactional core is complete and verified on a live sandbox. Before
-production — see
-[production-questions.md](docs/en/production-questions.md) (the main blocker:
-per-tenant encryption for OWN partners; the private Client Encryption key;
-implementing `VaultSecretStore`).
+The transactional core is complete and verified on a live sandbox; per-tenant
+encryption, encrypted-push decryption, and the AWS Secrets Manager store are
+implemented. The remaining items are deploy-time — see
+[production-questions.md](docs/en/production-questions.md) (strong secrets, mTLS for
+MC webhooks, OWN keys loaded into AWS Secrets Manager, `migration:run`, and MTF
+confirmation of cross-tenant FLE + encrypted push).

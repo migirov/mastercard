@@ -24,7 +24,7 @@ export class PaymentsService {
   async createPayment(tenantId: string, body: PaymentRequestDto) {
     // Resolve credentials (gating + a possibly slow SecretStore) BEFORE claiming the
     // idempotency lock: the producer inside the lock must be bounded only by MC's 30s
-    // timeout (≪ LOCK_TTL 120s), otherwise a slow Vault could stretch the producer past the
+    // timeout (≪ LOCK_TTL 120s), otherwise a slow secret store could stretch the producer past the
     // TTL → another pod re-claims the lock → a double POST.
     const creds = await this.gw.resolveActive(tenantId);
     // Idempotency by `transaction_reference` — the payment's business key and source of

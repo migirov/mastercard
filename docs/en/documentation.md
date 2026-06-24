@@ -20,7 +20,7 @@ Related documents: [architecture.md](./architecture.md) (design).
 | [PaymentIdempotency](#paymentidempotency-payment_idempotency) | Postgres `payment_idempotency` | Payment idempotency (keyed by `txref:sha256(transaction_reference)`) |
 | [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Persisted webhook events (status push + non-status dedup) |
 | [McCredentials](#mccredentials) | not stored (resolve + cache) | Resolved Mastercard keys for a tenant |
-| [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore/Vault | Partner secrets (keys, consumerKey) |
+| [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore (AWS Secrets Manager) | Partner secrets (keys, consumerKey) |
 | [McWebhookEvent](#mcwebhookevent) | all events → `tx_status` | Mastercard push-notification payload |
 
 ---
@@ -42,8 +42,8 @@ The service is deployed to Docker/Kubernetes on **many pods**. Hence the rule:
 | webhook dedup (NON-status) | **Postgres** `tx_status` (`INSERT…ON CONFLICT` eventRef) | domain | MC webhook retry on another pod → otherwise a duplicate |
 | `tx_status` (all webhook events) | **Postgres** (TypeORM) | domain | event arrives on pod A → merchant reads on B; dedup = UNIQUE(eventRef) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` | ephemeral | correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative |
-| credentials cache | **cache-manager (memory, TTL+LRU) per-pod** | cache | source of truth — Vault/env; pods cache independently from one source, TTL bounds staleness |
-| partner secrets | SecretStore (Vault) | external | managed by the secret manager, not our layer |
+| credentials cache | **cache-manager (memory, TTL+LRU) per-pod** | cache | source of truth — AWS Secrets Manager/env; pods cache independently from one source, TTL bounds staleness |
+| partner secrets | SecretStore (AWS Secrets Manager) | external | managed by the secret manager, not our layer |
 
 **Redis is NOT used** — Postgres is chosen for consistent state; for ephemeral
 rate-limit — the self-standing per-pod `@nestjs/throttler` (correctness independent
@@ -125,7 +125,7 @@ business clients through us.
 
 **How it works:**
 - Mastercard sees **each partner separately** — natively by their `partner-id`.
-- We store the partner's keys **per-tenant** in SecretStore/Vault (by `secretRef`).
+- We store the partner's keys **per-tenant** in SecretStore (AWS Secrets Manager) (by `secretRef`).
 - A request is signed and encrypted with the **partner's keys** and goes out under
   **their `partner-id`**.
 - `credentialMode = OWN`, the tenant has `partnerId` and `secretRef` filled in.
@@ -167,7 +167,7 @@ tenant C ┘   (the A/B/C distinction is only in our system)
 | | `OWN` (primary) | `PLATFORM` (secondary) |
 |---|---|---|
 | partner-id | own per partner | shared platform one |
-| Mastercard keys | own per partner (Vault) | shared platform ones |
+| Mastercard keys | own per partner (AWS Secrets Manager) | shared platform ones |
 | How MC distinguishes partners | natively by partner-id | not at all — it sees the platform |
 | Where merchant isolation is | at MC + with us | **only with us** |
 | Tenant fields | `partnerId` + `secretRef` | — |
@@ -201,7 +201,7 @@ registry: [`src/tenants/services/tenant.registry.ts`](../../src/tenants/services
 | `name` | `string` | yes | Human-readable company name. |
 | `credentialMode` | `CredentialMode` | yes | Where Mastercard keys come from: `PLATFORM` or `OWN`. |
 | `partnerId` | `string?` | no | OWN only: the partner's own partner-id in Mastercard. For `PLATFORM` the shared platform partner-id is used. |
-| `secretRef` | `string?` | no | OWN only: path to the partner's secrets in SecretStore/Vault. |
+| `secretRef` | `string?` | no | OWN only: AWS Secrets Manager name/ARN of the partner's secrets. |
 | `platformApproved` | `boolean` | yes | Approval from the platform (our operator). |
 | `mcApproved` | `boolean` | yes | Approval from Mastercard. |
 | `suspended` | `boolean` | yes | Emergency suspension (overrides approvals). |
@@ -216,7 +216,7 @@ below), so it cannot be set bypassing approvals.
 | Value | Meaning |
 |---|---|
 | `PLATFORM` | Shared platform keys and partner-id; the tenant is a logical sub-account. Secondary scenario. |
-| `OWN` | The partner's own keys and partner-id (secrets in Vault by `secretRef`). **Primary scenario.** |
+| `OWN` | The partner's own keys and partner-id (secrets in AWS Secrets Manager by `secretRef`). **Primary scenario.** |
 
 ### TenantStatus — computed access status
 
@@ -536,12 +536,12 @@ resolver: [`src/credentials/services/credentials.service.ts`](../../src/credenti
 # MerchantSecretBundle / KeyMaterial
 
 **MerchantSecretBundle** — the full set of a partner's secrets that `SecretStore`
-returns by `secretRef` (`OWN` mode). **Stored in the secret manager** (Vault/KMS), not
-in our DB. From the bundle `OwnCredentialsProvider` assembles [McCredentials](#mccredentials).
+returns by `secretRef` (`OWN` mode). **Stored in the secret manager** (AWS Secrets Manager),
+not in our DB. From the bundle `OwnCredentialsProvider` assembles [McCredentials](#mccredentials).
 
 Code: [`src/secrets/secret-store.types.ts`](../../src/secrets/secret-store.types.ts).
-Implementations: `LocalSecretStore` (dev), `VaultSecretStore` (prod — a stub until a
-vendor is chosen).
+Implementations: `LocalSecretStore` (dev), `AwsSecretsManagerSecretStore` (prod — `secretRef`
+is the secret name/ARN, value = the `MerchantSecretBundle` JSON).
 
 ## MerchantSecretBundle
 
@@ -558,11 +558,11 @@ vendor is chosen).
 
 | Field | Type | Description |
 |---|---|---|
-| `p12Base64` | `string?` | .p12 in base64 (how it comes from Vault). |
+| `p12Base64` | `string?` | .p12 in base64 (how it comes from AWS Secrets Manager). |
 | `p12Path` | `string?` | Path to the .p12 (dev). |
 | `password` | `string` | The .p12 password. |
 
-Exactly **one** source must be set: `p12Base64` (Vault) or `p12Path` (dev); both are
+Exactly **one** source must be set: `p12Base64` (AWS Secrets Manager) or `p12Path` (dev); both are
 normalized to PEM (`loadPrivateKeyFromP12*`).
 
 ## Boundary validation

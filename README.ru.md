@@ -61,12 +61,13 @@ MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # для MTF/Prod
 DATABASE_URL, DB_POOL_MAX               # PostgreSQL
 MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
-MC_SECRET_STORE                         # local (dev) | vault (prod)
+MC_SECRET_STORE                         # local (dev) | aws-secrets-manager (prod)
+MC_SECRET_STORE_REGION                  # опциональный AWS-регион для secret store (иначе AWS_REGION / IAM-роль)
 TRUST_PROXY                             # число хопов ингресса за прокси
 ```
 
 В production действуют гейты (`src/harness/main.ts`): запрет старта со слабыми/дефолтными
-секретами и требование `MC_SECRET_STORE=vault`. Схема — только миграции (без `synchronize`).
+секретами и требование `MC_SECRET_STORE=aws-secrets-manager`. Схема — только миграции (без `synchronize`).
 
 ---
 
@@ -125,7 +126,7 @@ src/
   config/         GatewayConfig (типизированные опции модуля) + валидация ENV (харнесс)
   tenants/        реестр партнёров (Postgres), статусы/одобрения
   credentials/    резолвер ключей (PLATFORM | OWN), кэш
-  secrets/        SecretStore: Local (dev) | Vault (prod)
+  secrets/        SecretStore: Local (dev) | AWS Secrets Manager (prod)
   auth/           OAuth2, гарды, admin-аутентификация, DTO
   admin/          ввод партнёров, одобрения, выпуск OAuth-клиентов, DTO
   mastercard/     низкоуровневый клиент-модуль (axios encrypt/sign/decrypt + EncryptionService)
@@ -192,7 +193,8 @@ imports: [
 
 ## Статус
 
-Транзакционное ядро готово и проверено на живом sandbox. Перед production — см.
-[production-questions.md](docs/ru/production-questions.md) (главный блокер:
-per-tenant encryption для OWN-партнёров; приватный Client Encryption key;
-реализация `VaultSecretStore`).
+Транзакционное ядро готово и проверено на живом sandbox; per-tenant encryption,
+декрипт зашифрованного push и AWS Secrets Manager store — реализованы. Остаток —
+деплойный: см. [production-questions.md](docs/ru/production-questions.md) (сильные
+секреты, mTLS для вебхуков MC, OWN-ключи в AWS Secrets Manager, `migration:run` и
+MTF-подтверждение кросс-тенант FLE + зашифрованного push).

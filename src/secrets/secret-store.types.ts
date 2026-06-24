@@ -1,7 +1,7 @@
 /** DI token for the pluggable secret store implementation. */
 export const SECRET_STORE = Symbol('SECRET_STORE');
 
-/** .p12 key material — either a path (dev) or base64 (Vault). */
+/** .p12 key material — either a path (dev) or base64 (AWS Secrets Manager). */
 export interface KeyMaterial {
   readonly p12Base64?: string;
   readonly p12Path?: string;
@@ -22,7 +22,7 @@ export interface MerchantSecretBundle {
 
 /**
  * Secret manager abstraction. Implementations: LocalSecretStore (dev),
- * VaultSecretStore (prod — Vault/AWS/GCP, wired up once a vendor is chosen).
+ * AwsSecretsManagerSecretStore (prod — AWS Secrets Manager).
  */
 export interface SecretStore {
   getMerchantSecrets(secretRef: string): Promise<MerchantSecretBundle>;

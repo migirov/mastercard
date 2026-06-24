@@ -2,7 +2,7 @@
 export enum CredentialMode {
   /** The platform's shared keys and partner-id; the merchant is a logical sub-account. */
   PLATFORM = 'PLATFORM',
-  /** The partner's own keys and partner-id (secrets in Vault). The primary mode. */
+  /** The partner's own keys and partner-id (secrets in AWS Secrets Manager). The primary mode. */
   OWN = 'OWN',
 }
 
@@ -31,7 +31,7 @@ export interface Tenant {
   readonly credentialMode: CredentialMode;
   /** OWN only: the partner's own partner-id. For PLATFORM the shared one is used. */
   readonly partnerId?: string;
-  /** OWN only: the path to the partner's secrets in Vault. */
+  /** OWN only: the AWS Secrets Manager name/ARN of the partner's secrets. */
   readonly secretRef?: string;
   readonly platformApproved: boolean;
   readonly mcApproved: boolean;

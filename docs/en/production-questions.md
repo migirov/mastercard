@@ -16,15 +16,14 @@ What to decide/finish before going live. Architecture — [documentation.md](./d
 
 ## Blockers before prod
 
-- [ ] **`VaultSecretStore`** implemented + `MC_SECRET_STORE=vault` (currently a `NotImplemented`
-  stub; the prod gate already requires `vault` and fails without it).
 - [ ] **Strong secrets** instead of dev defaults: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
   `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (the prod gate checks this at startup).
 - [ ] **mTLS for MC webhooks.** Push authenticity at MC is via mTLS, not a payload signature.
   At deploy: request the public mTLS cert from MC → add to the trust store; submit our cert
   chain via the KMP portal; confirm `X-Webhook-Token` delivery (question 2). Until then the
   active factor is the fail-closed `X-Webhook-Token`.
-- [ ] **OWN partner-id and keys** (including their decryption key) loaded into the secret manager.
+- [ ] **OWN partner-id and keys** (including their decryption key) loaded into AWS Secrets
+  Manager (one secret per partner, value = the `MerchantSecretBundle` JSON; see "Decided").
 - [ ] **`migration:run`** against the prod DB on deploy.
 
 ---
@@ -53,6 +52,14 @@ What to decide/finish before going live. Architecture — [documentation.md](./d
 
 ## Decided
 
+- **Secret store — AWS Secrets Manager (implemented).** The host b24club-api runs on AWS,
+  so the prod `SecretStore` is `AwsSecretsManagerSecretStore` (`@aws-sdk/client-secrets-manager`,
+  pinned to the host's `^3.975.0`). A tenant's `secretRef` is the secret name or ARN; the
+  secret value is a JSON `MerchantSecretBundle` (`.p12` keys as base64). Region/credentials come
+  from the standard AWS chain (the IAM role on ECS/EKS — same as the host's S3/Cognito), with an
+  optional `MC_SECRET_STORE_REGION` override. Select it with `MC_SECRET_STORE=aws-secrets-manager`
+  (the prod gate requires exactly this). Caching stays upstream (cache-manager TTL+LRU). The
+  former "Vault" naming was a vendor-TBD placeholder, never a HashiCorp commitment.
 - **Per-tenant encryption — implemented.** Each OWN partner has its own key; `EncryptionService`
   builds a per-tenant `JweEncryption` from the partner's PEM keys (`encryptionCertPem` /
   `decryptionKeyPem`, `useCertificateContent` mode), cached by fingerprint; PLATFORM tenants use

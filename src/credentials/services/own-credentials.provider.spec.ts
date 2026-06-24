@@ -76,7 +76,7 @@ describe('OwnCredentialsProvider — fetch & boundary validation', () => {
   it('a rejected resolve is not cached (next get re-fetches)', async () => {
     const fetchSecrets = jest
       .fn()
-      .mockRejectedValueOnce(new Error('vault down'))
+      .mockRejectedValueOnce(new Error('secret store down'))
       .mockResolvedValue(bundle);
     const { provider } = make(fetchSecrets as never);
     await expect(provider.get(ownTenant('acme'))).rejects.toThrow();

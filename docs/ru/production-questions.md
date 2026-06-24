@@ -16,15 +16,14 @@
 
 ## Блокеры перед прод
 
-- [ ] **`VaultSecretStore`** реализован + `MC_SECRET_STORE=vault` (сейчас заглушка
-  `NotImplemented`; прод-гейт уже требует `vault` и падает без него).
 - [ ] **Сильные секреты** вместо dev-дефолтов: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
   `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (прод-гейт проверяет на старте).
 - [ ] **mTLS для вебхуков MC.** Аутентичность push у MC — через mTLS, не подпись payload.
   При деплое: запросить публичный mTLS-cert MC → в trust store; передать наш cert-chain
   через KMP-портал; уточнить доставку `X-Webhook-Token` (вопрос 2). До этого активный
   фактор — fail-closed `X-Webhook-Token`.
-- [ ] **OWN partner-id и ключи** (включая их decryption key) заведены в секрет-менеджере.
+- [ ] **OWN partner-id и ключи** (включая их decryption key) заведены в AWS Secrets Manager
+  (один секрет на партнёра, значение = JSON `MerchantSecretBundle`; см. «Решено»).
 - [ ] **`migration:run`** на прод-БД при деплое.
 
 ---
@@ -53,6 +52,14 @@
 
 ## Решено
 
+- **Хранилище секретов — AWS Secrets Manager (реализовано).** Хост b24club-api на AWS,
+  поэтому прод-`SecretStore` — `AwsSecretsManagerSecretStore` (`@aws-sdk/client-secrets-manager`,
+  запинен на `^3.975.0` хоста). `secretRef` тенанта — имя или ARN секрета; значение — JSON
+  `MerchantSecretBundle` (ключи `.p12` в base64). Регион/креды — из стандартной AWS-цепочки
+  (IAM-роль на ECS/EKS, как у хоста для S3/Cognito), с опциональным override
+  `MC_SECRET_STORE_REGION`. Выбор — `MC_SECRET_STORE=aws-secrets-manager` (прод-гейт требует
+  именно это). Кэш остаётся выше (cache-manager TTL+LRU). Прежнее имя «Vault» было
+  placeholder'ом вендора-TBD, не привязкой к HashiCorp.
 - **Per-tenant encryption — реализован.** У каждого OWN-партнёра свой ключ; `EncryptionService`
   строит per-tenant `JweEncryption` из PEM-ключей партнёра (`encryptionCertPem`/
   `decryptionKeyPem`, режим `useCertificateContent`), кэшируя по fingerprint; PLATFORM-тенанты

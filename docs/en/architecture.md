@@ -47,7 +47,7 @@ dual approval** — from Mastercard and from the platform. Deployment —
 - **R5.** Two consumption paths:
   - **External REST API** — partner systems send requests directly (OAuth2 client credentials → JWT).
   - **Internal** — our services/UI call from inside (service token + explicit `tenantId`).
-- **R6.** Secrets (keys, passwords, consumer keys) — in a **Secret Manager (Vault/KMS)**.
+- **R6.** Secrets (keys, passwords, consumer keys) — in a **Secret Manager (AWS Secrets Manager)**.
 
 ## 3. High-level diagram
 
@@ -71,11 +71,11 @@ dual approval** — from Mastercard and from the platform. Deployment —
    ┌──────────────────┐   ┌──────────────────────┐   ┌──────────────────────────┐
    │ TenantRegistry   │   │ CredentialsService   │   │ MastercardClient (axios) │
    │ status/approval  │   │ PLATFORM | OWN       │   │ interceptors:            │
-   │ → PostgreSQL     │   │ ← Vault (cache,TTL)  │   │  req: encrypt → sign     │
+   │ → PostgreSQL     │   │ ← AWS SM (cache,TTL) │   │  req: encrypt → sign     │
    └────────┬─────────┘   └──────────┬───────────┘   │  res: decrypt            │
             ▼                        ▼               └────────────┬─────────────┘
    ┌──────────────────┐       ┌────────────┐                     ▼
-   │   PostgreSQL     │       │ Vault/KMS  │            api.mastercard.com
+   │   PostgreSQL     │       │ AWS SecMgr │            api.mastercard.com
    │ tenants/oauth/   │       └────────────┘
    │ audit/tx_status/ │
    │ payment_idempo   │
@@ -94,8 +94,8 @@ across pods; everything domain-related is in **PostgreSQL**. Full breakdown in
 | payment idempotency | **PostgreSQL** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, atomic `INSERT ON CONFLICT`) |
 | webhook dedup | **PostgreSQL** (`tx_status`, `UNIQUE(eventRef)`, atomic `INSERT ON CONFLICT`) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
-| credentials cache | **in-memory per-pod** (cache from Vault, TTL) |
-| partner secrets | **Vault/KMS** (via `SecretStore`) |
+| credentials cache | **in-memory per-pod** (cache from AWS Secrets Manager, TTL) |
+| partner secrets | **AWS Secrets Manager** (via `SecretStore`) |
 
 **Redis is not used** — consistent state lives in Postgres; ephemeral rate-limiting
 is the self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress).
@@ -113,7 +113,7 @@ not use; an ingress limit, if any, is optional defense-in-depth, not authoritati
 | `name` | company name |
 | `credentialMode` | `PLATFORM` \| `OWN` |
 | `partnerId` | for `OWN` — own; for `PLATFORM` — the shared one is used |
-| `secretRef` | Vault path to the secret bundle (for `OWN`) |
+| `secretRef` | AWS Secrets Manager name/ARN of the secret bundle (for `OWN`) |
 | `platformApproved`, `mcApproved`, `suspended` | three independent approval/suspension flags |
 
 **The status is not stored — it is computed** from the flags (`PENDING` →
@@ -140,7 +140,7 @@ interface McCredentials {
 ```
 
 - **PLATFORM** → the shared platform set from `.env`/config; cache without TTL.
-- **OWN** → `tenant.secretRef` from Vault (`SecretStore`) → the partner's keys; cache
+- **OWN** → `tenant.secretRef` from AWS Secrets Manager (`SecretStore`) → the partner's keys; cache
   with TTL (`MC_CREDS_CACHE_TTL_MS`) + stampede dedup + `invalidate()` for rotation.
 - **Secrets are not logged and never leave in responses.** Signing is **stateless** —
   `McCredentials` are passed on every call.
@@ -174,7 +174,7 @@ if needed (downsides — in documentation.md).
    (`X-Internal-Token` + `X-Tenant-Id`). Sets `req.tenantContext`.
 2. `TenantThrottlerGuard`: rate-limit by `tenantId` (fail-closed, no IP fallback).
 3. `CrossBorderGateway.resolveActive`: checks `isActive(tenant)` (otherwise `403`).
-4. `CredentialsService.resolve(tenant)` → `McCredentials` (Vault, via cache).
+4. `CredentialsService.resolve(tenant)` → `McCredentials` (AWS Secrets Manager, via cache).
 5. Build the path with `partnerId` + clean body → `MastercardClient.request(creds, …)`.
 6. Interceptor: encrypt → sign → send; response — decrypt.
 7. Unwrapping: 2xx → data; business 4xx → forward to merchant; 401/403/5xx/network → `502`.
@@ -205,7 +205,7 @@ owns liveness/readiness).
 | `MastercardModule` (umbrella) | the only module the host imports (`forRoot/forRootAsync`); aggregates all sub-modules, provides global `GatewayConfig`, registers `ThrottlerModule` |
 | `TenantModule` | `TenantRegistry` over Postgres, statuses (PURE data-layer — seeds nothing on boot); `TenantEntity` co-located. Seeding lives outside: `platform` via the dev harness `DevSeedService` (`AppModule`), demo via `npm run seed` (`tenant.seed.ts`); the host provisions its own |
 | `CredentialsModule` | `CredentialsService` facade → `PlatformCredentialsProvider` / `OwnCredentialsProvider`; OWN cache via cache-manager v5 (in-memory, LRU 500 + TTL; no stampede coalescing in v5); boundary guards in `utils/credential-sanitize` |
-| `SecretsModule` | `SecretStore`: Local (dev) / Vault (prod) |
+| `SecretsModule` | `SecretStore`: Local (dev) / AWS Secrets Manager (prod) |
 | `AuthModule` | OAuth2, `TenantAuthGuard`, `AdminAuthGuard`, `OAuthThrottlerGuard`; `OAuthClientEntity` co-located |
 | `AdminModule` | onboarding partners, approvals, issue/revoke OAuth clients, `GET /admin/audit` |
 | `MastercardClientModule` | the low-level `MastercardClient` (axios + encrypt/sign/decrypt interceptors); `EncryptionService` is a provider here, not its own module |
@@ -263,16 +263,16 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - **Audit trail** on all operations — without bodies or secrets.
 - **OAuth2:** HS256 pinning, constant-time secret hash comparison, `no-store`.
 - **Prod gates:** refuse to start with weak/default secrets (`isWeakSecret()`, shared by
-  `main.ts` and `GatewayConfig`) and without `MC_SECRET_STORE=vault`. helmet / body-limit /
+  `main.ts` and `GatewayConfig`) and without `MC_SECRET_STORE=aws-secrets-manager`. helmet / body-limit /
   logger / `trust proxy` are dev-harness (`main.ts`) concerns; when embedded the host owns them.
 - **Fail-closed** rate-limit guard (no tenant context → error, not a shared bucket).
-- Vault: short-lived cache, key rotation without restart (`invalidate`).
+- AWS Secrets Manager: short-lived cache, key rotation without restart (`invalidate`).
 - sandbox/MTF/production separation — via environment config, not in code.
 
 ## 12. Implementation status (phases)
 
 - ✅ **Phase 1 — Tenant + per-tenant stateless signing.**
-- ✅ **Phase 2 — SecretStore (Local/Vault) + OWN mode.**
+- ✅ **Phase 2 — SecretStore (Local/AWS Secrets Manager) + OWN mode.**
 - ✅ **Phase 3 — Auth (OAuth2 + internal) + approval/gating + admin API.**
 - ✅ **Phase 4 — JWE encryption** (in the axios interceptor; env toggle).
 - ✅ **Phase 5 — Audit, idempotency, rate-limit.**
@@ -292,7 +292,8 @@ Native Nest platform capabilities (used off-the-shelf, no hand-rolling):
 - ✅ **Quality:** coverage includes the confirm suite (3/3), carded-rate GET and push
   persistence; a centralized MC path map, the composed `UseGatewayContract()` decorator, and
   the `src/index.ts` barrel. Tests: unit 20 suites / 159, e2e on the live sandbox.
-- ⬜ **Before prod:** per-tenant encryption (the JWE interceptor still uses the platform
-  key — see §6), **encrypted-push decryption** (the Client decryption key + the per-tenant seam),
-  Vault implementation, metrics/tracing (Prometheus/OTel) —
-  see [production-questions.md](./production-questions.md).
+- ✅ **Per-tenant encryption, encrypted-push decryption (kid routing), and the AWS Secrets
+  Manager secret store** — implemented.
+- ⬜ **Before prod (deploy-time):** strong secrets, mTLS for MC webhooks, OWN keys loaded into
+  AWS Secrets Manager, `migration:run`, MTF confirmation (cross-tenant FLE + encrypted push);
+  optional metrics/tracing (Prometheus/OTel) — see [production-questions.md](./production-questions.md).
