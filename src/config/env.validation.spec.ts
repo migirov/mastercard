@@ -64,6 +64,12 @@ describe('validateEnv (zod)', () => {
       MC_SECRET_STORE_REGION: 'us-east-1',
       DB_POOL_MAX: '10',
       MC_WEBHOOK_TOKEN: 'wh',
+      MC_WEBHOOK_MTLS_ENABLED: 'true',
+      MC_WEBHOOK_ALLOWED_CLIENT_CNS:
+        'CrossborderServicesNotification-prod.mastercard.com',
+      TLS_KEY_PATH: '/certs/server.key',
+      TLS_CERT_PATH: '/certs/server.crt',
+      TLS_CLIENT_CA_PATH: '/certs/digicert-ca.pem',
     };
     expect(() => validateEnv(env)).not.toThrow();
   });

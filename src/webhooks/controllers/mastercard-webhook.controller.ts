@@ -26,15 +26,17 @@ import { WebhookHandler } from '../services/webhook.handler';
 
 /**
  * Receives Mastercard push notifications. Always responds 200 (per the docs — otherwise MC
- * retries). The body is validated with the Passthrough preset of the shared validation
- * strategy: MC sends many fields beyond those declared — they must not be stripped or
- * rejected. Encrypted payloads (optional) are decrypted in Phase 4.
+ * retries, max 3, deduped by `eventRef`). The body is validated with the Passthrough preset of
+ * the shared validation strategy: MC sends many fields beyond those declared — they must not be
+ * stripped or rejected. Encrypted payloads are decrypted by the JWE `kid` (PLATFORM/per-tenant);
+ * what can't be decrypted is persisted before the ack.
  *
- * The throttler runs AFTER WebhookAuthGuard (it limits only token-valid requests; an
- * invalid token → 401 BEFORE the throttler, spending no budget) — a backstop against a
- * token holder flooding DB writes. The limit is deliberately GENEROUS: legitimate MC bursts
- * (multi-merchant, retries) must not hit 429 (and a 429 would itself provoke an MC retry).
- * By IP: all MC traffic comes from a few IPs.
+ * Auth (WebhookAuthGuard) is decided IN THE APP: in-app mTLS client-cert validation when
+ * `webhookMtlsEnabled` (prod), else the fail-closed `X-Webhook-Token` (dev). The throttler runs
+ * AFTER the guard (it limits only auth-valid requests; an invalid request → 401 BEFORE the
+ * throttler, spending no budget) — a backstop against a flood of DB writes. The limit is
+ * deliberately GENEROUS: legitimate MC bursts (multi-merchant, retries) must not hit 429 (and a
+ * 429 would itself provoke an MC retry). By IP: all MC traffic comes from a few IPs.
  * NOTE: the limit is PER-POD (in-memory throttler, Redis is not used in this project) —
  * the aggregate ceiling = 1200×N pods. This is a backstop, NOT a global hard cap.
  */
@@ -48,9 +50,12 @@ import { WebhookHandler } from '../services/webhook.handler';
 export class MastercardWebhookController {
   constructor(private readonly handler: WebhookHandler) {}
 
-  @Post('mastercard')
+  // Path ends in `/webhook` per the MC docs ("Push Notification Setup": the webhook URL should
+  // end with /Webhook) → full route: POST /webhooks/mastercard/webhook.
+  @Post('mastercard/webhook')
   @ApiOperation({
-    summary: 'Receive MC push notifications (X-Webhook-Token, fail-closed).',
+    summary:
+      'Receive MC push notifications (auth: in-app mTLS client-cert / dev X-Webhook-Token).',
   })
   @ApiResponse({ status: 200, type: WebhookAckDto })
   @HttpCode(200)

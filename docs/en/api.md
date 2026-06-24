@@ -36,13 +36,13 @@ The 15 Mastercard Cross-Border **API Reference** groups → our routes. ✅ impl
 | 6 | Account Validation (×3) | `POST /account-validations`, `/bank-lookups`, `/iban-generations` | ✅ FLE → real data |
 | 7 | Cash Pickup Locations | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ |
 | 8 | Endpoint Guide | `GET /crossborder/endpoint-guide/specifications` | ⚠️ HTML-500 (corridor after onboarding) |
-| 9 | Status Change Push | `POST /webhooks/mastercard` → `GET /crossborder/status-events` | ✅ |
+| 9 | Status Change Push | `POST /webhooks/mastercard/webhook` → `GET /crossborder/status-events` | ✅ |
 | 10 | Retrieve Payment | `GET /crossborder/payments/:id` · `?ref=` | ✅ |
 | 11 | RFI (×4) | `GET/POST /rfi/requests/:id`, `POST /rfi/documents`, `GET /rfi/documents/:id` | ⚠️ `050007` (RFI not enabled for the project) |
 | 12 | Cancel Payment | `POST /crossborder/payments/:id/cancel` | ✅ |
 | 13 | Balance | `GET /crossborder/balances` | ✅ real balances |
 | 14 | Payload Encryption | `EncryptionService` (axios interceptor) | ✅ FLE works on sandbox |
-| 15 | Push Notifications | `POST /webhooks/mastercard` (+ `tx_status`) | ✅ |
+| 15 | Push Notifications | `POST /webhooks/mastercard/webhook` (+ `tx_status`) | ✅ |
 
 > “Reference Application” in MC’s sidebar is a sample app, not an API; nothing to implement.
 
@@ -57,7 +57,7 @@ The 15 Mastercard Cross-Border **API Reference** groups → our routes. ✅ impl
 | `Authorization: Bearer <JWT>` | external merchant (partner) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | internal platform service/UI | `/crossborder/*` |
 | `X-Admin-Token` | platform operator | `/admin/*` |
-| `X-Webhook-Token` (fail-closed; authority at MC = **mTLS**, the token is our extra factor) | Mastercard | `/webhooks/*` |
+| in-app **mTLS** client-cert (authoritative; MC sends no token) — `X-Webhook-Token` is an optional dev/secondary factor | Mastercard | `/webhooks/*` |
 | — (public) | anyone with `client_id`/`secret` | `/oauth/token` |
 
 **`tenantId` is NEVER taken from the body/query** — only from authentication (the external
@@ -210,7 +210,7 @@ Response — an array of `StatusEventViewDto`: `transactionReference`, `eventTyp
 
 ⚠️ **MC provides no sandbox data for Carded Rate** → no real response in sandbox; e2e only checks
 that the gateway doesn’t crash and forwards. Sandbox returns `{"rates":{}}`. The push variant is
-a webhook (`CARDFX_PUB`) on the shared `/webhooks/mastercard`. Verifiable live in MTF/Prod on a
+a webhook (`CARDFX_PUB`) on the shared `/webhooks/mastercard/webhook`. Verifiable live in MTF/Prod on a
 configured corridor.
 
 ## Validation / Lookup (FLE)
@@ -336,13 +336,15 @@ kept for everything else) — a base64 file up to ~1 MB passes the parser (not 4
 
 # Webhooks (inbound from Mastercard)
 
-### POST /webhooks/mastercard
+### POST /webhooks/mastercard/webhook
 **Purpose.** Receive MC push notifications (transaction/quote statuses, Carded Rate Push, RFI, etc.). · **Upstream:** none (receiver) · **Auth:** `WebhookAuthGuard` · **Code:** **always `200`** (else MC retries). Rate-limit 1200/min (per-pod). Body — `McWebhookEventDto` (passthrough, fields with `@MaxLength` caps).
 
-- **Authentication:** in-service fail-closed token `X-Webhook-Token` (mandatory in prod and dev).
-  **The authoritative push authenticity at Mastercard is mTLS, NOT a payload signature** (found in
-  the MC docs). MC does not sign push bodies, so there is no in-code signature check — the single
-  active factor is the `X-Webhook-Token`. mTLS is configured at the TLS layer.
+- **Authentication:** decided **in the app**, never the ingress. **MC authenticates push only by
+  a client certificate (mTLS), NOT a payload signature** and sends no token/header (MC docs §"Push
+  Notification Setup"). When `webhookMtlsEnabled`, `WebhookAuthGuard` validates MC's cert in-app
+  (trusted chain `socket.authorized` + subject-CN allowlist `CrossborderServicesNotification-{env}.mastercard.com`);
+  the app terminates TLS (`requestCert`), the ingress is L4 passthrough. The fail-closed
+  `X-Webhook-Token` is an optional dev/secondary factor (when in-app TLS is off).
   > **Verbatim (`api-mastercard.md`):** *“Contact your mastercard representative for mTLS push
   > notification mastercard public certificate. This certificate needs to be trusted by the
   > receiving application. Also, please share the server certificate chain for validation (via

@@ -12,8 +12,6 @@
 1. **Ретеншн БД.** Какое окно хранения требуется для `payment_idempotency` и `tx_status`,
    и каким механизмом чистить старые записи? App-level TTL нет, обе таблицы растут
    неограниченно; `payment_idempotency.result` хранит полный ответ MC (возможен PII).
-2. **Доставка `X-Webhook-Token`.** MC сам токен не знает — инжектить на TLS-слое ингресса
-   или задавать кастомным заголовком в Push-конфиге портала?
 
 ---
 
@@ -21,10 +19,14 @@
 
 - [ ] **Сильные секреты** вместо dev-дефолтов: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
   `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (прод-гейт проверяет на старте).
-- [ ] **mTLS для вебхуков MC.** Аутентичность push у MC — через mTLS, не подпись payload.
-  При деплое: запросить публичный mTLS-cert MC → в trust store; передать наш cert-chain
-  через KMP-портал; уточнить доставку `X-Webhook-Token` (вопрос 2). До этого активный
-  фактор — fail-closed `X-Webhook-Token`.
+- [ ] **In-app mTLS для вебхуков MC (деплой-обвязка).** Решение об auth — в приложении
+  (`WebhookAuthGuard` валидирует клиентский cert MC — реализовано); шаги деплоя:
+  - поднять HTTPS-сервер приложения с `requestCert: true, rejectUnauthorized: false` и DigiCert
+    **Outbound**-цепочкой (Assured ID Client CA G2 + Root G2) в `ca` (env `TLS_*_PATH`);
+  - задать `webhookMtlsEnabled` + `webhookAllowedClientCNs` =
+    `CrossborderServicesNotification-{env}.mastercard.com`;
+  - ингресс — **L4 TLS passthrough** (TLS терминирует приложение, не ингресс);
+  - сдать нашу серверную cert-chain через KMP-портал; webhook URL = FQDN/HTTPS (не IP).
 - [ ] **OWN partner-id и ключи** (включая их decryption key) заведены в AWS Secrets Manager
   — один секрет на партнёра, значение = JSON `MerchantSecretBundle`.
 - [ ] **`migration:run`** на прод-БД при деплое.
@@ -64,6 +66,12 @@
 - **FLE** работает во всех средах, sandbox в т.ч. (`MC_ENCRYPTION_ENABLED=true`,
   `MC_DECRYPTION_KEY_PATH` есть); запрос шифруется Client Encryption Key, ответ
   расшифровывается Mastercard Encryption private key.
+- **Аутентификация вебхука — in-app mTLS (без зависимости от ингресса).** MC аутентифицирует
+  push только клиентским сертификатом (ни токена, ни заголовка, ни api-key — MC docs §"Push
+  Notification Setup", поэтому вариант «кастомный заголовок в портале» невозможен).
+  `WebhookAuthGuard` валидирует cert в приложении: доверенная цепочка (`socket.authorized`) +
+  allowlist по subject-CN. `X-Webhook-Token` — опциональный dev/вторичный фактор. Ингресс —
+  тупой L4-passthrough; живое подтверждение на MTF.
 - **Встраивание TypeORM** — один зонтичный `MastercardModule`; хост даёт `DataSource` и ведёт
   свои миграции. Инфраструктура миграций, RFI-подсистема и Swagger — готовы.
 

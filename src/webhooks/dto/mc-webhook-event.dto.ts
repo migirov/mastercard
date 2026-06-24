@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
- * Body of `POST /webhooks/mastercard`. Accepted with a passthrough pipe (whitelist:false),
+ * Body of `POST /webhooks/mastercard/webhook`. Accepted with a passthrough pipe (whitelist:false),
  * because MC sends many fields beyond those declared — they must not be stripped or rejected.
  * Here we type and document the known fields for Swagger and the handler.
  */

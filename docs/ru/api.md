@@ -36,13 +36,13 @@
 | 6 | Account Validation (×3) | `POST /account-validations`, `/bank-lookups`, `/iban-generations` | ✅ FLE → реальные данные |
 | 7 | Cash Pickup Locations | `GET /crossborder/cash-pickup/{countries,cities,providers,branches}` | ✅ |
 | 8 | Endpoint Guide | `GET /crossborder/endpoint-guide/specifications` | ⚠️ HTML-500 (корридор после онбординга) |
-| 9 | Status Change Push | `POST /webhooks/mastercard` → `GET /crossborder/status-events` | ✅ |
+| 9 | Status Change Push | `POST /webhooks/mastercard/webhook` → `GET /crossborder/status-events` | ✅ |
 | 10 | Retrieve Payment | `GET /crossborder/payments/:id` · `?ref=` | ✅ |
 | 11 | RFI (×4) | `GET/POST /rfi/requests/:id`, `POST /rfi/documents`, `GET /rfi/documents/:id` | ⚠️ `050007` (RFI не включён проекту) |
 | 12 | Cancel Payment | `POST /crossborder/payments/:id/cancel` | ✅ |
 | 13 | Balance | `GET /crossborder/balances` | ✅ реальные балансы |
 | 14 | Payload Encryption | `EncryptionService` (axios-интерцептор) | ✅ FLE работает на sandbox |
-| 15 | Push Notifications | `POST /webhooks/mastercard` (+ `tx_status`) | ✅ |
+| 15 | Push Notifications | `POST /webhooks/mastercard/webhook` (+ `tx_status`) | ✅ |
 
 > «Reference Application» в сайдбаре MC — это пример-приложение, не API; реализовывать нечего.
 
@@ -57,7 +57,7 @@
 | `Authorization: Bearer <JWT>` | внешний мерчант (партнёр) | `/crossborder/*` |
 | `X-Internal-Token` + `X-Tenant-Id` | внутренний сервис/UI платформы | `/crossborder/*` |
 | `X-Admin-Token` | оператор платформы | `/admin/*` |
-| `X-Webhook-Token` (fail-closed; авторитет у MC = **mTLS**, токен — наш доп. фактор) | Mastercard | `/webhooks/*` |
+| in-app **mTLS** клиентский cert (авторитетно; MC не шлёт токен) — `X-Webhook-Token` опциональный dev/вторичный фактор | Mastercard | `/webhooks/*` |
 | — (публичный) | любой с `client_id`/`secret` | `/oauth/token` |
 
 **`tenantId` НИКОГДА не берётся из тела/query** — только из аутентификации (JWT внешнего
@@ -211,7 +211,7 @@ Tenant-scoped: OWN видит строго свои события; PLATFORM —
 
 ⚠️ **MC не предоставляет sandbox-данные для Carded Rate** → реального ответа в sandbox не
 получить; e2e проверяет лишь, что шлюз не падает и форвардит. На sandbox приходит `{"rates":{}}`.
-Push-вариант — вебхук (`CARDFX_PUB`) на общий `/webhooks/mastercard`. Проверится вживую в
+Push-вариант — вебхук (`CARDFX_PUB`) на общий `/webhooks/mastercard/webhook`. Проверится вживую в
 MTF/Prod на сконфигурированном коридоре.
 
 ## Валидация / Lookup (FLE)
@@ -337,13 +337,16 @@ MTF/Prod на сконфигурированном коридоре.
 
 # Webhooks (входящие от Mastercard)
 
-### POST /webhooks/mastercard
+### POST /webhooks/mastercard/webhook
 **Назначение.** Приём push-уведомлений MC (статусы транзакций/котировок, Carded Rate Push, RFI и т.п.). · **Upstream:** нет (приёмник) · **Auth:** `WebhookAuthGuard` · **Код:** **всегда `200`** (иначе MC ретраит). Rate-limit 1200/мин (per-pod). Тело — `McWebhookEventDto` (passthrough, поля с `@MaxLength`-капами).
 
-- **Аутентификация:** in-service fail-closed токен `X-Webhook-Token` (обязателен в prod и dev).
-  **Авторитетная аутентичность push у Mastercard — это mTLS, а НЕ подпись тела** (выяснено по
-  доке MC). Тело push MC не подписывает, поэтому проверки подписи в коде нет — единственный
-  активный фактор — `X-Webhook-Token`. mTLS настраивается на TLS-слое.
+- **Аутентификация:** решается **в приложении**, не на ингрессе. **MC аутентифицирует push
+  только клиентским сертификатом (mTLS), а НЕ подписью тела** и не шлёт токен/заголовок (MC docs
+  §"Push Notification Setup"). При `webhookMtlsEnabled` `WebhookAuthGuard` валидирует cert MC в
+  приложении (доверенная цепочка `socket.authorized` + allowlist subject-CN
+  `CrossborderServicesNotification-{env}.mastercard.com`); TLS терминирует приложение
+  (`requestCert`), ингресс — L4 passthrough. Fail-closed `X-Webhook-Token` — опциональный
+  dev/вторичный фактор (когда in-app TLS выключен).
   > **Дословно (`api-mastercard.md`):** *“Contact your mastercard representative for mTLS push
   > notification mastercard public certificate. This certificate needs to be trusted by the
   > receiving application. Also, please share the server certificate chain for validation (via

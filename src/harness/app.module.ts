@@ -110,6 +110,13 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
         internalToken: c.getOrThrow<string>('MC_INTERNAL_TOKEN'),
         adminToken: c.getOrThrow<string>('MC_ADMIN_TOKEN'),
         webhookToken: c.get<string>('MC_WEBHOOK_TOKEN'),
+        webhookMtlsEnabled: c.get<string>('MC_WEBHOOK_MTLS_ENABLED') === 'true',
+        webhookAllowedClientCNs: (
+          c.get<string>('MC_WEBHOOK_ALLOWED_CLIENT_CNS') ?? ''
+        )
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
         nodeEnv: c.get<string>('NODE_ENV'),
       }),
     }),

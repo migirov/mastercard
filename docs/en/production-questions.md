@@ -12,8 +12,6 @@ store, TypeORM embedding) live in [documentation.md](./documentation.md) and
 1. **DB retention.** What retention window is required for `payment_idempotency` and
    `tx_status`, and what mechanism prunes old rows? There is no app-level TTL, both tables
    grow unbounded; `payment_idempotency.result` stores the full MC response (possibly PII).
-2. **`X-Webhook-Token` delivery.** MC doesn't know the token — inject it at the ingress TLS
-   layer, or set it as a custom header in the portal push config?
 
 ---
 
@@ -21,10 +19,14 @@ store, TypeORM embedding) live in [documentation.md](./documentation.md) and
 
 - [ ] **Strong secrets** instead of dev defaults: `MC_JWT_SECRET`, `MC_INTERNAL_TOKEN`,
   `MC_ADMIN_TOKEN`, `MC_WEBHOOK_TOKEN` (the prod gate checks this at startup).
-- [ ] **mTLS for MC webhooks.** Push authenticity at MC is via mTLS, not a payload signature.
-  At deploy: request the public mTLS cert from MC → add to the trust store; submit our cert
-  chain via the KMP portal; confirm `X-Webhook-Token` delivery (question 2). Until then the
-  active factor is the fail-closed `X-Webhook-Token`.
+- [ ] **In-app mTLS for MC webhooks (deploy wiring).** The auth decision is in the app
+  (`WebhookAuthGuard` validates MC's client cert — implemented); the deploy steps:
+  - bootstrap the app's HTTPS server with `requestCert: true, rejectUnauthorized: false` and the
+    DigiCert **Outbound** chain (Assured ID Client CA G2 + Root G2) in `ca` (`TLS_*_PATH` envs);
+  - set `webhookMtlsEnabled` + `webhookAllowedClientCNs` =
+    `CrossborderServicesNotification-{env}.mastercard.com`;
+  - run the ingress as **L4 TLS passthrough** (TLS terminated by the app, not the ingress);
+  - submit our server cert chain via the KMP portal; confirm the webhook URL is FQDN/HTTPS (not IP).
 - [ ] **OWN partner-id and keys** (including their decryption key) loaded into AWS Secrets
   Manager — one secret per partner, value = the `MerchantSecretBundle` JSON.
 - [ ] **`migration:run`** against the prod DB on deploy.
@@ -64,6 +66,11 @@ store, TypeORM embedding) live in [documentation.md](./documentation.md) and
 - **FLE** works in all environments incl. sandbox (`MC_ENCRYPTION_ENABLED=true`,
   `MC_DECRYPTION_KEY_PATH` present); request encrypted with the Client Encryption Key, response
   decrypted with the Mastercard Encryption private key.
+- **Webhook authentication — in-app mTLS (no ingress dependency).** MC authenticates push only
+  via a client certificate (no token/header/api-key — MC docs §"Push Notification Setup", so the
+  "custom header in the portal" option is impossible). `WebhookAuthGuard` validates the cert
+  in-app: trusted chain (`socket.authorized`) + subject-CN allowlist. `X-Webhook-Token` is an
+  optional dev/secondary factor. The ingress is a dumb L4 passthrough; live confirmation on MTF.
 - **TypeORM embedding** — one umbrella `MastercardModule`; the host owns the `DataSource` and
   runs its own migrations. Migration infrastructure, the RFI subsystem and Swagger — ready.
 

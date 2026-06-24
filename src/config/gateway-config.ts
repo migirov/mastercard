@@ -35,8 +35,22 @@ export interface MastercardModuleOptions {
   readonly internalToken: string;
   /** Admin API token. */
   readonly adminToken: string;
-  /** Shared secret for MC webhook authentication (required — guard fail-closed). */
+  /**
+   * Shared secret for MC webhook authentication. Optional secondary/dev factor: in prod the
+   * authoritative factor is in-app mTLS (below), since MC sends no token/header on push.
+   */
   readonly webhookToken?: string;
+  /**
+   * Webhook auth: validate MC's client certificate IN THE APP (mTLS terminated by the app's
+   * own HTTPS server via `requestCert`), never trusting the ingress. Required in prod — MC
+   * authenticates push only via mTLS (no token/header), per the MC docs.
+   */
+  readonly webhookMtlsEnabled?: boolean;
+  /**
+   * Acceptable client-certificate subject CNs for the webhook (e.g.
+   * `CrossborderServicesNotification-prod.mastercard.com`). The guard rejects any other CN.
+   */
+  readonly webhookAllowedClientCNs?: string[];
   /**
    * Host environment. `'production'` enables prod gates (strong secrets + the AWS
    * Secrets Manager store)
@@ -78,18 +92,34 @@ export class GatewayConfig {
     // Prod gates: the module itself refuses to start in prod with weak secrets
     // or a dev secret store — identically standalone and embedded.
     if (this.isProduction) {
-      const bad = (
-        ['jwtSecret', 'internalToken', 'adminToken', 'webhookToken'] as const
+      const weak: string[] = (
+        ['jwtSecret', 'internalToken', 'adminToken'] as const
       ).filter((k) => isWeakSecret(opts[k]));
-      if (bad.length) {
+      // webhookToken is now an OPTIONAL secondary factor; only weak-check it if it is set.
+      if (opts.webhookToken && isWeakSecret(opts.webhookToken)) {
+        weak.push('webhookToken');
+      }
+      if (weak.length) {
         throw new Error(
-          `production: weak/default secrets — set strong values: ${bad.join(', ')}`,
+          `production: weak/default secrets — set strong values: ${weak.join(', ')}`,
         );
       }
       if (this.secretStore !== 'aws-secrets-manager') {
         throw new Error(
           'production: secretStore must be "aws-secrets-manager" — ' +
             'LocalSecretStore is for dev only',
+        );
+      }
+      // Webhook authenticity must be decided IN THE APP, not the ingress: production validates
+      // MC's client certificate in-app (mTLS terminated by the app). MC sends no token/header
+      // on push, so the cert is the only factor that authenticates it.
+      if (
+        !this.webhookMtlsEnabled ||
+        this.webhookAllowedClientCNs.length === 0
+      ) {
+        throw new Error(
+          'production: enable in-app webhook mTLS — set webhookMtlsEnabled + ' +
+            'webhookAllowedClientCNs (validate MC client cert in-app, not the ingress)',
         );
       }
     }
@@ -144,6 +174,12 @@ export class GatewayConfig {
   }
   get webhookToken(): string | undefined {
     return this.opts.webhookToken;
+  }
+  get webhookMtlsEnabled(): boolean {
+    return this.opts.webhookMtlsEnabled ?? false;
+  }
+  get webhookAllowedClientCNs(): string[] {
+    return this.opts.webhookAllowedClientCNs ?? [];
   }
   get isProduction(): boolean {
     // From host options only — the module is embeddable and does NOT read

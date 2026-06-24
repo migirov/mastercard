@@ -157,8 +157,8 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(r.data.error).toBeDefined();
   });
 
-  it('POST /webhooks/mastercard без токена → 401 (fail-closed)', async () => {
-    const r = await http.post('/webhooks/mastercard', { eventType: 'noop' });
+  it('POST /webhooks/mastercard/webhook без токена → 401 (fail-closed)', async () => {
+    const r = await http.post('/webhooks/mastercard/webhook', { eventType: 'noop' });
     expect(r.status).toBe(401);
   });
 
@@ -264,7 +264,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     };
 
     // 1) приём + атомарный персист
-    const post1 = await http.post('/webhooks/mastercard', body, {
+    const post1 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
     expect(post1.status).toBe(200);
@@ -289,7 +289,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(poll.data[0].payload).toBeDefined();
 
     // 3) ретрай MC того же eventRef → дубликат (дедуп = UNIQUE(eventRef))
-    const post2 = await http.post('/webhooks/mastercard', body, {
+    const post2 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
     expect(post2.data).toEqual({ status: 'duplicate' });
@@ -301,7 +301,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     const body = { encrypted_payload: { data: `E2EENC_${Date.now()}` } };
 
     // Decryption isn't wired → we do NOT process it, but the envelope is persisted BEFORE the ack.
-    const post1 = await http.post('/webhooks/mastercard', body, {
+    const post1 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
     expect(post1.status).toBe(200);
@@ -309,7 +309,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
 
     // Retry of the identical envelope → dedup by enc:sha256(data) (= proves the first one
     // was stored) → duplicate, also 200.
-    const post2 = await http.post('/webhooks/mastercard', body, {
+    const post2 = await http.post('/webhooks/mastercard/webhook', body, {
       headers: webhook,
     });
     expect(post2.status).toBe(200);
@@ -329,7 +329,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
 
     // A: partnerId совпадает с OWN-тенантом → атрибуция own-demo
     const a = await http.post(
-      '/webhooks/mastercard',
+      '/webhooks/mastercard/webhook',
       {
         eventRef: `whown_${t}`,
         eventType: 'STATUS_CHG',
@@ -342,7 +342,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(a.data).toEqual({ status: 'accepted' });
     // B: неизвестный partnerId → общий пул (tenantId=null)
     const b = await http.post(
-      '/webhooks/mastercard',
+      '/webhooks/mastercard/webhook',
       {
         eventRef: `whpool_${t}`,
         eventType: 'STATUS_CHG',
@@ -385,7 +385,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     const ref = `E2ETRUNC_${t}`;
     const longStatus = 'S'.repeat(50); // status isn't DTO length-capped
     const post = await http.post(
-      '/webhooks/mastercard',
+      '/webhooks/mastercard/webhook',
       {
         eventRef: `whtrunc_${t}`,
         eventType: 'STATUS_CHG',

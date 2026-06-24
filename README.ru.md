@@ -60,7 +60,10 @@ MC_SIGNING_KEY_PATH, MC_SIGNING_KEY_PASSWORD
 MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # для MTF/Prod
 DATABASE_URL, DB_POOL_MAX               # PostgreSQL
-MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN, MC_WEBHOOK_TOKEN
+MC_JWT_SECRET, MC_INTERNAL_TOKEN, MC_ADMIN_TOKEN
+MC_WEBHOOK_TOKEN                        # опциональный dev/вторичный фактор (в проде — in-app mTLS)
+MC_WEBHOOK_MTLS_ENABLED, MC_WEBHOOK_ALLOWED_CLIENT_CNS   # in-app mTLS вебхука (обязателен в проде)
+TLS_KEY_PATH, TLS_CERT_PATH, TLS_CLIENT_CA_PATH          # TLS терминирует приложение (mTLS); ингресс = L4 passthrough
 MC_SECRET_STORE                         # local (dev) | aws-secrets-manager (prod)
 MC_SECRET_STORE_REGION                  # опциональный AWS-регион для secret store (иначе AWS_REGION / IAM-роль)
 TRUST_PROXY                             # число хопов ингресса за прокси
@@ -133,7 +136,7 @@ src/
   crossborder/    бизнес-эндпоинты по областям (accounts/quotes/payments/validations/
                   cash-pickup/rfi) над общим gateway; идемпотентность платежей (Postgres)
   audit/          журнал операций (Postgres, батч-запись)
-  webhooks/       push-уведомления + fail-closed auth (токен) + DTO
+  webhooks/       push-уведомления + in-app auth (mTLS client-cert / dev-токен) + DTO
   database/       TypeORM (dev-харнесс; в монолите соединение даёт хост)
   health/         health/readiness-пробы (@nestjs/terminus) — контроллер в
                   dev-харнессе (AppModule), не в эмбеддабл-модуле
@@ -177,8 +180,13 @@ imports: [
    ≥~1.4MB для этого маршрута (route-scoped JSON-парсер для
    `POST /crossborder/rfi/documents` или достаточно высокий глобальный лимит). Пропущено →
    загрузки RFI у предела MC ~1MB → `413`.
-4. **Задан `webhookToken`** — обязателен для входящих вебхуков Mastercard; пусто ⇒
-   fail-closed (каждый запрос `/webhooks/mastercard` → `401`).
+4. **Аутентификация вебхука — in-app mTLS.** Mastercard аутентифицирует push только
+   клиентским сертификатом (ни токена, ни заголовка). `WebhookAuthGuard` валидирует его **в
+   приложении** (никогда не ингресс): задать `webhookMtlsEnabled: true` + `webhookAllowedClientCNs`
+   (`CrossborderServicesNotification-{env}.mastercard.com`) и поднять HTTPS-сервер с
+   `requestCert: true, rejectUnauthorized: false` и DigiCert Outbound CA-цепочкой MC в `ca`
+   (TLS терминирует приложение; ингресс — L4 passthrough). Для dev/local без TLS — оставить
+   mTLS выключенным и задать fail-closed `webhookToken` (`X-Webhook-Token`). В проде обязателен.
 5. **Не передавайте `isGlobal: false`** в `forRoot/forRootAsync`. Зонтичный модуль
    глобальный по умолчанию, чтобы его экспортируемый `GatewayConfig` инъектился в каждый
    под-модуль без повторного импорта зонтичного; `false` сломал бы DI между под-модулями.
