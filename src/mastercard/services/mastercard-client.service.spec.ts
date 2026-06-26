@@ -182,6 +182,17 @@ describe('MastercardClient — retry matrix', () => {
     expect(httpRequest).toHaveBeenCalledTimes(1);
   });
 
+  it('GET retries back off linearly (200ms, then 400ms) — not a hot loop', async () => {
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const { client, httpRequest } = setup();
+    httpRequest.mockResolvedValue({ status: 503, data: 'x' });
+    await client.request(creds, { method: 'GET', path: '/p' });
+    // axios is mocked, so the only setTimeout calls are the retry backoffs.
+    const delays = setTimeoutSpy.mock.calls.map((c) => c[1]);
+    expect(delays).toEqual(expect.arrayContaining([200, 400]));
+    setTimeoutSpy.mockRestore();
+  });
+
   it('network error on GET is retried; on POST — not', async () => {
     const get = setup();
     get.httpRequest.mockRejectedValue(new Error('ECONNRESET'));

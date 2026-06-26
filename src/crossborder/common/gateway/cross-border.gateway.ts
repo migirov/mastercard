@@ -126,8 +126,8 @@ export class CrossBorderGateway {
    * Partner-Ref-Id — the "reference ID of the business partner". We use the RAW
    * partnerId (NOT partner()=encodeURIComponent — that is a URL-PATH encoder; the
    * header needs the raw value, otherwise a partnerId with `+`/`&`/`=` would be
-   * distorted), but via stripCrlf.
-   * (Partner-Ref-Id semantics — partner id vs per-request ref — to be clarified with MC.)
+   * distorted), but via stripCrlf. Partner-Ref-Id carries the partner identifier, so we
+   * send the tenant's partnerId.
    */
   mcRefHeaders(creds: McCredentials): Record<string, string> {
     return {

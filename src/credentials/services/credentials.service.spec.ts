@@ -39,6 +39,15 @@ describe('CredentialsService — facade dispatch', () => {
     expect(platform.get).not.toHaveBeenCalled();
   });
 
+  it('an error from the OWN provider propagates unchanged (transparent passthrough)', async () => {
+    // The 422-vs-500 contract (proven in own-credentials.provider.spec) only holds
+    // end-to-end if the facade does not swallow or remap the provider's error.
+    const { svc, own } = make();
+    const err = new Error('tenant credentials are not configured');
+    (own.get as jest.Mock).mockRejectedValueOnce(err);
+    await expect(svc.resolve(tenant(CredentialMode.OWN))).rejects.toBe(err);
+  });
+
   it('invalidate delegates to the OWN provider', () => {
     const { svc, own } = make();
     svc.invalidate('acme');
