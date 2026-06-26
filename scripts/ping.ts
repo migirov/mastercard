@@ -7,14 +7,16 @@
 import { NestFactory } from '@nestjs/core';
 import { HttpException, Logger } from '@nestjs/common';
 import { AppModule } from '../src/harness/app.module';
-import { CrossBorderService } from '../src/crossborder/services/crossborder.service';
+import { AccountsService } from '../src/crossborder/accounts/services/accounts.service';
 
 async function main() {
   const log = new Logger('ping');
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
-  const cb = app.get(CrossBorderService);
+  // strict:false — getBalances lives in AccountsService, a provider deep in the
+  // CrossBorder area module (not the root), so resolve it across the whole graph.
+  const cb = app.get(AccountsService, { strict: false });
 
   const tenantId = process.argv[2] ?? 'platform';
   log.log(`getBalances(tenant='${tenantId}')`);

@@ -20,7 +20,7 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*"],
-  // ts-node (dev-скрипты, typeorm CLI) грузит ВСЕ файлы из include, включая
-  // ambient-расширения типов (src/types/express.d.ts) — иначе он их не видит.
+  // ts-node (dev scripts, the typeorm CLI) loads ALL files from include, including
+  // ambient type extensions (src/types/express.d.ts) — otherwise it does not see them.
   "ts-node": { "files": true }
 }

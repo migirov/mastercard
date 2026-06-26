@@ -1,32 +1,32 @@
-# Секреты — не коммитить
+# Secrets — do not commit
 .env
 .env.*
-# ...кроме шаблона без значений
+# ...except the value-less template
 !.env.example
 
-# Криптоматериал Mastercard (ключи и сертификаты)
+# Mastercard crypto material (keys and certificates)
 certs/
 *.p12
 *.pem
 *.key
 
-# Локальные секреты мерчантов (dev SecretStore)
+# Local merchant secrets (dev SecretStore)
 secrets.local.json
 
-# Сборка / зависимости
+# Build / dependencies
 dist/
 node_modules/
 
-# Тестовое покрытие
+# Test coverage
 coverage/
 
-# Логи и временные артефакты
+# Logs and temporary artifacts
 *.log
 startup*.log
 *.out
 *.tmp
 
-# Вывод/кэш сканера agentic-security (инструментальный, не версионируем)
+# agentic-security scanner output/cache (tooling, not versioned)
 .agentic-security/
 
 # Internal dev/process docs — kept locally, not versioned
