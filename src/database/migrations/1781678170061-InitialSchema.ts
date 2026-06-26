@@ -16,9 +16,11 @@ export class InitialSchema1781678170061 implements MigrationInterface {
         await queryRunner.query(`CREATE INDEX "IDX_efb06850af2f5a2045b55cbf97" ON "tx_status" ("transactionReference", "tenantId") `);
         await queryRunner.query(`CREATE TABLE "tenants" ("id" character varying(64) NOT NULL, "name" character varying(160) NOT NULL, "credentialMode" character varying(16) NOT NULL, "partnerId" character varying(128), "secretRef" character varying(256), "platformApproved" boolean NOT NULL DEFAULT false, "mcApproved" boolean NOT NULL DEFAULT false, "suspended" boolean NOT NULL DEFAULT false, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_53be67a04681c66b87ee27c9321" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_6ad29f70b20275660ba5a35245" ON "tenants" ("createdAt") `);
+        await queryRunner.query(`ALTER TABLE "oauth_clients" ADD CONSTRAINT "FK_e8a0bd886e6bd30d73e90ffbb50" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "oauth_clients" DROP CONSTRAINT "FK_e8a0bd886e6bd30d73e90ffbb50"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_6ad29f70b20275660ba5a35245"`);
         await queryRunner.query(`DROP TABLE "tenants"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_efb06850af2f5a2045b55cbf97"`);
