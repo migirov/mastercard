@@ -13,10 +13,10 @@ export interface MerchantSecretBundle {
   readonly consumerKey: string;
   readonly partnerId: string;
   readonly signing: KeyMaterial;
-  /** For JWE encryption of requests (Phase 4). */
+  /** Public cert for field-level (JWE) encryption of requests. */
   readonly encryptionCertPem?: string;
   readonly encryptionFingerprint?: string;
-  /** For decryption of responses (Phase 4). */
+  /** Private key for decryption of responses. */
   readonly decryption?: KeyMaterial;
 }
 

@@ -37,6 +37,9 @@ const TRANSIENT_STATUSES = new Set([502, 503, 504]);
  */
 const MC_REQUEST_TIMEOUT_MS = 30_000;
 
+/** Linear backoff step between idempotent-GET retries: 200ms, then 400ms. */
+const BACKOFF_STEP_MS = 200;
+
 /**
  * Base class for DETERMINISTIC crypto-pipeline errors (request encryption /
  * response decryption). The retry loop does NOT retry these: a repeat yields the
@@ -128,7 +131,7 @@ export class MastercardClient implements OnApplicationShutdown {
           attempt < maxAttempts &&
           TRANSIENT_STATUSES.has(res.status) // transient 5xx — retry
         ) {
-          await delay(attempt * 200);
+          await delay(attempt * BACKOFF_STEP_MS);
           continue;
         }
         return { status: res.status, data: res.data };
@@ -139,7 +142,7 @@ export class MastercardClient implements OnApplicationShutdown {
         if (e instanceof NonRetryableMcError) throw e;
         lastErr = e; // network failure
         if (attempt < maxAttempts) {
-          await delay(attempt * 200);
+          await delay(attempt * BACKOFF_STEP_MS);
           continue;
         }
         throw e;

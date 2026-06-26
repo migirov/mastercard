@@ -8,9 +8,9 @@ export interface McCredentials {
   /** Private signing key in PEM format. */
   readonly signingKeyPem: string;
   readonly partnerId: string;
-  /** For JWE encryption of requests (Phase 4). */
+  /** Public cert for field-level (JWE) encryption of requests. */
   readonly encryptionCertPem?: string;
   readonly encryptionFingerprint?: string;
-  /** For decryption of responses (Phase 4). */
+  /** Private key for decryption of responses. */
   readonly decryptionKeyPem?: string;
 }
