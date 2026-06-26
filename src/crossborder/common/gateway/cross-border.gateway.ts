@@ -46,13 +46,13 @@ export class CrossBorderGateway {
    * `mcRefHeaders(c)` for validation/guide, `catalogHeaders(c)` for cash-pickup,
    * or no headers.
    */
-  async run<T>(
+  async run(
     tenantId: string,
     ctx: string,
     build: (creds: McCredentials) => McRequest,
-  ): Promise<T> {
+  ): Promise<unknown> {
     const creds = await this.resolveActive(tenantId);
-    return this.call<T>(creds, build(creds), ctx);
+    return this.call(creds, build(creds), ctx);
   }
 
   /**
@@ -77,12 +77,15 @@ export class CrossBorderGateway {
    *                               internal links), details go to the log;
    *   network error             → 502.
    */
-  async call<T>(creds: McCredentials, req: McRequest, ctx: string): Promise<T> {
-    let res: McResponse<T>;
+  // Returns `unknown` deliberately: responses are opaque passthroughs of Mastercard's
+  // own JSON schema (which we don't own) — typing them would be fiction. Callers forward
+  // the value straight to the merchant; the one shape we DO read (status) lives on McResponse.
+  async call(creds: McCredentials, req: McRequest, ctx: string): Promise<unknown> {
+    let res: McResponse;
     try {
       // Response decryption happens in the MastercardClient response interceptor;
       // if it fails, the error lands here and becomes a 502 below.
-      res = await this.client.request<T>(creds, req);
+      res = await this.client.request(creds, req);
     } catch (e) {
       this.logger.error(
         `Mastercard ${ctx}: call/decryption error — ${(e as Error).message}`,
@@ -145,7 +148,7 @@ export class CrossBorderGateway {
    * string. We take only non-empty STRINGS (values from `?x[]=` and the like are
    * discarded); the keys are set by code.
    */
-  qs(params: object): string {
+  qs<T extends Partial<Record<keyof T, string | undefined>>>(params: T): string {
     const pairs = Object.entries(params)
       .filter(([, v]) => typeof v === 'string' && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);

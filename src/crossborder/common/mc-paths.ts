@@ -43,6 +43,8 @@ export const mcPath = {
   payment: (p: string) => `/send/v1/partners/${p}/crossborder/payment`,
   paymentById: (p: string, id: string) =>
     `/send/v1/partners/${p}/crossborder/${encodeURIComponent(id)}`,
+  // The single mandatory `ref` is encoded inline here (not via the gateway's `qs`, which
+  // is for optional filter bags) — same encodeURIComponent guarantee, one obvious param.
   paymentByRef: (p: string, ref: string) =>
     `/send/v1/partners/${p}/crossborder?ref=${encodeURIComponent(ref)}`,
   cancelPayment: (p: string, id: string) =>

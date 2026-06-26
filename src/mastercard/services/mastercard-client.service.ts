@@ -30,6 +30,14 @@ export interface McResponse<T = unknown> {
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
 
 /**
+ * Per-request timeout to Mastercard. INVARIANT: this MUST stay well below the payment
+ * idempotency lock TTL (`PaymentIdempotencyStore` LOCK_TTL_SECONDS = 120s) — a slow MC call
+ * made inside that lock has to finish before the lock goes stale, otherwise another pod
+ * re-claims it and re-POSTs the payment. Raising this requires raising LOCK_TTL accordingly.
+ */
+const MC_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
  * Base class for DETERMINISTIC crypto-pipeline errors (request encryption /
  * response decryption). The retry loop does NOT retry these: a repeat yields the
  * same result plus extra signed round-trips to MC — turn them straight into a 502.
@@ -81,7 +89,7 @@ export class MastercardClient implements OnApplicationShutdown {
     });
     this.http = axios.create({
       baseURL: this.baseUrl,
-      timeout: 30_000,
+      timeout: MC_REQUEST_TIMEOUT_MS,
       httpsAgent: this.httpsAgent,
     });
     this.installInterceptors();
