@@ -28,6 +28,9 @@ export class TransactionStatusEntity {
   @Column({ type: 'varchar', length: 200, nullable: true })
   eventRef?: string | null;
 
+  // Deliberately NOT an FK to tenants: a webhook is persisted BEFORE (and independently of)
+  // tenant attribution — it must be stored even when the tenant can't be resolved (NULL =
+  // shared PLATFORM pool), and the always-200 webhook contract must never fail on integrity.
   @Column({ type: 'varchar', length: 64, nullable: true })
   tenantId?: string | null;
 

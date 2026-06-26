@@ -10,6 +10,9 @@ export class AuditLogEntity {
   @Column({ type: 'timestamptz' })
   ts!: Date;
 
+  // Deliberately NOT an FK to tenants: the audit trail is a forensic record that must
+  // survive a tenant's deletion (and capture pre-onboarding / unattributed calls where
+  // tenantId is NULL). Indexed for lookup; integrity is intentionally not enforced here.
   @Index()
   @Column({ type: 'varchar', length: 64, nullable: true })
   tenantId?: string;
