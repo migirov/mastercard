@@ -81,6 +81,12 @@ describe('GatewayConfig', () => {
     ).toThrow(/aws-secrets-manager/);
   });
 
+  it('accepts a fully valid production config (positive control)', () => {
+    // The accept-boundary: without this, a bug making the prod gate throw unconditionally
+    // would still pass every "rejects ..." test below.
+    expect(() => new GatewayConfig({ ...opts, ...prod })).not.toThrow();
+  });
+
   it('requires in-app webhook mTLS in production', () => {
     expect(
       () => new GatewayConfig({ ...opts, ...prod, webhookMtlsEnabled: false }),

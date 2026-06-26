@@ -41,6 +41,10 @@ import { TenantViewDto } from '../dto/tenant-view.dto';
 @ApiSecurity('admin')
 @ApiErrorResponses()
 @Controller('admin')
+// The admin API is a single internal operator behind one shared X-Admin-Token, so the
+// default per-IP ThrottlerGuard is sufficient here (set TRUST_PROXY behind a proxy for a
+// correct req.ip). The identity-aware trackers — TenantThrottlerGuard (by tenantId),
+// OAuthThrottlerGuard (by client_id) — exist for the MULTI-principal surfaces, not this one.
 @UseGuards(AdminAuthGuard, ThrottlerGuard)
 // Strict DTO validation at our boundary (shared gateway strategy, Strict preset).
 @UsePipes(gatewayValidationPipe(ValidationStrategy.Strict))

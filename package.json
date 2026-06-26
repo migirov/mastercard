@@ -1,7 +1,7 @@
 {
   "name": "mastercard-crossborder",
   "version": "0.0.1",
-  "description": "Mastercard Cross-Border Services sandbox client (NestJS)",
+  "description": "Embeddable multi-tenant NestJS gateway to Mastercard Cross-Border Services",
   "scripts": {
     "build": "nest build",
     "start": "nest start",
