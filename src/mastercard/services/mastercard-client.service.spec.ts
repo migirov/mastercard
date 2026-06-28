@@ -120,7 +120,10 @@ describe('MastercardClient — request interceptor (encrypt + sign)', () => {
 
   it('sets x-encrypted when the body was actually encrypted', () => {
     const { getReqHandler, encryptRequest } = setup();
-    encryptRequest.mockReturnValueOnce({ body: 'JWE.compact.token', encrypted: true });
+    encryptRequest.mockReturnValueOnce({
+      body: 'JWE.compact.token',
+      encrypted: true,
+    });
     const cfg = reqConfig({ a: 1 });
 
     const out = getReqHandler()(cfg) as FakeReqConfig;

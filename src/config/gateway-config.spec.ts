@@ -21,6 +21,7 @@ const prod: Partial<MastercardModuleOptions> = {
   webhookAllowedClientCNs: [
     'CrossborderServicesNotification-prod.mastercard.com',
   ],
+  webhookAllowedIssuerCNs: ['DigiCert Assured ID Client CA G2'],
 };
 
 describe('GatewayConfig', () => {
@@ -95,6 +96,16 @@ describe('GatewayConfig', () => {
       () =>
         new GatewayConfig({ ...opts, ...prod, webhookAllowedClientCNs: [] }),
     ).toThrow(/mtls/i);
+  });
+
+  it('requires the webhook issuer (CA) allowlist in production', () => {
+    expect(
+      () =>
+        new GatewayConfig({ ...opts, ...prod, webhookAllowedIssuerCNs: [] }),
+    ).toThrow(/mtls/i);
+    expect(
+      new GatewayConfig({ ...opts, ...prod }).webhookAllowedIssuerCNs,
+    ).toEqual(['DigiCert Assured ID Client CA G2']);
   });
 
   it('treats webhookToken as optional in production (mTLS is the factor)', () => {

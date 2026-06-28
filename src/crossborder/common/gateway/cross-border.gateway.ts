@@ -1,12 +1,10 @@
 import { randomUUID } from 'crypto';
-import {
-  BadGatewayException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { stripCrlf } from '../../../common/utils/sanitize.util';
-import { UpstreamHttpException } from '../../../common/utils/upstream.exception';
+import {
+  UpstreamHttpException,
+  UpstreamUnavailableException,
+} from '../../../common/utils/upstream.exception';
 import { CredentialsService } from '../../../credentials/services/credentials.service';
 import { McCredentials } from '../../../credentials/credentials.types';
 import {
@@ -80,7 +78,11 @@ export class CrossBorderGateway {
   // Returns `unknown` deliberately: responses are opaque passthroughs of Mastercard's
   // own JSON schema (which we don't own) — typing them would be fiction. Callers forward
   // the value straight to the merchant; the one shape we DO read (status) lives on McResponse.
-  async call(creds: McCredentials, req: McRequest, ctx: string): Promise<unknown> {
+  async call(
+    creds: McCredentials,
+    req: McRequest,
+    ctx: string,
+  ): Promise<unknown> {
     let res: McResponse;
     try {
       // Response decryption happens in the MastercardClient response interceptor;
@@ -90,7 +92,9 @@ export class CrossBorderGateway {
       this.logger.error(
         `Mastercard ${ctx}: call/decryption error — ${(e as Error).message}`,
       );
-      throw new BadGatewayException('Error contacting Mastercard');
+      // Network/timeout/decryption drop — the outcome is UNKNOWN (MC may have accepted a
+      // POST before the drop). Hold any idempotency slot (fail-safe), surface as 502.
+      throw new UpstreamUnavailableException('unknown');
     }
 
     if (res.status >= 200 && res.status < 300) {
@@ -111,8 +115,13 @@ export class CrossBorderGateway {
     }
     // 401/403 is a problem with OUR credentials, not the merchant's; we don't
     // mislead them or reveal that the keys are invalid. 5xx is also not exposed.
+    // executed='no' for 401/403 (MC rejected at auth → the payment definitely did NOT run, so
+    // an idempotency slot can be released); 'unknown' for 5xx/other (outcome indeterminate →
+    // the slot must be held). Both surface to the merchant as an identical opaque 502.
     this.logger.error(`Mastercard ${ctx}: upstream HTTP ${res.status}`);
-    throw new BadGatewayException('Error contacting Mastercard');
+    const executed =
+      res.status === 401 || res.status === 403 ? 'no' : 'unknown';
+    throw new UpstreamUnavailableException(executed);
   }
 
   /** partner-id safely substituted into the path (protects against path-injection in OWN). */
@@ -148,7 +157,9 @@ export class CrossBorderGateway {
    * string. We take only non-empty STRINGS (values from `?x[]=` and the like are
    * discarded); the keys are set by code.
    */
-  qs<T extends Partial<Record<keyof T, string | undefined>>>(params: T): string {
+  qs<T extends Partial<Record<keyof T, string | undefined>>>(
+    params: T,
+  ): string {
     const pairs = Object.entries(params)
       .filter(([, v]) => typeof v === 'string' && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);

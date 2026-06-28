@@ -53,7 +53,8 @@ export class CreateTenantDto {
   // (safeSecretRef in credential-sanitize).
   @ApiPropertyOptional({
     maxLength: 256,
-    description: 'Required for credentialMode=OWN. AWS Secrets Manager name or ARN.',
+    description:
+      'Required for credentialMode=OWN. AWS Secrets Manager name or ARN.',
   })
   @ValidateIf((o) => o.credentialMode === CredentialMode.OWN)
   @IsString()

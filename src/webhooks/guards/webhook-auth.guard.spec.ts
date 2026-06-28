@@ -9,13 +9,20 @@ function ctxWith(req: Record<string, unknown>): ExecutionContext {
 }
 
 const MC_CN = 'CrossborderServicesNotification-prod.mastercard.com';
+const MC_ISSUER = 'DigiCert Assured ID Client CA G2';
 
-/** A fake TLS socket exposing the bits the guard reads. */
-function socket(opts: { authorized?: boolean; cn?: string | null }): unknown {
+/** A fake TLS socket exposing the bits the guard reads. `cn: undefined` ⇒ empty cert ({}). */
+function socket(opts: {
+  authorized?: boolean;
+  cn?: string | null;
+  issuer?: string;
+}): unknown {
   return {
     authorized: opts.authorized ?? false,
     getPeerCertificate: () =>
-      opts.cn === undefined ? {} : { subject: { CN: opts.cn } },
+      opts.cn === undefined
+        ? {}
+        : { subject: { CN: opts.cn }, issuer: { CN: opts.issuer } },
   };
 }
 
@@ -30,15 +37,15 @@ describe('WebhookAuthGuard', () => {
     }
 
     it('fail-closed: rejects when no token is configured (does NOT trust the ingress)', () => {
-      expect(() => tokenGuard(undefined).canActivate(ctxWith({ headers: {} }))).toThrow(
-        UnauthorizedException,
-      );
+      expect(() =>
+        tokenGuard(undefined).canActivate(ctxWith({ headers: {} })),
+      ).toThrow(UnauthorizedException);
     });
 
     it('rejects a missing token header', () => {
-      expect(() => tokenGuard('secret').canActivate(ctxWith({ headers: {} }))).toThrow(
-        UnauthorizedException,
-      );
+      expect(() =>
+        tokenGuard('secret').canActivate(ctxWith({ headers: {} })),
+      ).toThrow(UnauthorizedException);
     });
 
     it('rejects a wrong token', () => {
@@ -92,7 +99,9 @@ describe('WebhookAuthGuard', () => {
     it('rejects a trusted cert whose CN is not in the allowlist', () => {
       expect(() =>
         mtlsGuard().canActivate(
-          ctxWith({ socket: socket({ authorized: true, cn: 'evil.example.com' }) }),
+          ctxWith({
+            socket: socket({ authorized: true, cn: 'evil.example.com' }),
+          }),
         ),
       ).toThrow(UnauthorizedException);
     });
@@ -115,6 +124,48 @@ describe('WebhookAuthGuard', () => {
       expect(() =>
         g.canActivate(
           ctxWith({ socket: {}, headers: { 'x-webhook-token': 'secret' } }),
+        ),
+      ).toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('in-app mTLS — issuer (CA) pinning', () => {
+    function pinnedGuard(): WebhookAuthGuard {
+      return guard({
+        webhookMtlsEnabled: true,
+        webhookAllowedClientCNs: [MC_CN],
+        webhookAllowedIssuerCNs: [MC_ISSUER],
+      });
+    }
+
+    it('accepts a trusted cert whose subject CN and issuer CN are both pinned', () => {
+      expect(
+        pinnedGuard().canActivate(
+          ctxWith({
+            socket: socket({ authorized: true, cn: MC_CN, issuer: MC_ISSUER }),
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('rejects the right subject CN issued by a DIFFERENT CA (broad-CA-bundle defence)', () => {
+      expect(() =>
+        pinnedGuard().canActivate(
+          ctxWith({
+            socket: socket({
+              authorized: true,
+              cn: MC_CN,
+              issuer: 'Some Other DigiCert CA',
+            }),
+          }),
+        ),
+      ).toThrow(UnauthorizedException);
+    });
+
+    it('rejects when the issuer CN is missing', () => {
+      expect(() =>
+        pinnedGuard().canActivate(
+          ctxWith({ socket: socket({ authorized: true, cn: MC_CN }) }),
         ),
       ).toThrow(UnauthorizedException);
     });

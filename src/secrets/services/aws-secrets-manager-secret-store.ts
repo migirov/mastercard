@@ -11,7 +11,11 @@ import {
   SecretsManagerClient,
 } from '@aws-sdk/client-secrets-manager';
 import { GatewayConfig } from '../../config/gateway-config';
-import { KeyMaterial, MerchantSecretBundle, SecretStore } from '../secret-store.types';
+import {
+  KeyMaterial,
+  MerchantSecretBundle,
+  SecretStore,
+} from '../secret-store.types';
 
 /**
  * Prod implementation of the secret store, backed by AWS Secrets Manager (the
@@ -117,7 +121,12 @@ export class AwsSecretsManagerSecretStore implements SecretStore {
         'encryptionFingerprint',
         o.encryptionFingerprint,
       ),
-      decryption: this.keyMaterial(secretRef, 'decryption', o.decryption, false),
+      decryption: this.keyMaterial(
+        secretRef,
+        'decryption',
+        o.decryption,
+        false,
+      ),
     };
     return bundle;
   }
