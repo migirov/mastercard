@@ -4,6 +4,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Repository } from 'typeorm';
+import { UpstreamUnavailableException } from '../../../common/utils/upstream.exception';
 import { PaymentIdempotencyEntity } from '../entities/payment-idempotency.entity';
 import { PaymentIdempotencyStore } from './payment-idempotency.store';
 
@@ -13,6 +14,7 @@ function makeRepo() {
     findOne: jest.fn(),
     update: jest.fn(async () => undefined),
     delete: jest.fn(async () => undefined),
+    count: jest.fn(async () => 0),
   };
 }
 
@@ -134,6 +136,44 @@ describe('PaymentIdempotencyStore', () => {
     expect(repo.delete).not.toHaveBeenCalled();
   });
 
+  it('producer 401/403 (UpstreamUnavailable executed=no) → slot RELEASED (payment did not run)', async () => {
+    const repo = makeRepo();
+    repo.query.mockResolvedValue([{ id: 1 }]);
+    const err = new UpstreamUnavailableException('no');
+    await expect(
+      makeStore(repo).run(
+        't1',
+        'k1',
+        async () => {
+          throw err;
+        },
+        FP,
+      ),
+    ).rejects.toBe(err);
+    expect(repo.delete).toHaveBeenCalledWith({
+      tenantId: 't1',
+      idemKey: 'k1',
+      done: false,
+    });
+  });
+
+  it('producer 5xx/network (UpstreamUnavailable executed=unknown) → slot NOT released', async () => {
+    const repo = makeRepo();
+    repo.query.mockResolvedValue([{ id: 1 }]);
+    const err = new UpstreamUnavailableException('unknown');
+    await expect(
+      makeStore(repo).run(
+        't1',
+        'k1',
+        async () => {
+          throw err;
+        },
+        FP,
+      ),
+    ).rejects.toBe(err);
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
   it('network error (not HttpException) → slot NOT released', async () => {
     const repo = makeRepo();
     repo.query.mockResolvedValue([{ id: 1 }]);
@@ -161,5 +201,22 @@ describe('PaymentIdempotencyStore', () => {
       FP,
     );
     expect(r).toEqual({ paymentId: 'P9' });
+  });
+
+  describe('ownsKey (authorizes PLATFORM pool reads)', () => {
+    it('true when a record exists for (tenantId, key)', async () => {
+      const repo = makeRepo();
+      repo.count.mockResolvedValue(1);
+      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(true);
+      expect(repo.count).toHaveBeenCalledWith({
+        where: { tenantId: 't1', idemKey: 'k1' },
+      });
+    });
+
+    it('false when no record exists (cannot prove ownership of the ref)', async () => {
+      const repo = makeRepo();
+      repo.count.mockResolvedValue(0);
+      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(false);
+    });
   });
 });

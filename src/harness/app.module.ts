@@ -117,6 +117,12 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
+        webhookAllowedIssuerCNs: (
+          c.get<string>('MC_WEBHOOK_ALLOWED_ISSUER_CNS') ?? ''
+        )
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
         nodeEnv: c.get<string>('NODE_ENV'),
       }),
     }),

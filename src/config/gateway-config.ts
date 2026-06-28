@@ -52,6 +52,13 @@ export interface MastercardModuleOptions {
    */
   readonly webhookAllowedClientCNs?: string[];
   /**
+   * Acceptable client-certificate ISSUER (CA) CNs for the webhook — the leaf's immediate
+   * issuer, e.g. `DigiCert Assured ID Client CA G2` (MC's outbound chain, per the MC docs).
+   * Pinning the issuer (not just `authorized` + subject CN) prevents a broadly-trusted CA
+   * bundle from letting any cert with the right subject CN through. Required in production.
+   */
+  readonly webhookAllowedIssuerCNs?: string[];
+  /**
    * Host environment. `'production'` enables prod gates (strong secrets + the AWS
    * Secrets Manager store)
    * and disables seeding of test tenants. The host MUST pass it in prod; if it is
@@ -115,11 +122,13 @@ export class GatewayConfig {
       // on push, so the cert is the only factor that authenticates it.
       if (
         !this.webhookMtlsEnabled ||
-        this.webhookAllowedClientCNs.length === 0
+        this.webhookAllowedClientCNs.length === 0 ||
+        this.webhookAllowedIssuerCNs.length === 0
       ) {
         throw new Error(
           'production: enable in-app webhook mTLS — set webhookMtlsEnabled + ' +
-            'webhookAllowedClientCNs (validate MC client cert in-app, not the ingress)',
+            'webhookAllowedClientCNs + webhookAllowedIssuerCNs (validate MC client cert ' +
+            'subject AND pin its issuer CA in-app, not the ingress)',
         );
       }
     }
@@ -180,6 +189,9 @@ export class GatewayConfig {
   }
   get webhookAllowedClientCNs(): string[] {
     return this.opts.webhookAllowedClientCNs ?? [];
+  }
+  get webhookAllowedIssuerCNs(): string[] {
+    return this.opts.webhookAllowedIssuerCNs ?? [];
   }
   get isProduction(): boolean {
     // From host options only — the module is embeddable and does NOT read

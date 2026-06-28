@@ -7,7 +7,10 @@ import {
 } from '../../../mastercard/services/mastercard-client.service';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { Tenant } from '../../../tenants/tenant.types';
-import { UpstreamHttpException } from '../../../common/utils/upstream.exception';
+import {
+  UpstreamHttpException,
+  UpstreamUnavailableException,
+} from '../../../common/utils/upstream.exception';
 import { CrossBorderGateway } from './cross-border.gateway';
 
 const creds = {
@@ -65,21 +68,39 @@ describe('CrossBorderGateway — call() dispatch', () => {
     ).rejects.toBeInstanceOf(UpstreamHttpException);
   });
 
-  it('4xx with a NON-object (HTML/string) → 502, body is NOT forwarded', async () => {
+  it('4xx with a NON-object (HTML/string) → 502, body is NOT forwarded, executed=unknown', async () => {
     const { gw } = make({ status: 429, data: '<html>rate limited</html>' });
     await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
+    await expect(
+      ping(make({ status: 429, data: '<html/>' }).gw),
+    ).rejects.toMatchObject({ executed: 'unknown' });
   });
 
-  it('401/403/5xx → 502 (not disclosed)', async () => {
-    for (const status of [401, 403, 500, 503]) {
+  it('401/403 → 502 (not disclosed) with executed=no (auth rejection → payment did not run)', async () => {
+    for (const status of [401, 403]) {
       const { gw } = make({ status, data: { secret: 'x' } });
-      await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
+      await expect(ping(gw)).rejects.toBeInstanceOf(
+        UpstreamUnavailableException,
+      );
+      await expect(ping(make({ status, data: {} }).gw)).rejects.toMatchObject({
+        executed: 'no',
+      });
     }
   });
 
-  it('network error/decryption failure → 502', async () => {
+  it('5xx → 502 (not disclosed) with executed=unknown (outcome indeterminate → hold the slot)', async () => {
+    for (const status of [500, 503]) {
+      const { gw } = make({ status, data: { secret: 'x' } });
+      await expect(ping(gw)).rejects.toMatchObject({ executed: 'unknown' });
+    }
+  });
+
+  it('network error/decryption failure → 502, executed=unknown', async () => {
     const { gw } = make({ throws: true });
     await expect(ping(gw)).rejects.toBeInstanceOf(BadGatewayException);
+    await expect(ping(make({ throws: true }).gw)).rejects.toMatchObject({
+      executed: 'unknown',
+    });
   });
 });
 

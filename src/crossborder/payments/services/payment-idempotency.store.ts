@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { UpstreamUnavailableException } from '../../../common/utils/upstream.exception';
 import { PaymentIdempotencyEntity } from '../entities/payment-idempotency.entity';
 
 /**
@@ -51,13 +52,20 @@ export class PaymentIdempotencyStore {
     try {
       result = await producer();
     } catch (e) {
-      // Release the slot ONLY on client 4xx — there the mutation (payment) definitely did
-      // not go through, so a retry is safe. On 5xx/timeout/network error the outcome is
-      // UNKNOWN (MC may have accepted it before the drop) → do NOT touch the slot
-      // (fail-safe against double charges): a retry within LOCK_TTL gets 409, after that it
-      // re-claims the lock, and MC dedups by transaction_reference.
+      // Release the slot when the payment DEFINITELY did not go through (a retry is then
+      // safe):
+      //  - a client/business 4xx forwarded from MC (status < 500), or
+      //  - MC 401/403 — our credentials were rejected at AUTH, nothing executed (the gateway
+      //    surfaces this as UpstreamUnavailableException(executed='no'), a 502 to the client).
+      // On 5xx / timeout / network the outcome is UNKNOWN (MC may have accepted it before the
+      // drop) → do NOT touch the slot (fail-safe against double charges): a retry within
+      // LOCK_TTL gets 409, after that it re-claims the lock, and MC dedups by
+      // transaction_reference.
       const status = e instanceof HttpException ? e.getStatus() : 500;
-      if (status < 500) await this.release(tenantId, key);
+      const definitelyNotExecuted =
+        status < 500 ||
+        (e instanceof UpstreamUnavailableException && e.executed === 'no');
+      if (definitelyNotExecuted) await this.release(tenantId, key);
       throw e;
     }
 
@@ -144,5 +152,18 @@ export class PaymentIdempotencyStore {
   /** Release the in-progress slot (only on a client 4xx — the payment did not go through). */
   private async release(tenantId: string, key: string): Promise<void> {
     await this.repo.delete({ tenantId, idemKey: key, done: false });
+  }
+
+  /**
+   * True if THIS tenant has an idempotency record for the key — i.e. it actually initiated
+   * the payment behind that `transaction_reference`. Used to authorize a PLATFORM tenant's
+   * read of a shared-pool status event: pool events are keyed only by transaction_reference
+   * (a client-chosen, guessable string), so a PLATFORM tenant may read one ONLY for a
+   * transaction it owns, proven by the same `(tenantId, idemKey)` record the payment write
+   * already enforces — not by guessing the reference.
+   */
+  async ownsKey(tenantId: string, key: string): Promise<boolean> {
+    const count = await this.repo.count({ where: { tenantId, idemKey: key } });
+    return count > 0;
   }
 }

@@ -92,6 +92,23 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     stubMc.next = { status: 200, data: { ok: true } };
   });
 
+  /**
+   * A PLATFORM tenant (acme) may read a pooled status event ONLY for a payment it OWNS
+   * (ownership-gated isolation — the shared pool is keyed by a guessable transaction_reference).
+   * This establishes that ownership by initiating a payment for `ref`, which writes the
+   * payment_idempotency record the pool read is authorized against. The stubbed MC succeeds.
+   */
+  async function claimRefAsPlatform(ref: string): Promise<void> {
+    stubMc.shouldThrow = false;
+    stubMc.next = { status: 200, data: { ok: true } };
+    const r = await http.post(
+      '/crossborder/payments',
+      { paymentrequest: { transaction_reference: ref } },
+      { headers: internal },
+    );
+    expect(r.status).toBe(201);
+  }
+
   // --- response-mapping branches (the live suite cannot reach them) ---
 
   it('MC 2xx → data to the merchant as-is', async () => {
@@ -270,7 +287,10 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(post1.status).toBe(200);
     expect(post1.data).toEqual({ status: 'accepted' });
 
-    // 2) polling by the merchant (acme = PLATFORM → sees the shared pool by ref)
+    // acme (PLATFORM) must OWN the payment to read its pooled status (ownership-gated).
+    await claimRefAsPlatform(ref);
+
+    // 2) polling by the merchant (acme = PLATFORM, owns ref → sees the shared-pool event)
     const poll = await http.get(`/crossborder/status-events?ref=${ref}`, {
       headers: internal,
     });
@@ -317,7 +337,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(post2.data).toEqual({ status: 'duplicate' });
   });
 
-  it('attribution/isolation: OWN sees its own, PLATFORM — the shared pool; cross-tenant — no', async () => {
+  it('attribution/isolation: OWN sees its own; PLATFORM sees a pooled ref only if it OWNS it; cross-tenant — no', async () => {
     const webhook = { 'x-webhook-token': process.env.MC_WEBHOOK_TOKEN ?? '' };
     // own-demo — an OWN seed with partnerId='OWN_PARTNER_TBD' (see TenantRegistry).
     const ownInternal = {
@@ -367,12 +387,20 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     );
     expect(platSeesOwn.data).toHaveLength(0);
 
-    // OWN does NOT see the shared pool; PLATFORM sees the pool by ref
+    // OWN does NOT see the shared pool (strict attribution by partnerId)
     const ownSeesPool = await http.get(
       `/crossborder/status-events?ref=${refPool}`,
       { headers: ownInternal },
     );
     expect(ownSeesPool.data).toHaveLength(0);
+    // PLATFORM that does NOT own refPool sees nothing — no cross-tenant pool read by guessing a ref
+    const platNoOwn = await http.get(
+      `/crossborder/status-events?ref=${refPool}`,
+      { headers: internal },
+    );
+    expect(platNoOwn.data).toHaveLength(0);
+    // …but once acme OWNS that ref (it initiated the payment), it may read its pooled status
+    await claimRefAsPlatform(refPool);
     const platSeesPool = await http.get(
       `/crossborder/status-events?ref=${refPool}`,
       { headers: internal },
@@ -400,6 +428,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(post.status).toBe(200);
     expect(post.data).toEqual({ status: 'accepted' });
 
+    await claimRefAsPlatform(ref); // acme must own the ref to read its pooled status
     const poll = await http.get(`/crossborder/status-events?ref=${ref}`, {
       headers: internal,
     });

@@ -50,11 +50,33 @@ export class WebhookAuthGuard implements CanActivate {
     if (!socket.authorized) {
       throw new UnauthorizedException('client certificate is not trusted');
     }
+    const cert = socket.getPeerCertificate();
+    // getPeerCertificate() returns {} when no peer cert is present. Reject it explicitly
+    // (self-contained fail-closed) instead of relying on a later undefined-CN side effect.
+    if (!cert || Object.keys(cert).length === 0) {
+      throw new UnauthorizedException('no client certificate presented');
+    }
     // CN is typed `string | string[]`; accept only a single string (fail-closed otherwise).
-    const subjectCN = socket.getPeerCertificate().subject?.CN;
+    const subjectCN = cert.subject?.CN;
     const cn = typeof subjectCN === 'string' ? subjectCN : undefined;
     if (!cn || !this.config.webhookAllowedClientCNs.includes(cn)) {
       throw new UnauthorizedException('client certificate is not authorized');
+    }
+    // Issuer (CA) pinning. `authorized` only proves the chain reaches SOME CA in the
+    // configured trust bundle; if that bundle is broad (e.g. all of DigiCert), any cert
+    // carrying the right subject CN would pass. Pinning the leaf's immediate issuer CN to
+    // MC's dedicated client CA (per the MC docs, the DigiCert "Assured ID Client CA G2"
+    // outbound chain) closes that gap. Enforced only when an issuer allowlist is configured.
+    const allowedIssuers = this.config.webhookAllowedIssuerCNs ?? [];
+    if (allowedIssuers.length > 0) {
+      const issuerCNRaw = cert.issuer?.CN;
+      const issuerCN =
+        typeof issuerCNRaw === 'string' ? issuerCNRaw : undefined;
+      if (!issuerCN || !allowedIssuers.includes(issuerCN)) {
+        throw new UnauthorizedException(
+          'client certificate issuer is not authorized',
+        );
+      }
     }
     return true;
   }

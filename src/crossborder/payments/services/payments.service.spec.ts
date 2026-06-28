@@ -33,6 +33,7 @@ function make() {
       (_t: string, _k: string | undefined, producer: () => unknown) =>
         producer(),
     ),
+    ownsKey: jest.fn(async () => true),
   };
   const statusEvents = { findForTenant: jest.fn(async () => []) };
   const gw = new CrossBorderGateway(
@@ -75,6 +76,39 @@ describe('PaymentsService — path & idempotency', () => {
     const { svc, idempotency } = make();
     await svc.createPayment('acme', {} as never);
     expect(idempotency.run.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it('fingerprint is canonical — key-reordered identical bodies hash the same (replay, not 422)', async () => {
+    const fp = (idem: { run: jest.Mock }) =>
+      idem.run.mock.calls[0][3] as string;
+
+    const a = make();
+    await a.svc.createPayment('acme', {
+      paymentrequest: {
+        transaction_reference: 'TX',
+        payment_amount: { amount: '10', currency: 'USD' },
+      },
+    } as never);
+
+    const b = make();
+    await b.svc.createPayment('acme', {
+      paymentrequest: {
+        payment_amount: { currency: 'USD', amount: '10' },
+        transaction_reference: 'TX',
+      },
+    } as never);
+
+    expect(fp(a.idempotency)).toBe(fp(b.idempotency));
+
+    // a genuinely different payment (different amount) still produces a different fingerprint
+    const c = make();
+    await c.svc.createPayment('acme', {
+      paymentrequest: {
+        transaction_reference: 'TX',
+        payment_amount: { amount: '11', currency: 'USD' },
+      },
+    } as never);
+    expect(fp(c.idempotency)).not.toBe(fp(a.idempotency));
   });
 
   it('id in the path — encodeURIComponent (anti structural injection)', async () => {
@@ -125,7 +159,7 @@ describe('PaymentsService — status events (local read)', () => {
         payload: { a: 1 },
       },
     ];
-    const { svc, statusEvents, client } = make();
+    const { svc, statusEvents, client, idempotency } = make();
     (statusEvents.findForTenant as jest.Mock).mockResolvedValue(rows);
     const out = await svc.getStatusEvents(ownTenant, 'TX1');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
@@ -133,6 +167,8 @@ describe('PaymentsService — status events (local read)', () => {
       'TX1',
       false,
     );
+    // OWN never reads the pool — no ownership check needed.
+    expect(idempotency.ownsKey).not.toHaveBeenCalled();
     expect(out).toEqual([
       {
         transactionReference: 'TX1',
@@ -147,13 +183,29 @@ describe('PaymentsService — status events (local read)', () => {
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it('PLATFORM → includePool=true (reads the shared null pool)', async () => {
-    const { svc, statusEvents } = make();
+  it('PLATFORM + owns the payment → includePool=true (reads the shared null pool)', async () => {
+    const { svc, statusEvents, idempotency } = make();
+    idempotency.ownsKey.mockResolvedValue(true);
     await svc.getStatusEvents(platformTenant, 'TX2');
+    expect(idempotency.ownsKey).toHaveBeenCalledWith(
+      'acme',
+      `txref:${sha256hex('TX2')}`,
+    );
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'acme',
       'TX2',
       true,
+    );
+  });
+
+  it('PLATFORM + does NOT own the ref → includePool=false (no cross-tenant pool read)', async () => {
+    const { svc, statusEvents, idempotency } = make();
+    idempotency.ownsKey.mockResolvedValue(false);
+    await svc.getStatusEvents(platformTenant, 'TX2');
+    expect(statusEvents.findForTenant).toHaveBeenCalledWith(
+      'acme',
+      'TX2',
+      false,
     );
   });
 });
