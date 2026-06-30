@@ -1,0 +1,17 @@
+# Build context hygiene — keep the image small. node_modules / dist are rebuilt
+# inside the image; nothing secret is baked in (config comes as env at runtime).
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+*.log
+.agentic-security
+**/.agentic-security
+.vscode
+.idea
+README*.md
+docker-compose.yml
+Dockerfile
+.dockerignore

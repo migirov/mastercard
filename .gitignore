@@ -1,39 +1,38 @@
-# Secrets — do not commit
-.env
-.env.*
-# ...except the value-less template
-!.env.example
+# ──────────────────────────────────────────────────────────────────────────
+# Monorepo root .gitignore. Applies across all components:
+#   mastercard/ (gateway) · app-bff/ · mastercard-bff/ · masrtercard-front/ ·
+#   mastercard-demo-stack/
+# Each component may add its own nested .gitignore; this root is the safety net.
+# ──────────────────────────────────────────────────────────────────────────
 
-# Mastercard crypto material (keys and certificates)
-certs/
-*.p12
-*.pem
-*.key
+# ── Secrets — NEVER commit (repo is public) ─────────────────────────────────
+**/.env
+**/.env.*
+# …except value-less templates
+!**/.env.example
+**/secrets.local.json
 
-# Local merchant secrets (dev SecretStore)
-secrets.local.json
+# Mastercard crypto material (keys + certificates)
+**/certs/
+**/*.p12
+**/*.pem
+**/*.key
 
-# Build / dependencies
-dist/
-node_modules/
+# ── Dependencies / build output ─────────────────────────────────────────────
+**/node_modules/
+**/dist/
+**/build/
+**/.vite/
+**/coverage/
 
-# Test coverage
-coverage/
-
-# Logs and temporary artifacts
+# ── Logs / temp artifacts ───────────────────────────────────────────────────
 *.log
 startup*.log
 *.out
 *.tmp
 
-# agentic-security scanner output/cache (tooling, not versioned)
-.agentic-security/
-
-# Internal dev/process docs — kept locally, not versioned
-docs/*/memory.md
-docs/*/plan.md
-docs/*/issues.md
-docs/*/tests.md
-docs/*/tests-inner.md
-docs/*/client-questions.md
-docs/*/fund-operations.md
+# ── Tooling / editor ────────────────────────────────────────────────────────
+**/.agentic-security/
+.vscode/
+.idea/
+.DS_Store
