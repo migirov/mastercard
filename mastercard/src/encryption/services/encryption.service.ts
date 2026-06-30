@@ -2,7 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { JweEncryption } from 'mastercard-client-encryption';
 import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
-import * as path from 'path';
 
 /** Constant path-config key (we encrypt the whole body identically for everyone). */
 const ENDPOINT = '/crossborder';
@@ -83,20 +82,14 @@ export class EncryptionService implements OnModuleInit {
       this.logger.log('Field-level encryption disabled — plain passthrough');
       return;
     }
-    // When embedded in the monolith, cwd = the HOST's working directory (not our
-    // package) → relative cert/key paths resolve from the host. The host must pass
-    // ABSOLUTE encryptionCertPath/decryptionKeyPath in the module options (the
-    // harness uses paths from the project root). path.resolve leaves already-absolute
-    // paths unchanged.
-    const cwd = process.cwd();
+    // The module never reads process.cwd(): the host (or the dev harness) passes ABSOLUTE
+    // encryptionCertPath/decryptionKeyPath in the module options. `require(...)` is fail-loud
+    // — these are mandatory when encryption is on.
     const fingerprint = this.config.require('encryptionFingerprint');
     this.jwe = this.buildJwe({
       useCertificateContent: false,
-      encryptionCertificate: path.resolve(
-        cwd,
-        this.config.require('encryptionCertPath'),
-      ),
-      privateKey: path.resolve(cwd, this.config.require('decryptionKeyPath')),
+      encryptionCertificate: this.config.require('encryptionCertPath'),
+      privateKey: this.config.require('decryptionKeyPath'),
       fingerprint,
     });
     this.platformFp = fingerprint.toLowerCase();

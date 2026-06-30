@@ -152,15 +152,12 @@ export class GatewayConfig {
   get encryptionEnabled(): boolean {
     return this.opts.encryptionEnabled ?? false;
   }
-  get encryptionCertPath(): string | undefined {
-    return this.opts.encryptionCertPath;
-  }
   get encryptionFingerprint(): string | undefined {
     return this.opts.encryptionFingerprint;
   }
-  get decryptionKeyPath(): string | undefined {
-    return this.opts.decryptionKeyPath;
-  }
+  // NOTE: encryptionCertPath / decryptionKeyPath are intentionally NOT exposed as getters —
+  // they are mandatory only when encryption is on, so every consumer reads them through the
+  // fail-loud `require('encryptionCertPath' | 'decryptionKeyPath')` (see EncryptionService).
   get secretStore(): 'local' | 'aws-secrets-manager' {
     return this.opts.secretStore ?? 'local';
   }

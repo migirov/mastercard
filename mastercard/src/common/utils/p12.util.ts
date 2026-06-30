@@ -77,20 +77,18 @@ function privateKeyPemFromDer(
 
 /**
  * Loads the private key from a .p12 file by path and returns the PEM.
- * (PLATFORM mode and local development.)
+ * (PLATFORM mode and local development.) The path is expected ABSOLUTE — the host/harness
+ * resolves it, so this util does not read process.cwd().
  */
 export function loadPrivateKeyFromP12(
   p12Path: string,
   password: string,
 ): string {
-  const abs = path.isAbsolute(p12Path)
-    ? p12Path
-    : path.resolve(process.cwd(), p12Path);
-  if (!fs.existsSync(abs)) {
-    throw new Error(`Signing key file not found: ${abs}`);
+  if (!fs.existsSync(p12Path)) {
+    throw new Error(`Signing key file not found: ${p12Path}`);
   }
-  const der = fs.readFileSync(abs, 'binary');
-  return privateKeyPemFromDer(der, password, path.basename(abs));
+  const der = fs.readFileSync(p12Path, 'binary');
+  return privateKeyPemFromDer(der, password, path.basename(p12Path));
 }
 
 /**
