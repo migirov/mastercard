@@ -4,10 +4,11 @@ import { clipForLog } from '../../common/utils/sanitize.util';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { McWebhookEventDto } from '../dto/mc-webhook-event.dto';
+import { STATUS_EVENT_TYPES } from '../webhook.constants';
 import { TransactionStatusStore } from './transaction-status.store';
 
-/** Event types that carry a transaction/quote status → we persist them. */
-const STATUS_EVENT_TYPES = new Set(['STATUS_CHG', 'QUOTE_STATUS_CHG']);
+/** Set form of the shared STATUS_EVENT_TYPES for O(1) membership in the write-path decision. */
+const STATUS_EVENT_TYPE_SET = new Set<string>(STATUS_EVENT_TYPES);
 
 /**
  * The first NON-EMPTY (after trim) string ref among the candidates, else undefined.
@@ -70,7 +71,7 @@ export class WebhookHandler {
 
     const n = this.normalize(event);
 
-    if (n.eventType && STATUS_EVENT_TYPES.has(n.eventType)) {
+    if (n.eventType && STATUS_EVENT_TYPE_SET.has(n.eventType)) {
       return this.handleStatus(n);
     }
     return this.handleOther(n);
@@ -89,7 +90,7 @@ export class WebhookHandler {
     if (decrypted !== undefined) {
       const n = this.normalize(decrypted as McWebhookEventDto);
       this.logger.log('Encrypted push decrypted — processing.');
-      return n.eventType && STATUS_EVENT_TYPES.has(n.eventType)
+      return n.eventType && STATUS_EVENT_TYPE_SET.has(n.eventType)
         ? this.handleStatus(n)
         : this.handleOther(n);
     }

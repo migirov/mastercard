@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TransactionStatusEntity } from '../entities/transaction-status.entity';
+import { STATUS_EVENT_TYPES } from '../webhook.constants';
 
 /** Fields for writing a status event (everything except the auto-generated id/receivedAt). */
 export interface TransactionStatusInput {
@@ -17,13 +18,6 @@ export interface TransactionStatusInput {
 
 /** Safe window for returning status history per ref (guards against response bloat). */
 const READ_LIMIT = 200;
-
-/**
- * Status event types. `tx_status` now stores ALL webhooks (deduped by eventRef), but the
- * merchant status poll returns ONLY status events — the others (Carded Rate / RFI) sit there
- * for dedup+audit and never go out through this path.
- */
-const STATUS_EVENT_TYPES = ['STATUS_CHG', 'QUOTE_STATUS_CHG'];
 
 /**
  * Store for MC push notifications on top of PostgreSQL — the single source of truth for

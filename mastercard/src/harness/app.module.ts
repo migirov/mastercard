@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import * as path from 'path';
 import {
   MiddlewareConsumer,
   Module,
@@ -17,6 +18,15 @@ import { DevSeedService } from './dev-seed.service';
 import { HealthController } from '../health/controllers/health.controller';
 import { MastercardModule } from '../mastercard.module';
 import { TenantEntity } from '../tenants/entities/tenant.entity';
+
+/**
+ * Resolve a (possibly relative) cert/key path against the harness CWD → absolute, so the
+ * embeddable module never reads `process.cwd()` itself (it receives absolute paths). In a
+ * monolith the host's own useFactory does the equivalent.
+ */
+function resolveAbs(p: string | undefined): string | undefined {
+  return p ? path.resolve(process.cwd(), p) : undefined;
+}
 
 /**
  * Dev harness (standalone run, e2e, Swagger). In a production monolith the host
@@ -93,12 +103,14 @@ import { TenantEntity } from '../tenants/entities/tenant.entity';
         baseUrl: c.getOrThrow<string>('MC_BASE_URL'),
         consumerKey: c.getOrThrow<string>('MC_CONSUMER_KEY'),
         partnerId: c.getOrThrow<string>('MC_PARTNER_ID'),
-        signingKeyPath: c.get<string>('MC_SIGNING_KEY_PATH'),
+        signingKeyPath: resolveAbs(c.get<string>('MC_SIGNING_KEY_PATH')),
         signingKeyPassword: c.get<string>('MC_SIGNING_KEY_PASSWORD'),
         encryptionEnabled: c.get<string>('MC_ENCRYPTION_ENABLED') === 'true',
-        encryptionCertPath: c.get<string>('MC_ENCRYPTION_CERT_PATH'),
+        encryptionCertPath: resolveAbs(
+          c.get<string>('MC_ENCRYPTION_CERT_PATH'),
+        ),
         encryptionFingerprint: c.get<string>('MC_ENCRYPTION_FINGERPRINT'),
-        decryptionKeyPath: c.get<string>('MC_DECRYPTION_KEY_PATH'),
+        decryptionKeyPath: resolveAbs(c.get<string>('MC_DECRYPTION_KEY_PATH')),
         secretStore:
           (c.get<string>('MC_SECRET_STORE') as
             | 'local'
