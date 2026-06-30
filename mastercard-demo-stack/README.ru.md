@@ -61,8 +61,15 @@ docker compose ps                 # все 5 должны быть running/healt
      возвращает реальный `SUCCESS`/`VERIFIED`).
 4. **FX-котировка** — поменяй «Payment Currency» (например на ILS/EUR). Панель **FX Quote**
    покажет курс с бейджем **«Indicative · Demo»** (демо-курс — почему, см. §5).
-5. **Отправка + статус** — «Send for Approval» → Batch overview → Funding → Completion.
-   Вернёшься на дашборд — статус инвойса поедет pending → processing → completed (демо).
+5. **Funding + отправка + статус** —
+   - На шаге **Funding** под «Sufficient account balance» панель **Mastercard account balance**
+     показывает реальные остатки счёта из **`/xbs/balances`** (живой вызов MC sandbox, бейдж
+     **Live · Mastercard**). Сама проверка достаточности — по демо-балансу компании, чтобы флоу
+     был предсказуем.
+   - **Отправка** → статус инвойса едет pending → processing → completed.
+   - Кликни **статус** инвойса → детальное окно → вкладка **Payment** покажет **«Processing
+     timeline · via Mastercard gateway»** (received → screening → in-network → settled) из
+     **`/xbs/status`**, с бейджем live/demo.
 6. **Остальные страницы** (меню слева): Cards, Invoices & Employees, Tests, Integration Docs
    — всё на app-bff.
 7. **Features** (меню слева, нижняя группа) — отдельные инструменты для *остальных* cross-border
@@ -88,8 +95,9 @@ docker compose ps                 # все 5 должны быть running/healt
 | `/` **Дашборд** (Accounts Payable) | список инвойсов, балансы, KYB-баннер | `app-bff` (засеянные демо-данные) |
 | `/` → Pay → **Review → кнопки «Validate» IBAN/адрес** | валидация получателя | 🟢 **mastercard-bff → шлюз `mastercard` → песочница MC (LIVE)** |
 | `/` → Pay → **Review → FX Quote** | индикативный курс | `mastercard-bff` (demo — см. §5) |
-| `/` → Pay → **Funding** | проверка баланса | `app-bff` (демо-балансы) |
-| `/` → Pay → **отправка + статус** | платёж + отслеживание | `mastercard-bff` (demo — см. §5) |
+| `/` → Pay → **Funding** | реальный баланс счёта | 🟢 **mastercard-bff `/xbs/balances` → MC sandbox (LIVE)** |
+| `/` → Pay → **отправка** | отправка платежа | `mastercard-bff` (demo — см. §5) |
+| `/` → Pay → **детали статуса** | таймлайн обработки | `mastercard-bff` `/xbs/status` (demo — см. §5) |
 | `/cards` **Card Management** | виртуальные карты, сотрудники, транзакции | `app-bff` (не cross-border-продукт) |
 | `/invoices-employees` | инвойсы + сотрудники | `app-bff` |
 | `/dashboard3` | дашборд-вариант с онбордингом | `app-bff` |
@@ -116,6 +124,10 @@ docker compose ps                 # все 5 должны быть running/healt
 | `quote` (FX) | 🟡 **demo** | Песочница отдаёт *заглушку* курса (`777`), для показа непригодно → реалистичный демо-курс |
 | `pay` (отправка) | 🟡 **demo** | Отправка платежа требует доступа MTF/Prod (нет в песочнице) |
 | `status` (отслеживание) | 🟡 **demo** | Push статусов требует доступа MTF/Prod (нет в песочнице) |
+
+UI показывает это напрямую: шаг **Funding** отдаёт живой `/xbs/balances`, а **детали статуса**
+инвойса — таймлайн `/xbs/status` (оба с бейджем live/demo). При включении MTF/Prod `status`
+флипнется в `live` без изменений в UI.
 
 > 📄 Полная разбивка по **каждому** API Mastercard — что поддерживает песочница и почему
 > часть в демо, плюс примеры запросов к Features-эндпоинтам — в
