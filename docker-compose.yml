@@ -16,5 +16,35 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mc-gateway-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Sandbox configuration (secrets) from the local .env — NOT baked into the image.
+    env_file:
+      - .env
+    environment:
+      # Reach Postgres by its compose service name (overrides .env's localhost).
+      DATABASE_URL: postgres://mc:mc@postgres:5432/mc_gateway
+      # Non-production: the harness runs migrations on boot and uses the local secret store.
+      NODE_ENV: development
+      PORT: '3000'
+    volumes:
+      # Sandbox certs mounted read-only; .env paths are ./certs/... resolved from WORKDIR /app.
+      - ./certs:/app/certs:ro
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
 volumes:
   mc_pgdata:
