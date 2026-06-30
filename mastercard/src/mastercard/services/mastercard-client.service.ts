@@ -1,16 +1,16 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
-import { GatewayConfig } from '../../config/gateway-config';
-import axios, {
-  AxiosInstance,
-  AxiosRequestConfig,
-  InternalAxiosRequestConfig,
-} from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import * as https from 'https';
-// import = require: typed (see types/mastercard.d.ts) but identical at runtime.
-// require is needed because getAuthorizationHeader is called as a module method (needs this-binding).
-import oauth = require('mastercard-oauth1-signer');
+import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import { EncryptionService } from '../../encryption/services/encryption.service';
+import { NonRetryableMcError } from './mc.errors';
+import { installMcInterceptors, McAxiosConfig } from './mc-interceptors';
+import {
+  backoffMs,
+  isTransientStatus,
+  maxAttemptsFor,
+} from './mc-retry.policy';
 
 export interface McRequest {
   readonly method: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -26,9 +26,6 @@ export interface McResponse<T = unknown> {
   data: T;
 }
 
-/** Transient MC statuses for which retrying an idempotent GET makes sense. */
-const TRANSIENT_STATUSES = new Set([502, 503, 504]);
-
 /**
  * Per-request timeout to Mastercard. INVARIANT: this MUST stay well below the payment
  * idempotency lock TTL (`PaymentIdempotencyStore` LOCK_TTL_SECONDS = 120s) — a slow MC call
@@ -37,36 +34,16 @@ const TRANSIENT_STATUSES = new Set([502, 503, 504]);
  */
 const MC_REQUEST_TIMEOUT_MS = 30_000;
 
-/** Linear backoff step between idempotent-GET retries: 200ms, then 400ms. */
-const BACKOFF_STEP_MS = 200;
-
-/**
- * Base class for DETERMINISTIC crypto-pipeline errors (request encryption /
- * response decryption). The retry loop does NOT retry these: a repeat yields the
- * same result plus extra signed round-trips to MC — turn them straight into a 502.
- */
-class NonRetryableMcError extends Error {}
-/** Request encryption/preparation error (e.g. per-tenant fail-loud guard). */
-class RequestEncryptError extends NonRetryableMcError {}
-/** MC response decryption error (in the response interceptor). */
-class ResponseDecryptError extends NonRetryableMcError {}
-
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Per-request data for the interceptors (current tenant's creds). */
-interface McAxiosConfig extends AxiosRequestConfig {
-  mcCreds?: McCredentials;
-}
-
 /**
- * Low-level Mastercard client. Encryption (JWE) and OAuth1 signing are moved into
- * axios interceptors — business logic passes a "clean" object and knows nothing
- * about crypto.
- *
- * The order in the request interceptor is strict: encrypt the body first, THEN
- * sign (the signature is computed over the already-encrypted body). The response
- * interceptor decrypts the response. Encryption is handled by a separate
- * `EncryptionService` (toggled per environment); when off it is passthrough.
+ * Low-level Mastercard transport. Three responsibilities are split out for clarity/testing:
+ *  - crypto (JWE) + OAuth1 signing → the axios interceptors (`installMcInterceptors`), so
+ *    business logic passes a "clean" object and knows nothing about crypto;
+ *  - the retry decision → `mc-retry.policy` (idempotent GET only);
+ *  - the deterministic crypto-error taxonomy → `mc.errors`.
+ * This class keeps only transport (the axios instance + keep-alive agent lifecycle) and the
+ * `request()` dispatch loop. Public contract (`request`) is unchanged.
  */
 @Injectable()
 export class MastercardClient implements OnApplicationShutdown {
@@ -75,10 +52,7 @@ export class MastercardClient implements OnApplicationShutdown {
   private readonly baseUrl: string;
   private readonly httpsAgent: https.Agent;
 
-  constructor(
-    config: GatewayConfig,
-    private readonly encryption: EncryptionService,
-  ) {
+  constructor(config: GatewayConfig, encryption: EncryptionService) {
     const raw = config.baseUrl ?? '';
     if (!raw) {
       throw new Error('MastercardModule option "baseUrl" is not set');
@@ -95,7 +69,9 @@ export class MastercardClient implements OnApplicationShutdown {
       timeout: MC_REQUEST_TIMEOUT_MS,
       httpsAgent: this.httpsAgent,
     });
-    this.installInterceptors();
+    // Encryption (JWE) + OAuth1 signing live in the axios interceptors (the request
+    // interceptor encrypts then signs over the encrypted body; the response decrypts).
+    installMcInterceptors(this.http, encryption, this.logger);
   }
 
   /** Release the keep-alive socket pool on shutdown — otherwise, on graceful
@@ -111,7 +87,7 @@ export class MastercardClient implements OnApplicationShutdown {
   ): Promise<McResponse<T>> {
     // Retry ONLY for idempotent GETs (balances/rates/status). POSTs are never
     // retried — risk of double-charging (payment idempotency is handled separately).
-    const maxAttempts = req.method === 'GET' ? 3 : 1;
+    const maxAttempts = maxAttemptsFor(req.method);
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -127,11 +103,8 @@ export class MastercardClient implements OnApplicationShutdown {
       };
       try {
         const res = await this.http.request<T>(config);
-        if (
-          attempt < maxAttempts &&
-          TRANSIENT_STATUSES.has(res.status) // transient 5xx — retry
-        ) {
-          await delay(attempt * BACKOFF_STEP_MS);
+        if (attempt < maxAttempts && isTransientStatus(res.status)) {
+          await delay(backoffMs(attempt)); // transient 5xx — retry
           continue;
         }
         return { status: res.status, data: res.data };
@@ -142,91 +115,12 @@ export class MastercardClient implements OnApplicationShutdown {
         if (e instanceof NonRetryableMcError) throw e;
         lastErr = e; // network failure
         if (attempt < maxAttempts) {
-          await delay(attempt * BACKOFF_STEP_MS);
+          await delay(backoffMs(attempt));
           continue;
         }
         throw e;
       }
     }
     throw lastErr;
-  }
-
-  /** Encryption + signing (request) and decryption (response). */
-  private installInterceptors(): void {
-    // REQUEST: 1) encrypt the body  2) sign over the encrypted body
-    this.http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-      const creds = (config as McAxiosConfig).mcCreds;
-      if (!creds) {
-        throw new Error('MastercardClient: missing creds in request config');
-      }
-
-      // 1) encryption (passthrough if disabled). creds is for the per-tenant key
-      // (EncryptionService is still single-key; the contract is already creds-dependent).
-      let body = config.data;
-      if (body != null) {
-        let result: { body: unknown; encrypted: boolean };
-        try {
-          result = this.encryption.encryptRequest(creds, body);
-        } catch (e) {
-          // Deterministic encryption failure (e.g. per-tenant fail-loud guard) —
-          // mark non-retryable so a GET does not retry it as a network failure.
-          throw new RequestEncryptError((e as Error).message);
-        }
-        body = result.body;
-        if (result.encrypted) config.headers.set('x-encrypted', 'true');
-      }
-      const payload =
-        body == null
-          ? undefined
-          : typeof body === 'string'
-            ? body
-            : JSON.stringify(body);
-      config.data = payload;
-
-      // 2) sign over the final (encrypted) body
-      const fullUrl = new URL(
-        (config.baseURL ?? '') + (config.url ?? ''),
-      ).toString();
-      const authHeader = oauth.getAuthorizationHeader(
-        fullUrl,
-        (config.method ?? 'get').toUpperCase(),
-        payload,
-        creds.consumerKey,
-        creds.signingKeyPem,
-      );
-      config.headers.set('Authorization', authHeader);
-      // Set Accept/Content-Type only if the caller did not — do not overwrite an
-      // explicit per-request override (defaults to JSON).
-      if (!config.headers.has('Accept')) {
-        config.headers.set('Accept', 'application/json');
-      }
-      if (payload !== undefined && !config.headers.has('Content-Type')) {
-        config.headers.set('Content-Type', 'application/json');
-      }
-      return config;
-    });
-
-    // RESPONSE: decrypt the body (passthrough if plain/disabled). creds is read
-    // from the response config (for the future per-tenant decryption key).
-    this.http.interceptors.response.use((response) => {
-      const creds = (response.config as McAxiosConfig).mcCreds;
-      // Symmetric to the request interceptor: request() always sets creds. We
-      // guard for it (rather than casting `as McCredentials`, which would hide a
-      // desync).
-      if (!creds) {
-        throw new ResponseDecryptError('missing creds in response config');
-      }
-      try {
-        response.data = this.encryption.decryptResponse(creds, response.data);
-      } catch (e) {
-        this.logger.error(
-          `MC response decryption failed: ${(e as Error).message}`,
-        );
-        // Mark as ResponseDecryptError — the retry loop won't treat it as a
-        // network failure; higher up (in call()) it becomes a 502.
-        throw new ResponseDecryptError((e as Error).message);
-      }
-      return response;
-    });
   }
 }
