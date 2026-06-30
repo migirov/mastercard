@@ -4,8 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AlertTriangle, CheckCircle2, ArrowRight, Building2, CreditCard, ArrowLeftRight, Loader2, Banknote } from 'lucide-react';
 import { api } from '@/api/apiClient';
+import { xbs } from '@/api/xbs';
 
 const currencySymbols = { ILS: '₪', USD: '$', EUR: '€' };
+
+/** Tiny live/demo badge for the `source` flag returned by /xbs/*. */
+function SourceBadge({ source }) {
+  if (!source) return null;
+  const live = source === 'live';
+  return (
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${live ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+      {live ? 'Live · Mastercard' : 'Demo'}
+    </span>
+  );
+}
 
 const TOP_UP_OPTIONS = [
   {
@@ -63,12 +75,15 @@ function BalanceRow({ cur, required, balance }) {
 export default function FundingStep({ invoices, profile, onProceed }) {
   const [checking, setChecking] = useState(true);
   const [fundingGap, setFundingGap] = useState(null);
+  const [liveBalances, setLiveBalances] = useState(null); // [{currency,available}] from /xbs/balances
+  const [source, setSource] = useState(null); // 'live' | 'demo'
   const [selectedOption, setSelectedOption] = useState(null);
   const [topUpState, setTopUpState] = useState('idle'); // idle | processing | success
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    (async () => {
       const required = { ILS: 0, USD: 0, EUR: 0 };
       invoices.forEach(inv => {
         const cur = inv.payment_currency || inv.currency;
@@ -76,26 +91,46 @@ export default function FundingStep({ invoices, profile, onProceed }) {
         required[cur] = (required[cur] || 0) + amt;
       });
 
-      const balances = {
+      // Sufficiency is checked against the company's funded balances (the demo profile), so the
+      // flow stays predictable regardless of which currencies the real sandbox account happens
+      // to hold.
+      const profileBal = {
         ILS: profile?.balance_ils || 0,
         USD: profile?.balance_usd || 0,
         EUR: profile?.balance_eur || 0,
       };
-
       const gaps = {};
       let hasGap = false;
       Object.keys(required).forEach(cur => {
-        if (required[cur] > 0 && required[cur] > balances[cur]) {
-          gaps[cur] = required[cur] - balances[cur];
+        if (required[cur] > 0 && required[cur] > profileBal[cur]) {
+          gaps[cur] = required[cur] - profileBal[cur];
           hasGap = true;
         }
       });
 
-      setFundingGap(hasGap ? { required, balances, gaps } : null);
-      setChecking(false);
-    }, 2000);
+      // The REAL Mastercard account balances (/xbs/balances) — shown for transparency with a
+      // live/demo badge. `live` mode returns the actual MC sandbox holdings; demo otherwise.
+      let live = null;
+      let src = null;
+      try {
+        const res = await xbs.balances();
+        src = res?.source ?? null;
+        live = (res?.balances ?? []).map(b => ({
+          currency: String(b.currency ?? '').toUpperCase(),
+          available: Number(b.available) || 0,
+        }));
+      } catch {
+        live = null;
+      }
+      if (cancelled) return;
 
-    return () => clearTimeout(timer);
+      setLiveBalances(live);
+      setSource(src);
+      setFundingGap(hasGap ? { required, balances: profileBal, gaps } : null);
+      setChecking(false);
+    })();
+
+    return () => { cancelled = true; };
   }, [invoices, profile]);
 
   const handleTopUp = () => {
@@ -169,6 +204,22 @@ export default function FundingStep({ invoices, profile, onProceed }) {
             );
           })}
         </div>
+        {/* Real Mastercard account balances from /xbs/balances (live in `live` mode). */}
+        {liveBalances && liveBalances.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              Mastercard account balance <SourceBadge source={source} />
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {liveBalances.map(b => (
+                <div key={b.currency} className="p-2.5 rounded-lg bg-muted/40 border border-border text-center">
+                  <p className="text-[10px] text-muted-foreground">{b.currency}</p>
+                  <p className="font-bold text-sm">{currencySymbols[b.currency] || ''}{b.available.toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <Button onClick={onProceed} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground font-semibold">
           Pay now <ArrowRight className="w-4 h-4 ml-2" />
         </Button>

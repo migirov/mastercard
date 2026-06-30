@@ -1,12 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Clock, AlertCircle, CheckCircle2, CreditCard, FileText, Banknote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+import { xbs } from '@/api/xbs';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import RfiWorkflow from './RfiWorkflow';
 
 const currencySymbols = { ILS: '₪', USD: '$', EUR: '€' };
+
+/** Tiny live/demo badge for the `source` flag returned by /xbs/status. */
+function SourceBadge({ source }) {
+  if (!source) return null;
+  const live = source === 'live';
+  return (
+    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${live ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+      {live ? 'Live · Mastercard' : 'Demo'}
+    </span>
+  );
+}
 
 function InfoGrid({ children }) {
   return <div className="grid grid-cols-2 gap-3">{children}</div>;
@@ -23,6 +35,21 @@ function InfoBox({ label, value, className = '', colSpan = false }) {
 
 export default function StatusDrillDown({ invoice, onClose, onPay }) {
   const [tab, setTab] = useState('invoice');
+  // Live payment status/timeline from the Mastercard gateway (/xbs/status), keyed by the
+  // payment_ref captured at pay time. Demo mode returns a deterministic stage timeline; the
+  // `source` flag shows whether it came from the live gateway.
+  const [tracking, setTracking] = useState(null);
+  useEffect(() => {
+    const ref = invoice?.payment_ref || invoice?.invoice_number || invoice?.id;
+    const isPaymentStatus = ['pending', 'processing', 'completed', 'partially_paid'].includes(invoice?.status);
+    if (!ref || !isPaymentStatus) { setTracking(null); return; }
+    let cancelled = false;
+    xbs.status(ref)
+      .then(r => { if (!cancelled && r?.history?.length) setTracking(r); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [invoice?.id, invoice?.status, invoice?.payment_ref]);
+
   if (!invoice) return null;
 
   const sym = currencySymbols;
@@ -170,6 +197,27 @@ export default function StatusDrillDown({ invoice, onClose, onPay }) {
     </InfoGrid>
   );
 
+  // Real processing timeline from the gateway (/xbs/status). Each entry is a stage with a
+  // timestamp; the badge shows live vs demo.
+  const renderTimeline = () => (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+        Processing timeline <SourceBadge source={tracking.source} />
+        <span className="normal-case font-normal text-[10px] text-muted-foreground">via Mastercard gateway</span>
+      </p>
+      <div className="space-y-1.5">
+        {tracking.history.map((h, i) => (
+          <div key={i} className="flex items-center justify-between text-xs p-2 rounded-lg bg-muted/40 border border-border">
+            <span className="font-medium capitalize">
+              {h.status}{h.stage ? ` · ${String(h.stage).replace(/_/g, ' ')}` : ''}
+            </span>
+            <span className="text-muted-foreground">{format(new Date(h.timestamp), 'MMM d, HH:mm')}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <AnimatePresence>
       <motion.div
@@ -221,7 +269,12 @@ export default function StatusDrillDown({ invoice, onClose, onPay }) {
           <div className="p-5">
             {invoice.status === 'rfi' && renderRfiContent()}
             {!['rfi'].includes(invoice.status) && showTabs && (
-              tab === 'invoice' ? renderInvoiceTab() : renderPaymentTab()
+              tab === 'invoice' ? renderInvoiceTab() : (
+                <div className="space-y-4">
+                  {renderPaymentTab()}
+                  {tracking && renderTimeline()}
+                </div>
+              )
             )}
             {!showTabs && !['rfi'].includes(invoice.status) && renderDefaultContent()}
           </div>

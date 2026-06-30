@@ -60,8 +60,15 @@ Stop: `docker compose down` (keep data) or `docker compose down -v` (wipe data +
      (account/address validation returns a real `SUCCESS`/`VERIFIED`).
 4. **FX quote** — change "Payment Currency" (e.g. to ILS/EUR). The **FX Quote** panel shows a
    rate with an **"Indicative · Demo"** badge (demo rate — see §5 why).
-5. **Submit + status** — "Send for Approval" → Batch overview → Funding → Completion. Back on
-   the dashboard the invoice walks pending → processing → completed (demo).
+5. **Funding + Submit + status** —
+   - At the **Funding** step, below "Sufficient account balance" a **Mastercard account balance**
+     panel shows your real account holdings from **`/xbs/balances`** (a real MC sandbox call,
+     tagged **Live · Mastercard**). Sufficiency itself is checked against the demo company
+     balance, so the flow stays predictable.
+   - **Submit** → the invoice walks pending → processing → completed.
+   - Click an invoice's **status** to open the drill-down → the **Payment** tab shows a
+     **"Processing timeline · via Mastercard gateway"** (received → screening → in-network →
+     settled) fetched from **`/xbs/status`**, tagged with a live/demo badge.
 6. **Other pages** (left sidebar): Cards, Invoices & Employees, Tests, Integration Docs — all
    served by the demo backend.
 7. **Features** (left sidebar, bottom group) — standalone tools for the *rest* of the
@@ -87,8 +94,9 @@ payment operations** — and of those, only the sandbox-supported ones are live 
 | `/` **Dashboard** (Accounts Payable) | invoice list, balances, KYB banner | `app-bff` (seeded demo data) |
 | `/` → Pay → **Review → "Validate" IBAN/Address** | beneficiary validation | 🟢 **mastercard-bff → `mastercard` gateway → MC sandbox (LIVE)** |
 | `/` → Pay → **Review → FX Quote** | indicative rate | `mastercard-bff` (demo — see §5) |
-| `/` → Pay → **Funding** | balance check | `app-bff` (demo balances) |
-| `/` → Pay → **submit + status** | payment + tracking | `mastercard-bff` (demo — see §5) |
+| `/` → Pay → **Funding** | real account balance | 🟢 **mastercard-bff `/xbs/balances` → MC sandbox (LIVE)** |
+| `/` → Pay → **submit** | payment submit | `mastercard-bff` (demo — see §5) |
+| `/` → Pay → **status drill-down** | processing timeline | `mastercard-bff` `/xbs/status` (demo — see §5) |
 | `/cards` **Card Management** | virtual cards, employees, card transactions | `app-bff` (not a cross-border product) |
 | `/invoices-employees` | invoices + employees | `app-bff` |
 | `/dashboard3` | onboarding-variant dashboard | `app-bff` |
@@ -115,6 +123,10 @@ matches what the Mastercard *sandbox* actually supports:
 | `quote` (FX) | 🟡 **demo** | Sandbox returns a *dummy* rate (`777`), unusable for display → realistic demo rate instead |
 | `pay` (submit) | 🟡 **demo** | Payment submission needs MTF/Prod access (not on sandbox) |
 | `status` (tracking) | 🟡 **demo** | Status push needs MTF/Prod access (not on sandbox) |
+
+The UI surfaces these directly: the **Funding** step shows the live `/xbs/balances`, and the
+invoice **status drill-down** shows the `/xbs/status` processing timeline (both tagged with the
+live/demo badge). When MTF/Prod is enabled, `status` flips to `live` with no UI change.
 
 > 📄 Full per-API breakdown — what the sandbox supports for **every** Mastercard API, plus
 > request examples for the Features endpoints — is in **[docs/en/test.md](docs/en/test.md)**
