@@ -1,0 +1,133 @@
+# Full demo stack: frontend (nginx SPA) → demo-api (BFF) → app (Mastercard gateway) → postgres.
+# Each service builds from its own sibling folder. This stack is self-contained (its own
+# Postgres + volume) and independent of the gateway's standalone mastercard/docker-compose.yml.
+#   Browser:  http://localhost:8080  (frontend)   |   demo BFF (smoke): http://localhost:4000
+name: mastercard-demo
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mc-demo-postgres
+    environment:
+      POSTGRES_USER: mc
+      POSTGRES_PASSWORD: mc
+      POSTGRES_DB: mc_gateway # the gateway DB; demo-api creates its own mc_demo on this server
+    volumes:
+      - mc_demo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mc -d mc_gateway']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: ../mastercard
+      dockerfile: Dockerfile
+    container_name: mc-demo-gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../mastercard/.env # sandbox MC creds/tokens (NOT baked into the image)
+    environment:
+      DATABASE_URL: postgres://mc:mc@postgres:5432/mc_gateway
+      NODE_ENV: development # non-prod: runs migrations on boot, seeds the baseline `platform` tenant
+      PORT: '3000'
+    volumes:
+      - ../mastercard/certs:/app/certs:ro
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # App backend (PERMANENT frontend support): schema-less entity store + auth + integrations
+  # over Postgres (`mc_demo`). No Mastercard. nginx routes everything except /xbs + /features here.
+  app-bff:
+    build:
+      context: ../app-bff
+      dockerfile: Dockerfile
+    container_name: mc-demo-app-bff
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DEMO_DB_HOST: postgres
+      DEMO_DB_PORT: '5432'
+      DEMO_DB_USER: mc
+      DEMO_DB_PASSWORD: mc
+      DEMO_DB_NAME: mc_demo
+      NODE_ENV: development
+      PORT: '4000'
+    ports:
+      - '4010:4000' # exposed for direct API smoke tests
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Mastercard cross-border layer (the /xbs + /features API): STATELESS, no DB. Proxies the
+  # live gateway (sandbox-available capabilities) or synthesizes (above-sandbox) — env-switchable.
+  mastercard-bff:
+    build:
+      context: ../mastercard-bff
+      dockerfile: Dockerfile
+    container_name: mc-demo-mastercard-bff
+    depends_on:
+      # Ordering only (gateway-first), NOT a hard health-gate: this BFF is stateless and its
+      # GatewayClient never throws — while the gateway is still booting, live calls fall back to
+      # demo and recover automatically. service_healthy here made `up --force-recreate` abort the
+      # whole stack whenever the gateway's migrate-on-boot exceeded its healthcheck start_period.
+      app:
+        condition: service_started
+    environment:
+      GATEWAY_URL: http://app:3000
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
+      GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
+      # Sandbox-available capabilities call the live gateway; above-sandbox ones stay demo
+      # until MTF/Prod is enabled — flip these to `live` then (no code change).
+      XBS_QUOTE_MODE: ${XBS_QUOTE_MODE:-demo}
+      XBS_VALIDATION_MODE: ${XBS_VALIDATION_MODE:-live}
+      XBS_BALANCES_MODE: ${XBS_BALANCES_MODE:-live}
+      XBS_PAYMENT_MODE: ${XBS_PAYMENT_MODE:-demo}
+      XBS_STATUS_MODE: ${XBS_STATUS_MODE:-demo}
+      # "Features" pages — bank-lookup / IBAN / cash-pickup return real MC sandbox data (live);
+      # the rest are sandbox-limited (demo) until Mastercard enables them — flip to `live` then.
+      XBS_BANK_LOOKUP_MODE: ${XBS_BANK_LOOKUP_MODE:-live}
+      XBS_IBAN_MODE: ${XBS_IBAN_MODE:-live}
+      XBS_CASH_PICKUP_MODE: ${XBS_CASH_PICKUP_MODE:-live}
+      XBS_RATES_MODE: ${XBS_RATES_MODE:-demo}
+      XBS_ENDPOINT_GUIDE_MODE: ${XBS_ENDPOINT_GUIDE_MODE:-demo}
+      XBS_QUOTE_LIFECYCLE_MODE: ${XBS_QUOTE_LIFECYCLE_MODE:-demo}
+      XBS_PAYMENT_TRACKER_MODE: ${XBS_PAYMENT_TRACKER_MODE:-demo}
+      XBS_RFI_MODE: ${XBS_RFI_MODE:-demo}
+      NODE_ENV: development
+      PORT: '4000'
+    ports:
+      - '4011:4000' # exposed for direct API smoke tests
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ../masrtercard-front
+      dockerfile: Dockerfile
+      args:
+        VITE_DEMO_API_URL: /demo-api # browser → /demo-api → nginx splits to app-bff / mastercard-bff
+    container_name: mc-demo-frontend
+    depends_on:
+      - app-bff
+      - mastercard-bff
+    ports:
+      - '8080:80'
+
+volumes:
+  mc_demo_pgdata:

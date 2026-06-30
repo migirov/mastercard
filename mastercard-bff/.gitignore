@@ -1,0 +1,16 @@
+# Secrets — do not commit
+.env
+.env.*
+!.env.example
+
+# Build / dependencies
+dist/
+node_modules/
+
+# Logs and temporary artifacts
+*.log
+*.out
+*.tmp
+
+# agentic-security scanner output/cache (tooling, not versioned)
+.agentic-security/

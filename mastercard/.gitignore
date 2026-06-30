@@ -1,0 +1,39 @@
+# Secrets — do not commit
+.env
+.env.*
+# ...except the value-less template
+!.env.example
+
+# Mastercard crypto material (keys and certificates)
+certs/
+*.p12
+*.pem
+*.key
+
+# Local merchant secrets (dev SecretStore)
+secrets.local.json
+
+# Build / dependencies
+dist/
+node_modules/
+
+# Test coverage
+coverage/
+
+# Logs and temporary artifacts
+*.log
+startup*.log
+*.out
+*.tmp
+
+# agentic-security scanner output/cache (tooling, not versioned)
+.agentic-security/
+
+# Internal dev/process docs — kept locally, not versioned
+docs/*/memory.md
+docs/*/plan.md
+docs/*/issues.md
+docs/*/tests.md
+docs/*/tests-inner.md
+docs/*/client-questions.md
+docs/*/fund-operations.md
