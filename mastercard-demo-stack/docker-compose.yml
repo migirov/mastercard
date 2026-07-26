@@ -19,6 +19,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
   app:
     build:
@@ -42,6 +43,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+    restart: unless-stopped
 
   # App backend (PERMANENT frontend support): schema-less entity store + auth + integrations
   # over Postgres (`mc_demo`). No Mastercard. nginx routes everything except /xbs + /features here.
@@ -59,16 +61,26 @@ services:
       DEMO_DB_USER: mc
       DEMO_DB_PASSWORD: mc
       DEMO_DB_NAME: mc_demo
+      # Shared bearer token for the whole demo tier. The SAME variable feeds both BFFs and the
+      # frontend build arg below, so the SPA and the APIs cannot drift apart. `:?` aborts the
+      # stack with a one-line error if it is unset — deliberately louder than starting up with
+      # an open entity store.
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
       NODE_ENV: development
       PORT: '4000'
     ports:
-      - '4010:4000' # exposed for direct API smoke tests
+      # Bound to LOOPBACK, not 0.0.0.0: this port is for the operator's own smoke tests
+      # (`curl localhost:4010/health`), and publishing it on every interface put an
+      # unauthenticated entity store on the LAN. The browser reaches this service through
+      # nginx on :8080, which is unaffected.
+      - '127.0.0.1:4010:4000' # exposed for direct API smoke tests
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:4000/health']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
 
   # Mastercard cross-border layer (the /xbs + /features API): STATELESS, no DB. Proxies the
   # live gateway (sandbox-available capabilities) or synthesizes (above-sandbox) — env-switchable.
@@ -88,6 +100,8 @@ services:
       GATEWAY_URL: http://app:3000
       GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
       GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
+      # Same shared token as app-bff and the frontend build — see the note there.
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
       # Sandbox-available capabilities call the live gateway; above-sandbox ones stay demo
       # until MTF/Prod is enabled — flip these to `live` then (no code change).
       XBS_QUOTE_MODE: ${XBS_QUOTE_MODE:-demo}
@@ -108,13 +122,16 @@ services:
       NODE_ENV: development
       PORT: '4000'
     ports:
-      - '4011:4000' # exposed for direct API smoke tests
+      # Loopback only — see the app-bff note. This one additionally reaches the real
+      # Mastercard sandbox with the platform's OAuth1 key on live-default capabilities.
+      - '127.0.0.1:4011:4000' # exposed for direct API smoke tests
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:4000/health']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
 
   frontend:
     build:
@@ -122,12 +139,17 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_DEMO_API_URL: /demo-api # browser → /demo-api → nginx splits to app-bff / mastercard-bff
+        # Baked into the JS bundle at build time, from the SAME variable the BFFs read above.
+        # Consequence to remember: changing the token means rebuilding this image too —
+        # `docker compose up -d --build` with all three, or the SPA 401s against fresh BFFs.
+        VITE_DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
     container_name: mc-demo-frontend
     depends_on:
       - app-bff
       - mastercard-bff
     ports:
       - '8080:80'
+    restart: unless-stopped
 
 volumes:
   mc_demo_pgdata:

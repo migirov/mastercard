@@ -8,19 +8,46 @@ import { McConfig } from './config/mc-config';
  * mastercard-bff is STATELESS — no database to create/migrate (unlike app-bff). It just
  * boots Nest, enables CORS for the browser, and proxies cross-border calls to the gateway.
  */
+/**
+ * Fail fast when the API token is missing, rather than letting the service come up and 401
+ * every request with no explanation.
+ *
+ * Production throws (the process exits) because an unauthenticated deploy is worse than no
+ * deploy — and this service's live-default capabilities sign real Mastercard sandbox calls
+ * with the platform's OAuth1 key. Elsewhere it warns as loudly as a log line can: the guard
+ * still denies everything, so this message is the only thing standing between a developer
+ * and half an hour of debugging blanket 401s.
+ */
+function assertApiTokenConfigured(cfg: McConfig, log: Logger): void {
+  if (cfg.demoApiToken) return;
+  const msg =
+    'DEMO_API_TOKEN is not set — every request except /health will be rejected with 401.';
+  if (cfg.isProduction) throw new Error(msg);
+  log.warn(msg);
+  log.warn('Set DEMO_API_TOKEN (see .env.example) and restart.');
+}
+
 async function bootstrap() {
   // bodyParser:false → body parsing (incl. the route-scoped RFI 2 MB limit) is owned by
   // AppModule.configure as Nest middleware, so Nest's default parser doesn't pre-empt it.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
-  // The frontend (browser) calls this BFF cross-origin during the demo — allow it.
-  app.enableCors({ origin: true, credentials: false });
-  app.enableShutdownHooks();
+  const log = new Logger('Bootstrap');
   // Typed config (not a stray process.env read) now that the DI container exists.
-  const port = app.get(McConfig).port;
-  await app.listen(port);
-  new Logger('Bootstrap').log(
-    `mastercard-bff listening on http://0.0.0.0:${port}`,
-  );
+  const cfg = app.get(McConfig);
+  assertApiTokenConfigured(cfg, log);
+  // An explicit origin allowlist, not `origin: true` (which reflects whatever Origin the
+  // caller sent — i.e. every site). `Authorization` MUST stay in allowedHeaders: naming the
+  // list at all disables cors's default reflection, so omitting it makes the browser reject
+  // every authenticated cross-origin call at preflight. Only affects split-origin dev; the
+  // compose stack serves the SPA same-origin through nginx.
+  app.enableCors({
+    origin: cfg.corsOrigins,
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+  app.enableShutdownHooks();
+  await app.listen(cfg.port);
+  log.log(`mastercard-bff listening on http://0.0.0.0:${cfg.port}`);
 }
 
 bootstrap().catch((err) => {

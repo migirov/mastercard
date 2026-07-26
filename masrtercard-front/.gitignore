@@ -1,6 +1,9 @@
 #env
 .env
 .env.*
+# ...but the template must ship (matches the root .gitignore convention). Without this
+# negation `.env.*` above silently swallows it and the file never reaches the repo.
+!.env.example
 
 # Logs
 /logs

@@ -84,16 +84,74 @@ async function ensureDatabase(): Promise<void> {
   }
 }
 
+/**
+ * Last-resort guard against a request killing the process.
+ *
+ * Concretely: the installed `multer` (a transitive dep of @nestjs/platform-express) emits a
+ * SECOND `error` event on its Multipart stream after its listeners have been removed, when a
+ * multipart body ends without its closing boundary. The first error is handled normally and
+ * the client gets a 400; the second has no listener and Node treats it as fatal. Reproduced
+ * against the installed version: without this handler one unauthenticated request terminates
+ * the process. It cannot be caught at the route — the event fires on the stream, outside any
+ * promise chain — so the only version-free place to stop it is here.
+ *
+ * The trade-off is deliberate and worth stating: surviving an uncaught exception can leave a
+ * process in an undefined state, which is why the usual advice is to log and exit. Here
+ * exiting IS the denial of service, so we stay up and log at error level with the full stack
+ * so the condition is visible in monitoring rather than silenced.
+ */
+function installCrashGuard(): void {
+  const logger = new Logger('CrashGuard');
+  process.on('uncaughtException', (err) => {
+    logger.error(
+      `uncaught exception (process kept alive deliberately): ${err?.message}`,
+      err?.stack,
+    );
+  });
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`unhandled promise rejection: ${String(reason)}`);
+  });
+}
+
+/**
+ * Fail fast when the API token is missing, rather than letting the service come up and 401
+ * every request with no explanation.
+ *
+ * Production throws (the process exits) because an unauthenticated deploy is worse than no
+ * deploy. Elsewhere it warns as loudly as a log line can: the guard still denies everything,
+ * so this message is the only thing standing between a developer and half an hour of
+ * debugging blanket 401s.
+ */
+function assertApiTokenConfigured(cfg: AppConfig, log: Logger): void {
+  if (cfg.demoApiToken) return;
+  const msg =
+    'DEMO_API_TOKEN is not set — every request except /health will be rejected with 401.';
+  if (cfg.isProduction) throw new Error(msg);
+  log.warn(msg);
+  log.warn('Set DEMO_API_TOKEN (see .env.example) and restart.');
+}
+
 async function bootstrap() {
+  installCrashGuard();
   await ensureDatabase();
   const app = await NestFactory.create(AppModule);
-  // The frontend (browser) calls this BFF cross-origin during the demo — allow it.
-  app.enableCors({ origin: true, credentials: false });
-  app.enableShutdownHooks();
+  const log = new Logger('Bootstrap');
   // Typed config (not a stray process.env read) now that the DI container exists.
-  const port = app.get(AppConfig).port;
-  await app.listen(port);
-  new Logger('Bootstrap').log(`app-bff listening on http://0.0.0.0:${port}`);
+  const cfg = app.get(AppConfig);
+  assertApiTokenConfigured(cfg, log);
+  // An explicit origin allowlist, not `origin: true` (which reflects whatever Origin the
+  // caller sent — i.e. every site). `Authorization` MUST stay in allowedHeaders: naming the
+  // list at all disables cors's default reflection, so omitting it makes the browser reject
+  // every authenticated cross-origin call at preflight. Only affects split-origin dev; the
+  // compose stack serves the SPA same-origin through nginx.
+  app.enableCors({
+    origin: cfg.corsOrigins,
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+  app.enableShutdownHooks();
+  await app.listen(cfg.port);
+  log.log(`app-bff listening on http://0.0.0.0:${cfg.port}`);
 }
 
 bootstrap().catch((err) => {

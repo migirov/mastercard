@@ -33,13 +33,28 @@ npm test          # jest unit specs
 npm run lint      # eslint (+ prettier)
 ```
 
-## Configuration (all optional — defaults target the compose stack)
+## Configuration
 
 | Var | Default | Purpose |
 |---|---|---|
+| **`DEMO_API_TOKEN`** | — **required** | Shared bearer token every request must present. Unset ⇒ everything 401s, and in production the service refuses to boot. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated browser origins allowed cross-origin. Irrelevant behind nginx (same origin). |
 | `PORT` | `4000` | HTTP port |
 | `DEMO_DB_HOST/PORT/USER/PASSWORD/NAME` | `postgres/5432/mc/mc/mc_demo` | App data DB (its OWN db; never the gateway's `mc_gateway`) |
 | `NODE_ENV` | `development` | non-prod runs migrations on boot |
+
+Everything except `DEMO_API_TOKEN` is optional and defaults to the compose stack.
+
+## Authentication
+
+Every route requires `Authorization: Bearer $DEMO_API_TOKEN`. **`/health` is the sole
+exception** and stays public — docker-compose's healthcheck depends on it. The guard is
+registered globally (`APP_GUARD`), so a new controller is protected by default rather than by
+remembering a decorator.
+
+This is one trust boundary, not per-user authorization: every token holder sees every record,
+and the SPA ships the same token in its bundle. What it closes is unauthenticated direct access
+to the API.
 
 No Mastercard/gateway configuration here — see `../mastercard-bff` for that. The full
 live-vs-demo breakdown is in `../mastercard-demo-stack/docs/en/test.md`.

@@ -18,6 +18,14 @@ const xbsMode = z.preprocess(
   z.enum(['live', 'demo']).optional(),
 );
 
+// Same idiom as `xbsMode`: an EMPTY string means "unset". compose and .env files routinely
+// write `FOO=` for a value they mean to leave blank; without this the var would arrive as ''
+// and read as "configured with an empty secret", which is exactly the case that must fail closed.
+const optionalNonEmpty = z.preprocess(
+  (v) => (v === '' ? undefined : v),
+  z.string().optional(),
+);
+
 const EnvSchema = z.object({
   // --- runtime ---
   NODE_ENV: z.string().optional(),
@@ -26,6 +34,17 @@ const EnvSchema = z.object({
     .string()
     .regex(/^[1-9][0-9]*$/, 'must be a positive integer')
     .optional(),
+
+  // --- API authentication ---
+  // Shared bearer token every caller must present (see DemoAuthGuard). Optional HERE, on
+  // purpose: an absent token must not abort startup silently at the schema layer. It is
+  // handled where the consequence can be stated — main.ts throws in production and warns
+  // loudly otherwise, and the guard denies every request either way.
+  DEMO_API_TOKEN: optionalNonEmpty,
+  // Comma-separated browser origins allowed to call this API cross-origin. Unset → the
+  // localhost dev defaults in McConfig. Only relevant to `npm run dev`: in the compose
+  // stack the SPA reaches this service same-origin through nginx.
+  CORS_ORIGINS: optionalNonEmpty,
 
   // --- cross-border gateway (the sibling `mastercard` service) ---
   GATEWAY_URL: z.string().optional(),

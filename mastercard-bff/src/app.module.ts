@@ -5,9 +5,11 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { json, urlencoded } from 'express';
 import { validateEnv } from './config/env.validation';
 import { McConfigModule } from './config/config.module';
+import { DemoAuthGuard } from './common/guards/demo-auth.guard';
 import { XbsModule } from './xbs/xbs.module';
 import { FeaturesModule } from './features/features.module';
 import { HealthController } from './health/controllers/health.controller';
@@ -31,6 +33,12 @@ import { HealthController } from './health/controllers/health.controller';
     FeaturesModule,
   ],
   controllers: [HealthController],
+  providers: [
+    // Deny-by-default: every route needs the shared bearer token except DemoAuthGuard's
+    // small PUBLIC_PATHS set. Global rather than per-controller so a new controller cannot
+    // ship unguarded by omission — the failure mode that left this service open.
+    { provide: APP_GUARD, useClass: DemoAuthGuard },
+  ],
 })
 export class AppModule implements NestModule {
   /**

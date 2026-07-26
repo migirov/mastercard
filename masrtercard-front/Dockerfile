@@ -11,6 +11,12 @@ RUN npm ci
 COPY . .
 ARG VITE_DEMO_API_URL=/demo-api
 ENV VITE_DEMO_API_URL=$VITE_DEMO_API_URL
+# The shared bearer token both BFFs require. Inlined into the bundle at build time, so the
+# image must be rebuilt whenever the token changes — compose feeds the SAME ${DEMO_API_TOKEN}
+# here and to the BFFs so the two cannot drift. No default: an unset token yields a bundle
+# whose every API call 401s, which is the honest failure rather than a silently open stack.
+ARG VITE_DEMO_API_TOKEN
+ENV VITE_DEMO_API_TOKEN=$VITE_DEMO_API_TOKEN
 RUN npm run build
 
 FROM nginx:alpine AS runtime
