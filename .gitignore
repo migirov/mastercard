@@ -31,6 +31,11 @@ startup*.log
 *.out
 *.tmp
 
+# ── Internal security/process docs — kept locally, not versioned ────────────
+# Mirrors mastercard/.gitignore's treatment of memory/plan/issues. This one carries the
+# audit's findings and attack mechanics; the repo is public, so it stays out of it.
+security-scan-doc.md
+
 # ── Tooling / editor ────────────────────────────────────────────────────────
 **/.agentic-security/
 .vscode/
