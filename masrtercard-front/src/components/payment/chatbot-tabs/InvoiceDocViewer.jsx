@@ -4,8 +4,22 @@ import { X, Download, ExternalLink, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { safeHttpUrl } from '@/lib/utils';
 
+/**
+ * True only when the URL's PATH ends in `.pdf`.
+ *
+ * The previous check was `includes('pdf')` anywhere in the URL, which matched the hostname,
+ * the query and the fragment — so `https://attacker.tld/x#pdf` routed an arbitrary document
+ * into the iframe branch. Anchoring on the path is the honest test; it is not a security
+ * boundary by itself (the attacker controls the whole URL, `evil.pdf` passes either way) —
+ * the containment is the `sandbox` attribute on the iframe below.
+ */
 function isPdf(url) {
-  return url?.toLowerCase().includes('.pdf') || url?.toLowerCase().includes('pdf');
+  if (typeof url !== 'string') return false;
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return false;
+  }
 }
 
 export default function InvoiceDocViewer({ fileUrl, invoiceNumber, onClose }) {
@@ -67,9 +81,17 @@ export default function InvoiceDocViewer({ fileUrl, invoiceNumber, onClose }) {
                 Document preview is unavailable (only http(s) links are shown).
               </p>
             ) : pdf ? (
+              // `sandbox=""` is maximum restriction: opaque origin, no scripts, no forms, no
+              // top-level navigation, no popups. `file_url` comes from the open entity store
+              // (and from the documented ERP ingestion path), so this frame must be assumed
+              // hostile. NEVER add `allow-scripts` together with `allow-same-origin` — for a
+              // same-origin URL that combination is a full sandbox escape.
               <iframe
                 src={safe}
                 title={`Invoice ${invoiceNumber}`}
+                sandbox=""
+                referrerPolicy="no-referrer"
+                loading="lazy"
                 className="w-full h-full min-h-[500px] border-0"
               />
             ) : (

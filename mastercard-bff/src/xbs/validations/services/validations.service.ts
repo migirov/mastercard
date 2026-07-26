@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { McConfig } from '../../../config/mc-config';
 import { GatewayClient } from '../../common/gateway/gateway.client';
 import { Source } from '../../common/source';
+import { isValidIban, normalizeIban } from '../../common/iban.util';
 import { liveOrDemo } from '../../common/live-or-demo';
 import { firstDefined } from '../../common/parse.util';
 import { ValidateAccountDto } from '../dto/validate-account.dto';
@@ -18,9 +19,6 @@ export interface AddressValidationResponse {
   source: Source;
 }
 
-/** Basic IBAN sanity: 15–34 chars, 2-letter country + 2 check digits + alphanumerics. */
-const IBAN_RE = /^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/;
-
 @Injectable()
 export class ValidationsService {
   constructor(
@@ -29,14 +27,19 @@ export class ValidationsService {
   ) {}
 
   /**
-   * Account (IBAN) validation. `live` → POST to the gateway's account-validations and
-   * read a truthy "valid" out of the opaque MC JSON; fall back to demo on any error.
-   * `demo` → a basic length/charset sanity check on the normalized IBAN.
+   * Account (IBAN) validation. `live` → POST to the gateway's account-validations and read a
+   * truthy "valid" out of the opaque MC JSON; fall back to demo on any error. `demo` →
+   * structural check PLUS the ISO 13616 checksum on the normalized IBAN.
+   *
+   * The fallback is silent by design, so the response's `source` is the only thing telling a
+   * caller which of the two answered. Any UI that renders this MUST surface that distinction:
+   * a local checksum is not a Mastercard confirmation, and showing them identically is how an
+   * operator ends up trusting a beneficiary nobody verified.
    */
   async validateAccount(
     req: ValidateAccountDto,
   ): Promise<AccountValidationResponse> {
-    const normalized = req.iban.replace(/\s+/g, '').toUpperCase();
+    const normalized = normalizeIban(req.iban);
     return liveOrDemo(
       this.cfg.mode('validation') === 'live',
       () => this.tryLiveAccount(normalized),
@@ -98,12 +101,22 @@ export class ValidationsService {
     return { valid: truthyValid(v), source: 'live' };
   }
 
+  /**
+   * The demo answer. It now includes the ISO 13616 checksum, so `valid: true` here means
+   * "structurally sound and self-consistent" rather than merely "looks vaguely IBAN-shaped".
+   *
+   * Note a deliberate consequence: `FR070331234567890123456` — Mastercard's own sandbox test
+   * IBAN, seeded into the demo invoices — is checksum-INVALID by design (23 chars where FR
+   * requires 27, mod-97 = 85). With validation in `live` mode the real Mastercard answer is
+   * what shows, and nothing changes. If the gateway is unreachable, that invoice will now
+   * read as not-valid. That is this fix working, not a regression — do not "correct" the
+   * checksum here to make one seeded fixture look nicer.
+   */
   private synthesizeAccount(
     normalized: string,
     source: Source,
   ): AccountValidationResponse {
-    const valid = normalized.length > 0 && IBAN_RE.test(normalized);
-    return { valid, normalized, source };
+    return { valid: isValidIban(normalized), normalized, source };
   }
 }
 

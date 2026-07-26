@@ -463,10 +463,10 @@ export default function TestSuite() {
       detail: 'Dashboard.jsx handlePaymentComplete() calls Invoice.update() with:\n  • beneficiary_account\n  • beneficiary_address\n  • payment_currency\n  • payment_amount\n  • fx_rate\nData is persisted to the ISV database.',
     },
     {
-      name: '§6 IBAN / Account / Address validation badges shown in blue (Mastercard API)',
+      name: '§6 IBAN / Address validation badges distinguish a live answer from a demo one',
       info: true,
       passed: true,
-      detail: 'InvoiceReviewStep.jsx shows blue "Validated via MC API" badge with Shield icon when:\n  • iban_validated = true\n  • account_validated = true\n  • address_validated = true',
+      detail: 'InvoiceReviewStep.jsx renders CheckBadge from the check result AND its source:\n  • green "Validated · Mastercard" — the live API confirmed it (source=live)\n  • amber "Format check · Demo" — the gateway was unreachable; only a local checksum ran\n  • red "Not valid" — the check ran and rejected the value\n  • amber "Check unavailable" — the request itself failed\nA check that did not happen is never shown as one that passed.',
     },
     {
       name: '§6 Missing fields highlighted in orange',

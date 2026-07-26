@@ -28,6 +28,37 @@ function calcFxRate(invoiceCurrency, paymentCurrency) {
 // Renders the FX quote fetched from the BFF (`xbs.quote`). In `live` mode the rate comes from
 // the Mastercard sandbox via the gateway; in `demo` mode it is a synthesized indicative rate.
 // The `source` badge tells the user which one they're looking at.
+/**
+ * Provenance-aware result badge for the beneficiary checks.
+ *
+ * Reuses FxPanel's vocabulary below (green = Mastercard answered, amber = local/demo) for one
+ * reason: a check that Mastercard never performed must not look identical to one it did. The
+ * previous badge rendered a single blue "Validated" whenever the flag was truthy, so a
+ * fabricated fallback answer — or a network error, which used to set the flag to true — was
+ * visually indistinguishable from a genuine confirmation.
+ */
+function CheckBadge({ check, source }) {
+  if (!check) return null;
+  const styles = {
+    ok:
+      source === 'live'
+        ? 'bg-green-50 text-green-700 border-green-200'
+        : 'bg-amber-50 text-amber-700 border-amber-200',
+    failed: 'bg-red-50 text-red-700 border-red-200',
+    error: 'bg-amber-50 text-amber-700 border-amber-200',
+  };
+  const labels = {
+    ok: source === 'live' ? 'Validated · Mastercard' : 'Format check · Demo',
+    failed: 'Not valid',
+    error: 'Check unavailable',
+  };
+  return (
+    <Badge className={`text-[10px] ${styles[check]}`}>
+      <Shield className="w-3 h-3 mr-1" /> {labels[check]}
+    </Badge>
+  );
+}
+
 function FxPanel({ inv, quote }) {
   if (inv.payment_currency === inv.currency) return null;
   const loading = !quote;
@@ -152,21 +183,28 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
      
   }, [inv.currency, inv.payment_currency, inv.amount]);
 
+  /** Merge a partial update into the invoice at `index`. */
+  const patch = (fields) =>
+    onUpdate((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...fields };
+      return next;
+    });
+
   const validateIban = async () => {
     setBusy((b) => ({ ...b, iban: true }));
     try {
       const r = await xbs.validateAccount({ iban: inv.beneficiary_account });
-      onUpdate((prev) => {
-        const next = [...prev];
-        next[index] = { ...next[index], iban_validated: r?.valid !== false, iban_source: r?.source };
-        return next;
+      // `r?.valid === true`, not `!== false`: a malformed or empty response is NOT a pass.
+      patch({
+        iban_validated: r?.valid === true,
+        iban_source: r?.source ?? null,
+        iban_check: r?.valid === true ? 'ok' : 'failed',
       });
     } catch {
-      onUpdate((prev) => {
-        const next = [...prev];
-        next[index] = { ...next[index], iban_validated: true };
-        return next;
-      });
+      // Was `iban_validated: true` — a failed request rendered a "Validated" shield. A check
+      // that did not happen is not a check that passed.
+      patch({ iban_validated: false, iban_source: null, iban_check: 'error' });
     } finally {
       setBusy((b) => ({ ...b, iban: false }));
     }
@@ -176,16 +214,16 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
     setBusy((b) => ({ ...b, address: true }));
     try {
       const r = await xbs.validateAddress({ address: inv.beneficiary_address });
-      onUpdate((prev) => {
-        const next = [...prev];
-        next[index] = { ...next[index], address_validated: r?.valid !== false, address_source: r?.source };
-        return next;
+      patch({
+        address_validated: r?.valid === true,
+        address_source: r?.source ?? null,
+        address_check: r?.valid === true ? 'ok' : 'failed',
       });
     } catch {
-      onUpdate((prev) => {
-        const next = [...prev];
-        next[index] = { ...next[index], address_validated: true };
-        return next;
+      patch({
+        address_validated: false,
+        address_source: null,
+        address_check: 'error',
       });
     } finally {
       setBusy((b) => ({ ...b, address: false }));
@@ -285,7 +323,7 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
         <div>
           <div className="flex items-center justify-between">
             <Label className="text-xs">IBAN / Account Number</Label>
-            {inv.iban_validated && <Badge className="bg-blue-50 text-blue-600 border-blue-200 text-[10px]"><Shield className="w-3 h-3 mr-1" /> Validated</Badge>}
+            <CheckBadge check={inv.iban_check} source={inv.iban_source} />
           </div>
           <div className="flex gap-2 mt-1">
             <Input
@@ -305,7 +343,7 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
         <div>
           <div className="flex items-center justify-between">
             <Label className="text-xs">Beneficiary Address</Label>
-            {inv.address_validated && <Badge className="bg-blue-50 text-blue-600 border-blue-200 text-[10px]"><Shield className="w-3 h-3 mr-1" /> Validated</Badge>}
+            <CheckBadge check={inv.address_check} source={inv.address_source} />
           </div>
           <div className="flex gap-2 mt-1">
             <Input
