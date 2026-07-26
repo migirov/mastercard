@@ -6,6 +6,7 @@ import {
   safeEqual,
   sha256hex,
 } from '../../common/utils/crypto.util';
+import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { OAuthClientEntity } from '../entities/oauth-client.entity';
 
 /** Dummy hash used to equalize timing when client_id is not found. */
@@ -22,6 +23,7 @@ export class ClientRegistry {
   constructor(
     @InjectRepository(OAuthClientEntity)
     private readonly repo: Repository<OAuthClientEntity>,
+    private readonly tenants: TenantRegistry,
   ) {}
 
   /** Issue a client for a partner. Returns the raw secret ONCE. */
@@ -59,6 +61,30 @@ export class ClientRegistry {
     const targetHash = c && !c.revoked ? c.secretHash : DUMMY_HASH;
     const match = safeEqual(targetHash, providedHash);
     if (!c || c.revoked || !match) return null;
+
+    // Suspension is checked AFTER the constant-time comparison, so it adds no timing signal:
+    // the extra query only runs once the caller has already proven it holds the secret.
+    // Without this a suspended tenant keeps minting fresh 15-minute tokens indefinitely —
+    // revoking the client is a separate admin action that an operator may not think to take.
+    //
+    // `suspended` only, deliberately NOT isActive(): a tenant awaiting dual approval SHOULD
+    // authenticate and then get a clear 403 from resolveActive on each business call. Denying
+    // the token would surface as `invalid_client`, which is misleading and breaks onboarding.
+    try {
+      const tenant = await this.tenants.get(c.tenantId);
+      if (tenant.suspended) {
+        this.logger.warn(
+          `Token denied for client '${clientId}': tenant '${c.tenantId}' is suspended`,
+        );
+        return null;
+      }
+    } catch {
+      // A client whose tenant no longer exists is not a 500 — it is simply invalid.
+      this.logger.warn(
+        `Token denied for client '${clientId}': tenant '${c.tenantId}' not found`,
+      );
+      return null;
+    }
     return c.tenantId;
   }
 
