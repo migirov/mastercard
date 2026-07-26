@@ -45,7 +45,14 @@ import { TenantViewDto } from '../dto/tenant-view.dto';
 // default per-IP ThrottlerGuard is sufficient here (set TRUST_PROXY behind a proxy for a
 // correct req.ip). The identity-aware trackers — TenantThrottlerGuard (by tenantId),
 // OAuthThrottlerGuard (by client_id) — exist for the MULTI-principal surfaces, not this one.
-@UseGuards(AdminAuthGuard, ThrottlerGuard)
+//
+// ORDER MATTERS: the throttler runs FIRST. Guards execute sequentially and short-circuit on
+// throw, so with the auth guard first a wrong X-Admin-Token cost nothing — it never reached
+// the throttler and never reached the AuditInterceptor either (interceptors run after guards),
+// leaving unlimited, unrecorded online guessing of the shared secret. This tracker is per-IP
+// and needs no authenticated context, so putting it first has no downside — unlike the
+// tenant-scoped throttlers, whose tracker reads req.tenantContext and genuinely cannot.
+@UseGuards(ThrottlerGuard, AdminAuthGuard)
 // Strict DTO validation at our boundary (shared gateway strategy, Strict preset).
 @UsePipes(gatewayValidationPipe(ValidationStrategy.Strict))
 @UseGatewayContract() // unified error filter + audit (like the other controllers)

@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { sha256hex } from '../../common/utils/crypto.util';
+import { TransactionOwnership } from '../../crossborder/common/ownership/transaction-ownership.service';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { TransactionStatusStore } from './transaction-status.store';
@@ -9,6 +10,7 @@ describe('WebhookHandler', () => {
   let statusStore: { record: jest.Mock };
   let tenants: { findOwnTenantIdByPartnerId: jest.Mock };
   let encryption: { decryptPush: jest.Mock };
+  let ownership: { hasClaim: jest.Mock };
   let handler: WebhookHandler;
 
   beforeEach(async () => {
@@ -16,12 +18,16 @@ describe('WebhookHandler', () => {
     tenants = { findOwnTenantIdByPartnerId: jest.fn(async () => null) };
     // By default a push cannot be decrypted (no key / FLE off) → the persist path.
     encryption = { decryptPush: jest.fn(() => undefined) };
+    // By default the named tenant DOES own the referenced transaction, so attribution
+    // behaves as before; the corroboration tests below override this.
+    ownership = { hasClaim: jest.fn(async () => true) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         WebhookHandler,
         { provide: TransactionStatusStore, useValue: statusStore },
         { provide: TenantRegistry, useValue: tenants },
         { provide: EncryptionService, useValue: encryption },
+        { provide: TransactionOwnership, useValue: ownership },
       ],
     }).compile();
     handler = moduleRef.get(WebhookHandler);
@@ -54,18 +60,85 @@ describe('WebhookHandler', () => {
       expect(r).toEqual({ status: 'duplicate' });
     });
 
-    it('tenant attribution: OWN partnerId resolves to tenantId', async () => {
+    it('tenant attribution: OWN partnerId + a transaction it owns → tenantId', async () => {
       tenants.findOwnTenantIdByPartnerId.mockResolvedValue('own-1');
       await handler.handle({
         eventRef: 'e2',
         eventType: 'QUOTE_STATUS_CHG',
         partnerId: 'OWN_PID',
+        transactionReference: 'TX-OWNED',
       });
       expect(tenants.findOwnTenantIdByPartnerId).toHaveBeenCalledWith(
         'OWN_PID',
       );
+      expect(ownership.hasClaim).toHaveBeenCalledWith('own-1', 'TX-OWNED');
       expect(statusStore.record).toHaveBeenCalledWith(
         expect.objectContaining({ tenantId: 'own-1' }),
+      );
+    });
+
+    // Attribution deliberately still follows Mastercard's stated partnerId — an OWN tenant
+    // may transact outside this gateway, and refusing to attribute would file genuine
+    // notifications into a pool it never reads. The uncorroborated case is logged instead.
+    it('an uncorroborated push is still attributed, but logged as unrecognised', async () => {
+      const warn = jest
+        .spyOn(handler['logger'], 'warn')
+        .mockImplementation(() => undefined);
+      tenants.findOwnTenantIdByPartnerId.mockResolvedValue('own-1');
+      ownership.hasClaim.mockResolvedValue(false);
+      await handler.handle({
+        eventRef: 'forge-1',
+        eventType: 'STATUS_CHG',
+        partnerId: 'OWN_PID',
+        transactionReference: 'NOT-OURS',
+      });
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'own-1' }),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('no record of initiating'),
+      );
+    });
+
+    it('a corroborated push is attributed without a warning', async () => {
+      const warn = jest
+        .spyOn(handler['logger'], 'warn')
+        .mockImplementation(() => undefined);
+      tenants.findOwnTenantIdByPartnerId.mockResolvedValue('own-1');
+      ownership.hasClaim.mockResolvedValue(true);
+      await handler.handle({
+        eventRef: 'ok-1',
+        eventType: 'STATUS_CHG',
+        partnerId: 'OWN_PID',
+        transactionReference: 'OURS',
+      });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('an ownership-lookup failure does not block attribution', async () => {
+      tenants.findOwnTenantIdByPartnerId.mockResolvedValue('own-1');
+      ownership.hasClaim.mockRejectedValue(new Error('db down'));
+      await handler.handle({
+        eventRef: 'e-dbdown',
+        eventType: 'STATUS_CHG',
+        partnerId: 'OWN_PID',
+        transactionReference: 'TX',
+      });
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'own-1' }),
+      );
+    });
+
+    it('a non-string partnerId never reaches the registry query', async () => {
+      await handler.handle({
+        eventRef: 'e-badpid',
+        eventType: 'STATUS_CHG',
+        partnerId: { $ne: null },
+        transactionReference: 'TX',
+      } as never);
+      expect(tenants.findOwnTenantIdByPartnerId).not.toHaveBeenCalled();
+      expect(statusStore.record).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: null }),
       );
     });
 

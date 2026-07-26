@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { sha256hex } from '../../common/utils/crypto.util';
 import { clipForLog } from '../../common/utils/sanitize.util';
+import { TransactionOwnership } from '../../crossborder/common/ownership/transaction-ownership.service';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { TenantRegistry } from '../../tenants/services/tenant.registry';
 import { McWebhookEventDto } from '../dto/mc-webhook-event.dto';
@@ -21,6 +22,11 @@ function firstRef(...vals: unknown[]): string | undefined {
     if (typeof v === 'string' && v.trim() !== '') return v;
   }
   return undefined;
+}
+
+/** A value only if it really is a string — used where a non-string must not reach the DB. */
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
 }
 
 /** A normalized slice of an event (camelCase ⊕ snake_case → a single shape). */
@@ -59,6 +65,7 @@ export class WebhookHandler {
     private readonly statusStore: TransactionStatusStore,
     private readonly tenants: TenantRegistry,
     private readonly encryption: EncryptionService,
+    private readonly ownership: TransactionOwnership,
   ) {}
 
   async handle(event: McWebhookEventDto): Promise<Ack> {
@@ -131,12 +138,56 @@ export class WebhookHandler {
     return { status: fresh ? 'accepted' : 'duplicate' };
   }
 
+  /**
+   * Decide which tenant's namespace a pushed status belongs to, and flag pushes we cannot
+   * corroborate.
+   *
+   * Mastercard does not sign push bodies, so `partnerId` is an UNAUTHENTICATED claim by the
+   * sender, and it selects whose feed gets written. A party past the webhook guard can
+   * therefore fabricate a status in another tenant's feed by naming its partner-id.
+   *
+   * We check the claim against `tx_ownership` but do NOT let it change attribution, and the
+   * reasoning is worth recording because the opposite is tempting:
+   *
+   *  - An OWN tenant is a Mastercard partner in its own right, with its own `partnerId` and
+   *    its own credentials. It may create transactions through channels other than this
+   *    gateway while its webhooks still land here. Those have no local claim, so refusing to
+   *    attribute them would file genuine Mastercard notifications into the shared pool — which
+   *    OWN tenants never read. The owner would silently lose sight of its own settlements.
+   *  - The actual control on this channel is the guard: in production `GatewayConfig` refuses
+   *    to boot without mTLS plus a client-CN allowlist plus issuer pinning, so forging a push
+   *    means forging a Mastercard-issued client certificate. In non-production the factor is
+   *    the shared `MC_WEBHOOK_TOKEN` — which lives in the same `.env` as `MC_INTERNAL_TOKEN`,
+   *    and that token already permits impersonating any tenant. Anyone able to abuse this is
+   *    strictly more capable by another route, so tightening here buys little.
+   *
+   * So: attribute as Mastercard states, and log the uncorroborated case loudly enough to be
+   * investigable. Residual risk is documented rather than traded for lost notifications.
+   */
+  private async attributeTenant(n: NormalizedEvent): Promise<string | null> {
+    if (!n.partnerId) return null;
+    const tenantId = await this.tenants.findOwnTenantIdByPartnerId(n.partnerId);
+    if (!tenantId) return null;
+
+    const ref = n.transactionReference;
+    const corroborated = ref
+      ? await this.ownership.hasClaim(tenantId, ref).catch(() => true)
+      : false;
+    if (!corroborated) {
+      this.logger.warn(
+        `Status push names partnerId=${clipForLog(n.partnerId)} (tenant '${tenantId}') for ` +
+          `tx=${clipForLog(ref)}, which this gateway has no record of initiating. Attributed ` +
+          `as stated — expected when the tenant transacts outside this gateway, but a forged ` +
+          `push would look identical. Investigate if unexpected.`,
+      );
+    }
+    return tenantId;
+  }
+
   /** Status event → atomic persist with dedup by eventRef. */
   private async handleStatus(n: NormalizedEvent): Promise<Ack> {
     // Tenant attribution: OWN → by partnerId; PLATFORM/unknown → shared pool (null).
-    const tenantId = n.partnerId
-      ? await this.tenants.findOwnTenantIdByPartnerId(n.partnerId)
-      : null;
+    const tenantId = await this.attributeTenant(n);
 
     const fresh = await this.statusStore.record({
       eventRef: n.ref,
@@ -225,7 +276,11 @@ export class WebhookHandler {
           r.notification_id,
         ) ?? null,
       eventType: r.eventType ?? r.event_type ?? null,
-      partnerId: r.partnerId ?? r.partner_id ?? null,
+      // Type-guarded: `partnerId` selects which tenant's namespace a row is written to and
+      // is passed into a repository where-clause. It is NOT declared in the DTO on some
+      // spellings, so a sender could supply an object/array — which must never reach the
+      // query builder. Anything that is not a string is treated as absent (→ shared pool).
+      partnerId: asString(r.partnerId) ?? asString(r.partner_id) ?? null,
       transactionReference:
         r.transactionReference ?? r.transaction_reference ?? null,
       transactionType: r.transactionType ?? r.transaction_type ?? null,

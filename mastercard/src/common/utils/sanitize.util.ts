@@ -21,8 +21,27 @@ export function stripCrlf(v: string): string {
  * Sanitizes a value for a LOG line: CR/LF → space (protection against log injection —
  * forging log lines) + length truncation (protection against log bloat).
  * `null`/`undefined` → `'none'`. Defaults to a maximum of 80 chars.
+ *
+ * Accepts `unknown`, not `string`: its callers include the webhook handler, which logs
+ * fields that are NOT declared in the DTO and therefore survive the Passthrough pipe with
+ * whatever JSON type the sender chose. Typing this as `string` made that a compile-time
+ * fiction — a numeric `status` reached `.replace` and threw, turning an endpoint documented
+ * as always-200 into a 500. Coercing here keeps the guarantee at the one place that can.
  */
-export function clipForLog(v: string | null | undefined, max = 80): string {
+export function clipForLog(v: unknown, max = 80): string {
   if (v == null) return 'none';
-  return v.replace(/[\r\n]/g, ' ').slice(0, max);
+  const s = typeof v === 'string' ? v : safeStringify(v);
+  return s.replace(/[\r\n]/g, ' ').slice(0, max);
+}
+
+/** Objects/arrays as compact JSON; anything unserializable falls back to its type name. */
+function safeStringify(v: unknown): string {
+  if (typeof v === 'object') {
+    try {
+      return JSON.stringify(v) ?? String(v);
+    } catch {
+      return '[unserializable]';
+    }
+  }
+  return String(v);
 }

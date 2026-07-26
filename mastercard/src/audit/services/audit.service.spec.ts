@@ -116,4 +116,35 @@ describe('AuditService', () => {
     await svc.recent();
     expect(repo.insert).toHaveBeenCalledTimes(2);
   });
+
+  // A row the DB rejects EVERY time (over-length value, constraint violation) is not a
+  // transient failure: because the whole batch is one INSERT, retrying it forever means one
+  // caller can stall audit persistence for every tenant. The retry must eventually give up
+  // on the offending record rather than on the whole trail.
+  it('quarantine: a permanently-failing record is dropped so the rest can persist', async () => {
+    // @ts-expect-error: stub find for recent()
+    repo.find = jest.fn().mockResolvedValue([]);
+    repo.insert.mockRejectedValue(new Error('value too long for type varchar'));
+
+    fill(100); // first flush fails → batch returned to the buffer
+    // Force past the backoff repeatedly; each forced flush is another consecutive failure.
+    for (let i = 0; i < 5; i++) await svc.recent().catch(() => undefined);
+
+    expect(svc['logger'].error).toHaveBeenCalledWith(
+      expect.stringContaining('dropping a poisoned record'),
+    );
+    // The buffer shrank — the head was discarded rather than retried forever.
+    expect(svc['buffer'].length).toBeLessThan(100);
+  });
+
+  it('quarantine does NOT fire on a single transient failure', async () => {
+    repo.insert.mockRejectedValueOnce(new Error('deadlock detected'));
+    fill(100);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(svc['logger'].error).not.toHaveBeenCalledWith(
+      expect.stringContaining('dropping a poisoned record'),
+    );
+    expect(svc['buffer'].length).toBe(100);
+  });
 });

@@ -25,6 +25,13 @@ const MAX_BUFFER = 100; // forced flush when full
 const MAX_RETAINED = MAX_BUFFER * 10;
 
 /**
+ * Consecutive failed flushes after which the head record is treated as poisoned and dropped.
+ * 5 with exponential backoff is ~1 minute of retrying — long enough to ride out a DB blip,
+ * short enough that a permanently-rejected row cannot stall the audit trail.
+ */
+const MAX_RETRIES_BEFORE_QUARANTINE = 5;
+
+/**
  * Operations log in PostgreSQL (shared across all pods). Writes are fire-and-forget
  * + **batched**: accumulated in a buffer and written in a batch (once a second / per 100
  * records / on shutdown), to avoid a separate INSERT per request. Trade-off: a hard crash
@@ -135,7 +142,35 @@ export class AuditService implements OnModuleInit, BeforeApplicationShutdown {
       this.logger.error(
         `audit batch insert failed (${batch.length} rows, retry in ${backoffMs / 1000}s): ${(err as Error).message}`,
       );
+      this.quarantineIfStuck(batch.length);
     }
+  }
+
+  /**
+   * Drop the head of the buffer once a batch has failed repeatedly.
+   *
+   * The retry above is right for a TRANSIENT failure but wrong for a POISONED row — one the
+   * DB will reject every time (an over-length value, a constraint violation). Since the whole
+   * batch is one INSERT, a single such row makes every future flush fail, and re-queuing it at
+   * the front means it is retried forever: one caller could silently stall audit persistence
+   * for every tenant. After MAX_RETRIES_BEFORE_QUARANTINE consecutive failures we discard the
+   * oldest record — the likeliest culprit — and log loudly rather than lose the whole trail.
+   */
+  private quarantineIfStuck(batchSize: number): void {
+    if (
+      this.consecutiveFailures < MAX_RETRIES_BEFORE_QUARANTINE ||
+      this.buffer.length === 0
+    ) {
+      return;
+    }
+    const [dropped] = this.buffer.splice(0, 1);
+    this.consecutiveFailures = 0;
+    this.backoffUntilMs = 0;
+    this.logger.error(
+      `audit: dropping a poisoned record after ${MAX_RETRIES_BEFORE_QUARANTINE} failed ` +
+        `flushes of a ${batchSize}-row batch (method=${dropped?.method} status=${dropped?.status} ` +
+        `pathLength=${dropped?.path?.length}) — persistence resumes for the rest`,
+    );
   }
 
   // We flush in beforeApplicationShutdown — this is the PHASE BEFORE onApplicationShutdown,

@@ -33,10 +33,13 @@ import { WebhookHandler } from '../services/webhook.handler';
  *
  * Auth (WebhookAuthGuard) is decided IN THE APP: in-app mTLS client-cert validation when
  * `webhookMtlsEnabled` (prod), else the fail-closed `X-Webhook-Token` (dev). The throttler runs
- * AFTER the guard (it limits only auth-valid requests; an invalid request → 401 BEFORE the
- * throttler, spending no budget) — a backstop against a flood of DB writes. The limit is
- * deliberately GENEROUS: legitimate MC bursts (multi-merchant, retries) must not hit 429 (and a
- * 429 would itself provoke an MC retry). By IP: all MC traffic comes from a few IPs.
+ * FIRST — a backstop against a flood of DB writes AND against unlimited guessing of the shared
+ * token. It previously ran after the guard on the reasoning that an invalid request should
+ * spend no budget; the cost of that was that a wrong token spent no budget and left no audit
+ * record either (interceptors run after guards), so the shared secret could be guessed at line
+ * rate, invisibly. The limit is deliberately GENEROUS: legitimate MC bursts (multi-merchant,
+ * retries) must not hit 429 (and a 429 would itself provoke an MC retry). By IP: all MC traffic
+ * comes from a few IPs.
  * NOTE: the limit is PER-POD (in-memory throttler, Redis is not used in this project) —
  * the aggregate ceiling = 1200×N pods. This is a backstop, NOT a global hard cap.
  */
@@ -44,7 +47,7 @@ import { WebhookHandler } from '../services/webhook.handler';
 @ApiSecurity('webhook')
 @ApiErrorResponses()
 @Controller('webhooks')
-@UseGuards(WebhookAuthGuard, ThrottlerGuard)
+@UseGuards(ThrottlerGuard, WebhookAuthGuard)
 @Throttle({ default: { limit: 1200, ttl: 60_000 } })
 @UseGatewayContract()
 export class MastercardWebhookController {
