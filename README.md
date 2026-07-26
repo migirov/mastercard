@@ -37,12 +37,17 @@ The whole stack runs from the compose folder:
 ```bash
 cd mastercard-demo-stack
 cp .env.example .env          # fill in GATEWAY_INTERNAL_TOKEN (must match mastercard/.env)
+                              # ...and DEMO_API_TOKEN — compose refuses to start without it
 docker compose up -d --build  # first run builds all 5 images
 docker compose ps             # all 5 should be running/healthy
 ```
 
 - **Web UI:** http://localhost:8080 — password **`REDACTED-DEMO-PASSWORD`**
 - app-bff health: http://localhost:4010/health · mastercard-bff health (live/demo wiring): http://localhost:4011/health
+
+Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN`; `/health` is the only public
+route. The frontend bakes the same token into its bundle at build time, so **rebuild all three
+app images together** — rebuilding only the BFFs makes every call from the SPA 401.
 
 Full run/test walkthrough, page-by-page data sources, and the live-vs-demo matrix are in
 **[mastercard-demo-stack/README.md](mastercard-demo-stack/README.md)** and its

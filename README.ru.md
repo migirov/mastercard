@@ -37,12 +37,17 @@ Mastercard** там, где она доступна, и синтезируя р�
 ```bash
 cd mastercard-demo-stack
 cp .env.example .env          # вписать GATEWAY_INTERNAL_TOKEN (должен совпадать с mastercard/.env)
+                              # ...и DEMO_API_TOKEN — без него compose не стартует
 docker compose up -d --build  # первый запуск собирает все 5 образов
 docker compose ps             # все 5 должны быть running/healthy
 ```
 
 - **Веб-интерфейс:** http://localhost:8080 — пароль **`REDACTED-DEMO-PASSWORD`**
 - health app-bff: http://localhost:4010/health · health mastercard-bff (разводка live/demo): http://localhost:4011/health
+
+API обоих BFF требуют `Authorization: Bearer $DEMO_API_TOKEN`; публичный маршрут только
+`/health`. Фронт зашивает тот же токен в бандл на этапе сборки, поэтому **пересобирать нужно все
+три образа приложения разом** — иначе каждый запрос из SPA ответит 401.
 
 Полный гайд по запуску/тестированию, источники данных каждой страницы и матрица live-vs-demo —
 в **[mastercard-demo-stack/README.ru.md](mastercard-demo-stack/README.ru.md)** и гайдах

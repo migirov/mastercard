@@ -13,6 +13,11 @@ The app talks to the demo backend (BFF) under `/demo-api`. Configure the base UR
 `VITE_DEMO_API_URL` (defaults to `http://localhost:4000` for local dev; in the container build
 it is `/demo-api`, reverse-proxied by nginx to the BFF).
 
+Both BFFs require a shared bearer token, so `npm run dev` also needs **`VITE_DEMO_API_TOKEN`**
+set to the same value as `DEMO_API_TOKEN` in `mastercard-demo-stack/.env` — copy
+[.env.example](.env.example) to `.env` and fill it in, otherwise every API call returns 401.
+Both vars are inlined at BUILD time, so changing either one means rebuilding, not restarting.
+
 ## Build
 
 ```

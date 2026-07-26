@@ -33,15 +33,31 @@ nginx отдаёт один origin (`/demo-api`) и разводит путь м
 
 ## 2. Запуск и доступ
 
+Сначала пропишите общий API-токен в `.env` — без него стек не поднимется:
+
 ```bash
 cd mastercard-demo-stack
+cp .env.example .env    # если файла ещё нет; затем заполните GATEWAY_INTERNAL_TOKEN
+echo "DEMO_API_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" >> .env
+```
+
+```bash
 docker compose up -d --build      # первый запуск собирает образы
 docker compose ps                 # все 5 должны быть running/healthy
 ```
 
+> **Пересобирать нужно все три образа приложения разом.** Фронт зашивает `DEMO_API_TOKEN` в свой
+> JS-бандл на этапе сборки, поэтому пересборка одних только BFF оставит SPA со старым токеном и
+> каждый запрос из браузера ответит 401. `docker compose up -d --build` делает всё правильно.
+
 - **Веб-интерфейс:** http://localhost:8080 — пароль **`REDACTED-DEMO-PASSWORD`**
 - app-bff (прямой API, для разработчика): http://localhost:4010/health
 - mastercard-bff (прямой API, разводка live/demo): http://localhost:4011/health
+
+API обоих BFF требуют заголовок `Authorization: Bearer $DEMO_API_TOKEN` на всех маршрутах;
+**публичный только `/health`** (его дёргает healthcheck docker-compose). Готовые примеры —
+в [docs/ru/test.md](docs/ru/test.md). Учтите: токен попадает и внутрь бандла SPA — он закрывает
+API от доступа извне, но это не авторизация по пользователям.
 
 Остановить: `docker compose down` (данные сохраняются) или `docker compose down -v`
 (стереть данные — при следующем подъёме всё засеется заново).
@@ -185,9 +201,13 @@ docker compose ps                          # статус
 docker compose logs -f mastercard-bff      # логи cross-border BFF (видно live/fallback)
 docker compose logs -f app-bff             # логи app BFF (хранилище / сев)
 docker compose logs -f app                 # логи шлюза (видно реальные вызовы MC)
-curl http://localhost:4011/health          # разводка live|demo (mastercard-bff)
-curl http://localhost:4010/entities/Invoice   # засеянные сущности (app-bff)
-docker compose up -d --build               # пересборка после правок кода
+curl http://localhost:4011/health          # разводка live|demo (mastercard-bff) — публичный
+
+# Всё остальное требует общий токен:
+AUTH="Authorization: Bearer $(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)"
+curl -H "$AUTH" http://localhost:4010/entities/Invoice   # засеянные сущности (app-bff)
+
+docker compose up -d --build               # пересборка после правок кода (все три образа)
 docker compose down -v                     # полный сброс (пересев при следующем подъёме)
 ```
 

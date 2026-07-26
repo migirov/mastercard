@@ -33,15 +33,31 @@ nginx serves one origin (`/demo-api`) and splits the path between them:
 
 ## 2. Run & access
 
+First, put a shared API token in `.env` — the stack refuses to start without it:
+
 ```bash
 cd mastercard-demo-stack
+cp .env.example .env    # if you don't have one yet, then fill GATEWAY_INTERNAL_TOKEN
+echo "DEMO_API_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" >> .env
+```
+
+```bash
 docker compose up -d --build      # first run builds all images
 docker compose ps                 # all 5 should be running/healthy
 ```
 
+> **Rebuild all three app images together.** The frontend bakes `DEMO_API_TOKEN` into its JS
+> bundle at build time, so rebuilding only the BFFs leaves the SPA holding the old token and
+> every call in the browser returns 401. `docker compose up -d --build` does the right thing.
+
 - **Web UI:** http://localhost:8080 — password **`REDACTED-DEMO-PASSWORD`**
 - app-bff (direct API, for devs): http://localhost:4010/health
 - mastercard-bff (direct API, live/demo wiring): http://localhost:4011/health
+
+Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN` on every route; **`/health` is the
+only public one** (docker-compose's healthcheck uses it). See [docs/en/test.md](docs/en/test.md)
+for ready-to-paste examples. Note that the token also ships inside the SPA bundle — it keeps the
+APIs off the open network, it is not per-user authorization.
 
 Stop: `docker compose down` (keep data) or `docker compose down -v` (wipe data + re-seed on next up).
 
@@ -183,9 +199,13 @@ docker compose ps                          # status
 docker compose logs -f mastercard-bff      # cross-border BFF logs (shows live/fallback)
 docker compose logs -f app-bff             # app BFF logs (entity store / seed)
 docker compose logs -f app                 # gateway logs (shows the real MC calls)
-curl http://localhost:4011/health          # the live|demo wiring (mastercard-bff)
-curl http://localhost:4010/entities/Invoice   # seeded entities (app-bff)
-docker compose up -d --build               # rebuild after code changes
+curl http://localhost:4011/health          # the live|demo wiring (mastercard-bff) — public
+
+# Everything else needs the shared token:
+AUTH="Authorization: Bearer $(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)"
+curl -H "$AUTH" http://localhost:4010/entities/Invoice   # seeded entities (app-bff)
+
+docker compose up -d --build               # rebuild after code changes (all three images)
 docker compose down -v                     # reset everything (re-seeds on next up)
 ```
 

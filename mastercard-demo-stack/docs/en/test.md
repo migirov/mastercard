@@ -65,13 +65,27 @@ port (`:4011`, mastercard-bff) or through the frontend proxy (`http://localhost:
 **Every response carries a `source` field** (`live` / `demo`). The wiring is summarized at
 `GET http://localhost:4011/health` (the `features` block).
 
+### Authentication — required for every example below
+
+Both BFFs require the shared bearer token from `mastercard-demo-stack/.env`. **`/health` is the
+one exception** and stays public (docker-compose's healthcheck depends on it). Without the
+header you get `401 {"message":"missing or invalid API token"}`.
+
+Run this once in the shell you are testing from — every `curl` below uses `$AUTH`:
+
+```bash
+cd mastercard-demo-stack
+export DEMO_API_TOKEN=$(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)
+AUTH="Authorization: Bearer $DEMO_API_TOKEN"
+```
+
 ```bash
 curl -s http://localhost:4011/health        # → "features":{"bankLookup":"live", ... ,"rfi":"demo"}
 ```
 
 ### 🟢 Bank Lookup — `POST /features/bank-lookup` (live)
 ```bash
-curl -s -X POST http://localhost:4011/features/bank-lookup \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/bank-lookup \
   -H 'Content-Type: application/json' \
   -d '{"name":"*of Africa United Kingdom*SUC20004","country":"GBR"}'
 # → {"banks":[{"name":"...","bic":"428773","branch":"East Bay Branch","country":"GBR",...}],
@@ -81,7 +95,7 @@ Body: `name` (MC accepts `*` wildcards), `country` (ISO-3), `bic?` (optional).
 
 ### 🟢 IBAN Generator — `POST /features/iban` (live)
 ```bash
-curl -s -X POST http://localhost:4011/features/iban \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/iban \
   -H 'Content-Type: application/json' \
   -d '{"country":"FRA","ban":"20041010050500013M02606","branchCode":"2004101005","accountNo":"0500013026"}'
 # → {"iban":"FR1420041010050500013M02606","ban":"20041010050500013M02606",
@@ -92,32 +106,32 @@ Body: `country` (ISO-3, required), `ban?`, `branchCode?`, `accountNo?`.
 
 ### 🟢 Cash Pickup — `GET /features/cash-pickup/{kind}` (live)
 ```bash
-curl -s "http://localhost:4011/features/cash-pickup/countries?cash_pickup_type=PANY"
+curl -s -H "$AUTH" "http://localhost:4011/features/cash-pickup/countries?cash_pickup_type=PANY"
 # → {"items":[{"countryAlpha3":"NGA","currency":"NGN","cashPickupType":"PANY"}, ...],"source":"live"}
 
-curl -s "http://localhost:4011/features/cash-pickup/cities?country=GTM&currency=GTQ&limit=5"
+curl -s -H "$AUTH" "http://localhost:4011/features/cash-pickup/cities?country=GTM&currency=GTQ&limit=5"
 # → {"items":[{"country":"GTM","currency":"GTQ","city":"...","stateName":"..."}],"total":361,"source":"live"}
 
-curl -s "http://localhost:4011/features/cash-pickup/providers?country=ARE&currency=AED&cash_pickup_type=IN_NETWORK&limit=5"
+curl -s -H "$AUTH" "http://localhost:4011/features/cash-pickup/providers?country=ARE&currency=AED&cash_pickup_type=IN_NETWORK&limit=5"
 # → {"items":[{"providerId":"...","providerName":"ORIENT EXCHANGE","country":"ARE","currency":"AED"}],"source":"live"}
 
 # branches need a provider_id (take one from the providers result above):
-curl -s "http://localhost:4011/features/cash-pickup/branches?provider_id=<providerId>&limit=5"
+curl -s -H "$AUTH" "http://localhost:4011/features/cash-pickup/branches?provider_id=<providerId>&limit=5"
 ```
 Query (all optional): countries → `cash_pickup_type`; cities → `country,currency,offset,limit`;
 providers → `+cash_pickup_type`; branches → `provider_id,state,city,offset,limit`.
 
 ### 🟡 FX Rates — `GET /features/rates` (demo)
 ```bash
-curl -s "http://localhost:4011/features/rates"
+curl -s -H "$AUTH" "http://localhost:4011/features/rates"
 # → {"rates":[{"pair":"USD/ILS","rate":3.7,"change":0.01}, ...],"asOf":"...","source":"demo"}
-curl -s "http://localhost:4011/features/rates?base=USD&quote=ILS"   # single pair
+curl -s -H "$AUTH" "http://localhost:4011/features/rates?base=USD&quote=ILS"   # single pair
 ```
 Demo because the MC sandbox returns no carded-rate data (`{"rates":{}}`).
 
 ### 🟡 Endpoint Guide — `GET /features/endpoint-guide` (demo)
 ```bash
-curl -s "http://localhost:4011/features/endpoint-guide?payment_type=B2B&destination_country=PHL&destination_currency=PHP&destination_payment_instrument=BANK"
+curl -s -H "$AUTH" "http://localhost:4011/features/endpoint-guide?payment_type=B2B&destination_country=PHL&destination_currency=PHP&destination_payment_instrument=BANK"
 # → {"corridor":{...},"fields":[{"name":"recipient_account_uri","required":true,"description":"..."}, ...],
 #    "limits":{"min":"1.00","max":"50000.00","currency":"PHP"},"source":"demo"}
 ```
@@ -125,43 +139,43 @@ Demo because the sandbox returns an HTML 502 for the generic partner-id.
 
 ### 🟡 Quote Lifecycle — `/features/quote-lifecycle/*` (demo)
 ```bash
-curl -s -X POST http://localhost:4011/features/quote-lifecycle/confirm \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/quote-lifecycle/confirm \
   -H 'Content-Type: application/json' \
   -d '{"transactionReference":"08POC342598033X","proposalId":"pen-4000000044472562338287758"}'
 # → {"transactionReference":"...","proposalId":"...","state":"CONFIRMED","expiresAt":"...","source":"demo"}
 
-curl -s -X POST http://localhost:4011/features/quote-lifecycle/cancel \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/quote-lifecycle/cancel \
   -H 'Content-Type: application/json' \
   -d '{"transactionReference":"08POC342598033X","proposalId":"pen-4000000044472562338287758"}'
 # → {"...","state":"CANCELLED","source":"demo"}
 
-curl -s "http://localhost:4011/features/quote-lifecycle/retrieve?transactionReference=08POC342598033X&proposalId=pen-4000000044472562338287758"
+curl -s -H "$AUTH" "http://localhost:4011/features/quote-lifecycle/retrieve?transactionReference=08POC342598033X&proposalId=pen-4000000044472562338287758"
 # → {"...","state":"CONFIRMED","fxRate":3.7,"chargedAmount":"110.41","currency":"USD","source":"demo"}
 ```
 
 ### 🟡 Payment Tracker — `/features/payment-tracker` (demo)
 ```bash
-curl -s "http://localhost:4011/features/payment-tracker?ref=XBSDEMO12345"
+curl -s -H "$AUTH" "http://localhost:4011/features/payment-tracker?ref=XBSDEMO12345"
 # → {"ref":"XBSDEMO12345","status":"processing","stage":"screening",
 #    "history":[{"status":"pending","stage":"received","timestamp":"..."}, ...],"source":"demo"}
 # (repeat after a minute — the stage advances over wall-clock time)
 
-curl -s -X POST http://localhost:4011/features/payment-tracker/cancel \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/payment-tracker/cancel \
   -H 'Content-Type: application/json' -d '{"id":"PMT-123"}'
 # → {"id":"PMT-123","state":"CANCELLED","source":"demo"}
 ```
 
 ### 🟡 RFI Center — `/features/rfi/*` (demo)
 ```bash
-curl -s "http://localhost:4011/features/rfi/requests/33000000-0000-4000-8000-000000000000"
+curl -s -H "$AUTH" "http://localhost:4011/features/rfi/requests/33000000-0000-4000-8000-000000000000"
 # → {"requestId":"...","status":"PENDING","questions":[{"code":"SENDER_ID","label":"...","required":true}, ...],"source":"demo"}
 
-curl -s -X POST http://localhost:4011/features/rfi/requests/33000000-0000-4000-8000-000000000000 \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/rfi/requests/33000000-0000-4000-8000-000000000000 \
   -H 'Content-Type: application/json' \
   -d '{"firstName":"John","lastName":"Doe","message":"Documents attached"}'
 # → {"requestId":"...","state":"SUBMITTED","source":"demo"}
 
-curl -s -X POST http://localhost:4011/features/rfi/documents \
+curl -s -X POST -H "$AUTH" http://localhost:4011/features/rfi/documents \
   -H 'Content-Type: application/json' \
   -d '{"fileName":"proof.pdf","file":"dGVzdA=="}'   # file = base64, no data: prefix
 # → {"documentId":"...","fileName":"proof.pdf","state":"UPLOADED","source":"demo"}
@@ -183,8 +197,10 @@ See it yourself:
 
 ```bash
 cd mastercard-demo-stack
+export DEMO_API_TOKEN=$(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)   # if not already exported
+AUTH="Authorization: Bearer $DEMO_API_TOKEN"
 docker compose logs app | grep -E 'account-validations|bank-lookups|cash-pickup'
-curl http://localhost:4011/xbs/balances     # real sandbox accounts, "source":"live"
+curl -H "$AUTH" http://localhost:4011/xbs/balances     # real sandbox accounts, "source":"live"
 ```
 
 ## Flip to live when MTF/Prod is enabled
