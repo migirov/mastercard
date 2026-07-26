@@ -131,6 +131,18 @@ export class GatewayConfig {
             'subject AND pin its issuer CA in-app, not the ingress)',
         );
       }
+      // Field-level encryption is the fourth prod requirement, and it was the one missing here
+      // while the other three were enforced. `encryptionEnabled` defaults to false and ships
+      // false in .env.example, so an operator following the documented setup got a production
+      // gateway putting beneficiary PII on the wire as plaintext JSON — announced by a single
+      // boot line that is easy to miss. Mastercard mandates FLE in production anyway, so the
+      // only question was whether it fails at boot or on the first real payment.
+      if (!this.encryptionEnabled) {
+        throw new Error(
+          'production: enable field-level encryption — set encryptionEnabled (Mastercard ' +
+            'requires FLE in production; leaving it off sends beneficiary PII as plaintext)',
+        );
+      }
     }
   }
 

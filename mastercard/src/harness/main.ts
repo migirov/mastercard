@@ -37,12 +37,40 @@ function httpsOptionsFromEnv():
   };
 }
 
-/** In production, refuse to start with weak/default secrets. */
+/**
+ * Secrets that must be strong before this gateway faces anything real. `MC_WEBHOOK_TOKEN` is
+ * included because when mTLS is off it is the ONLY factor on the webhook route, and a webhook
+ * can write into a tenant's status feed.
+ */
+const SECRET_ENV_KEYS = [
+  'MC_JWT_SECRET',
+  'MC_INTERNAL_TOKEN',
+  'MC_ADMIN_TOKEN',
+  'MC_WEBHOOK_TOKEN',
+];
+
+/**
+ * Warn about weak/default secrets in EVERY mode; refuse to start only in production.
+ *
+ * The warning is the point: this check exists to catch "shipped to production with dev
+ * credentials", but it keys off NODE_ENV — and every Docker/compose artifact in this repo
+ * sets `development`, so in practice it could never fire before something was already
+ * deployed. Warning unconditionally makes the condition visible on every boot without
+ * changing what starts, which is why it does not throw outside production: the dev secrets
+ * are weak BY DESIGN and failing here would simply brick local development.
+ */
 function assertProdSecrets(): void {
-  if (process.env.NODE_ENV !== 'production') return;
-  const bad = ['MC_JWT_SECRET', 'MC_INTERNAL_TOKEN', 'MC_ADMIN_TOKEN'].filter(
-    (k) => isWeakSecret(process.env[k]),
-  );
+  const bad = SECRET_ENV_KEYS.filter((k) => isWeakSecret(process.env[k]));
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (bad.length && !isProduction) {
+    new Logger('Bootstrap').warn(
+      `weak/default secrets in use: ${bad.join(', ')} — acceptable for local development, ` +
+        `but these MUST be replaced before this gateway is reachable by anything real`,
+    );
+  }
+  if (!isProduction) return;
+
   if (bad.length) {
     throw new Error(
       `production: weak/default secrets — set strong values: ${bad.join(', ')}`,

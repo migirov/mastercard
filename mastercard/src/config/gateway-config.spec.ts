@@ -9,7 +9,8 @@ const opts: MastercardModuleOptions = {
   adminToken: 'admin-token',
 };
 
-// Strong secrets + the AWS store + in-app webhook mTLS — to pass the prod gates.
+// Strong secrets + the AWS store + in-app webhook mTLS + field-level encryption — the four
+// things production requires. Anything missing here must make the constructor throw.
 const prod: Partial<MastercardModuleOptions> = {
   nodeEnv: 'production',
   jwtSecret: 'x'.repeat(32),
@@ -22,6 +23,7 @@ const prod: Partial<MastercardModuleOptions> = {
     'CrossborderServicesNotification-prod.mastercard.com',
   ],
   webhookAllowedIssuerCNs: ['DigiCert Assured ID Client CA G2'],
+  encryptionEnabled: true,
 };
 
 describe('GatewayConfig', () => {
@@ -113,5 +115,26 @@ describe('GatewayConfig', () => {
     const { webhookToken, ...noToken } = prod;
     void webhookToken;
     expect(() => new GatewayConfig({ ...opts, ...noToken })).not.toThrow();
+  });
+
+  // The fourth prod requirement, and the one that used to be missing while the other three
+  // were enforced. `encryptionEnabled` defaults to false, so "omitted" is the realistic
+  // failure — an operator following .env.example would have shipped plaintext beneficiary PII.
+  it('requires field-level encryption in production', () => {
+    expect(
+      () => new GatewayConfig({ ...opts, ...prod, encryptionEnabled: false }),
+    ).toThrow(/encryption/i);
+
+    const { encryptionEnabled, ...omitted } = prod;
+    void encryptionEnabled;
+    expect(() => new GatewayConfig({ ...opts, ...omitted })).toThrow(
+      /encryption/i,
+    );
+  });
+
+  it('leaves encryption optional outside production', () => {
+    expect(
+      () => new GatewayConfig({ ...opts, nodeEnv: 'development' }),
+    ).not.toThrow();
   });
 });
