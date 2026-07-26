@@ -13,7 +13,11 @@ import {
   MastercardClient,
 } from '../../../mastercard/services/mastercard-client.service';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
-import { effectiveStatus, isActive } from '../../../tenants/tenant.types';
+import {
+  effectiveStatus,
+  isActive,
+  Tenant,
+} from '../../../tenants/tenant.types';
 
 /** Business/client Mastercard statuses that are meaningful to forward to the merchant. */
 const FORWARDABLE_STATUSES = new Set([400, 404, 409, 422, 429]);
@@ -49,8 +53,72 @@ export class CrossBorderGateway {
     ctx: string,
     build: (creds: McCredentials) => McRequest,
   ): Promise<unknown> {
-    const creds = await this.resolveActive(tenantId);
+    return this.runFor(await this.activeTenant(tenantId), ctx, build);
+  }
+
+  /**
+   * Gating only: loads the tenant and asserts it is ACTIVE, returning the Tenant itself.
+   *
+   * Exists because some callers need more than credentials. An ownership check needs
+   * `credentialMode` (PLATFORM tenants share one MC partner-id, so they need a local
+   * resource→tenant binding that OWN tenants get from Mastercard for free), and a purely
+   * local DB read needs no credentials at all — resolving them would pointlessly hit the
+   * SecretStore. Splitting the gate from the credential resolution lets those callers gate
+   * without either re-querying the registry or resolving a secret they will not use.
+   */
+  async activeTenant(tenantId: string): Promise<Tenant> {
+    const tenant = await this.registry.get(tenantId);
+    if (!isActive(tenant)) {
+      throw new ForbiddenException(
+        `Tenant '${tenantId}' is not active (status ${effectiveStatus(tenant)})`,
+      );
+    }
+    return tenant;
+  }
+
+  /**
+   * Dispatch for a tenant that has ALREADY been gated by `activeTenant`: resolve its
+   * credentials and call MC. Skips the re-gate so a caller that gated in order to run an
+   * ownership check does not pay for a second registry read.
+   */
+  async runFor(
+    tenant: Tenant,
+    ctx: string,
+    build: (creds: McCredentials) => McRequest,
+  ): Promise<unknown> {
+    const creds = await this.credentialsFor(tenant);
     return this.call(creds, build(creds), ctx);
+  }
+
+  /**
+   * Credentials for a tenant that has ALREADY been gated. For callers that need the Tenant
+   * and its credentials but cannot use `runFor` — `createPayment` resolves credentials
+   * outside the idempotency lock on purpose (a slow SecretStore inside the lock could
+   * stretch the producer past the lock TTL and allow a double POST).
+   */
+  credentialsFor(tenant: Tenant): Promise<McCredentials> {
+    return this.credentials.resolve(tenant);
+  }
+
+  /**
+   * Weaker gate for LOCAL reads: rejects a SUSPENDED tenant but allows one that is merely
+   * awaiting dual approval.
+   *
+   * Deliberately not `activeTenant`. Suspension is an operator cutting a tenant off, and it
+   * must take effect on every route immediately. Pending approval is a different state: it
+   * blocks TRANSACTING (which `resolveActive` enforces on every MC-bound route), but a tenant
+   * that is mid-onboarding — or that transacted and later lost approval — should still be able
+   * to read the history of its own transactions. Applying the full active check here would
+   * deny that, which is broader than the security requirement.
+   */
+  async unsuspendedTenant(tenantId: string): Promise<Tenant> {
+    const tenant = await this.registry.get(tenantId);
+    if (tenant.suspended) {
+      throw new ForbiddenException(
+        `Tenant '${tenantId}' is not active (status ${effectiveStatus(tenant)})`,
+      );
+    }
+    return tenant;
   }
 
   /**
@@ -58,13 +126,7 @@ export class CrossBorderGateway {
    * Gating: transactions are forbidden until there is dual approval.
    */
   async resolveActive(tenantId: string): Promise<McCredentials> {
-    const tenant = await this.registry.get(tenantId);
-    if (!isActive(tenant)) {
-      throw new ForbiddenException(
-        `Tenant '${tenantId}' is not active (status ${effectiveStatus(tenant)})`,
-      );
-    }
-    return this.credentials.resolve(tenant);
+    return this.credentialsFor(await this.activeTenant(tenantId));
   }
 
   /**

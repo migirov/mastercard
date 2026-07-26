@@ -94,9 +94,8 @@ export class PaymentsController {
     @CurrentTenant() ctx: TenantContext,
     @Query('ref', SafeIdPipe) ref: string,
   ) {
-    // Pass the whole tenant: the service needs credentialMode for isolation (OWN
-    // does not read the shared PLATFORM pool). The mode is already in the auth
-    // context — no DB query needed.
-    return this.svc.getStatusEvents(ctx.tenant, ref);
+    // Pass the id, not ctx.tenant: the service re-reads the tenant so suspension takes
+    // effect immediately rather than when the 15-minute JWT expires.
+    return this.svc.getStatusEvents(ctx.tenantId, ref);
   }
 }

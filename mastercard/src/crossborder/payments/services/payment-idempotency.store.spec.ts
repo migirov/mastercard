@@ -204,12 +204,12 @@ describe('PaymentIdempotencyStore', () => {
   });
 
   describe('ownsKey (authorizes PLATFORM pool reads)', () => {
-    it('true when a record exists for (tenantId, key)', async () => {
+    it('true when a COMPLETED record exists for (tenantId, key)', async () => {
       const repo = makeRepo();
       repo.count.mockResolvedValue(1);
       await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(true);
       expect(repo.count).toHaveBeenCalledWith({
-        where: { tenantId: 't1', idemKey: 'k1' },
+        where: { tenantId: 't1', idemKey: 'k1', done: true },
       });
     });
 
@@ -217,6 +217,21 @@ describe('PaymentIdempotencyStore', () => {
       const repo = makeRepo();
       repo.count.mockResolvedValue(0);
       await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(false);
+    });
+
+    // An in-progress row is the in-flight LOCK, not proof of ownership: acquire() writes it
+    // before the Mastercard call, so counting it would let any tenant forge ownership of an
+    // arbitrary transaction_reference. Assert the filter is actually sent to the DB rather
+    // than that the count is 0 — a mocked count cannot prove the WHERE clause on its own.
+    it('requires done=true, so an in-progress claim does NOT prove ownership', async () => {
+      const repo = makeRepo();
+      repo.count.mockResolvedValue(0);
+      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(false);
+      expect(repo.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ done: true }),
+        }),
+      );
     });
   });
 });

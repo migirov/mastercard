@@ -111,4 +111,40 @@ describe('CrossBorderGateway — gating', () => {
     await expect(ping(gw)).rejects.toBeInstanceOf(ForbiddenException);
     expect(client.request).not.toHaveBeenCalled();
   });
+
+  it('activeTenant returns the Tenant itself (callers need credentialMode)', async () => {
+    const { gw, registry } = make();
+    await expect(gw.activeTenant('acme')).resolves.toBe(activeTenant);
+    expect(registry.get).toHaveBeenCalledWith('acme');
+  });
+
+  it('activeTenant rejects a non-ACTIVE tenant without resolving credentials', async () => {
+    const inactive = { ...activeTenant, suspended: true } as Tenant;
+    const { gw, client } = make({ tenant: inactive });
+    await expect(gw.activeTenant('acme')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  // runFor is for callers that already gated (to run an ownership check); paying for a
+  // second registry read would defeat the point of splitting the gate out.
+  it('runFor does NOT re-gate — the registry is not read again', async () => {
+    const { gw, registry, client } = make({ data: { ok: 1 } });
+    await expect(
+      gw.runFor(
+        activeTenant,
+        'ctx',
+        () => ({ method: 'GET', path: '/x' }) as McRequest,
+      ),
+    ).resolves.toEqual({ ok: 1 });
+    expect(registry.get).not.toHaveBeenCalled();
+    expect(client.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('run() still gates exactly once (one registry read per call)', async () => {
+    const { gw, registry } = make();
+    await ping(gw);
+    expect(registry.get).toHaveBeenCalledTimes(1);
+  });
 });

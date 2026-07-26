@@ -1,6 +1,7 @@
 import { AuditLogEntity } from './audit/entities/audit-log.entity';
 import { OAuthClientEntity } from './auth/entities/oauth-client.entity';
 import { PaymentIdempotencyEntity } from './crossborder/payments/entities/payment-idempotency.entity';
+import { TransactionOwnershipEntity } from './crossborder/common/entities/transaction-ownership.entity';
 import { TenantEntity } from './tenants/entities/tenant.entity';
 import { TransactionStatusEntity } from './webhooks/entities/transaction-status.entity';
 
@@ -20,5 +21,6 @@ export const MASTERCARD_ENTITIES = [
   OAuthClientEntity,
   AuditLogEntity,
   PaymentIdempotencyEntity,
+  TransactionOwnershipEntity,
   TransactionStatusEntity,
 ];

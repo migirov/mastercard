@@ -22,6 +22,7 @@ import { RfiController } from './rfi/controllers/rfi.controller';
 import { RfiService } from './rfi/services/rfi.service';
 import { PaymentIdempotencyEntity } from './payments/entities/payment-idempotency.entity';
 import { PaymentIdempotencyStore } from './payments/services/payment-idempotency.store';
+import { TransactionOwnershipModule } from './common/ownership/transaction-ownership.module';
 
 /**
  * Cross-Border API. Split by API area (issue #16): one controller + service per
@@ -40,6 +41,9 @@ import { PaymentIdempotencyStore } from './payments/services/payment-idempotency
     // Payment idempotency — the source of truth is Postgres (`payment_idempotency`),
     // not a separate KV layer.
     TypeOrmModule.forFeature([PaymentIdempotencyEntity]),
+    // The resource→tenant binding that authorizes PLATFORM sub-merchants. Its own module
+    // because WebhooksModule needs it too (to corroborate an inbound push's partnerId).
+    TransactionOwnershipModule,
   ],
   // PaymentIdempotencyStore — a private provider (the only consumer is PaymentsService).
   providers: [

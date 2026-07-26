@@ -109,6 +109,23 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(r.status).toBe(201);
   }
 
+  /**
+   * Same ownership rule for the quote lifecycle, claimed one step earlier: confirm/cancel/
+   * retrieve happen BEFORE any payment exists, so `createQuote` is the claim point. A
+   * PLATFORM tenant may only act on a quote whose reference it created — otherwise the
+   * shared MC partner account would let it act on a peer's quote.
+   */
+  async function claimQuoteAsPlatform(ref: string): Promise<void> {
+    stubMc.shouldThrow = false;
+    stubMc.next = { status: 200, data: { ok: true } };
+    const r = await http.post(
+      '/crossborder/quotes',
+      { quoterequest: { transaction_reference: ref } },
+      { headers: internal },
+    );
+    expect(r.status).toBe(200);
+  }
+
   // --- response-mapping branches (the live suite cannot reach them) ---
 
   it('MC 2xx → data to the merchant as-is', async () => {
@@ -200,6 +217,10 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
   });
 
   it('POST /crossborder/quotes/cancellations → MC 2xx is forwarded', async () => {
+    // Claim first: a PLATFORM tenant may only cancel a quote it created. Before the
+    // ownership gate existed this passed WITHOUT the claim — i.e. it asserted exactly the
+    // cross-tenant access the gate now blocks.
+    await claimQuoteAsPlatform('TX1');
     stubMc.next = { status: 200, data: { status: 'CANCELLED' } };
     const r = await http.post(
       '/crossborder/quotes/cancellations',
@@ -214,6 +235,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
   });
 
   it('GET /crossborder/quotes/:ref/proposals/:id (Retrieve Confirmed Quote) → MC 2xx is forwarded', async () => {
+    await claimQuoteAsPlatform('TX1');
     stubMc.next = {
       status: 200,
       data: { confirmStatus: { status: 'CONFIRMED' } },
@@ -226,6 +248,62 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
     expect(stubMc.request.mock.calls.at(-1)?.[1].path).toContain(
       '/crossborder/quotes/TX1/proposals/pen_1',
     );
+  });
+
+  describe('ownership gating — a PLATFORM tenant cannot act on a peer transaction', () => {
+    it('quote cancellation for an unclaimed reference → 404, MC is NOT called', async () => {
+      const before = stubMc.request.mock.calls.length;
+      const r = await http.post(
+        '/crossborder/quotes/cancellations',
+        { transactionReference: `NEVER_${Date.now()}`, proposalId: 'pen_1' },
+        { headers: internal },
+      );
+      expect(r.status).toBe(404);
+      expect(stubMc.request.mock.calls.length).toBe(before);
+    });
+
+    it('retrieve confirmed quote for an unclaimed reference → 404, MC is NOT called', async () => {
+      const before = stubMc.request.mock.calls.length;
+      const r = await http.get(
+        `/crossborder/quotes/NEVER_${Date.now()}/proposals/pen_1`,
+        { headers: internal },
+      );
+      expect(r.status).toBe(404);
+      expect(stubMc.request.mock.calls.length).toBe(before);
+    });
+
+    it('payment lookup by an unclaimed reference → 404, MC is NOT called', async () => {
+      const before = stubMc.request.mock.calls.length;
+      const r = await http.get(`/crossborder/payments?ref=NEVER_${Date.now()}`, {
+        headers: internal,
+      });
+      expect(r.status).toBe(404);
+      expect(stubMc.request.mock.calls.length).toBe(before);
+    });
+
+    it('payment lookup by a foreign MC payment id → 404, MC is NOT called', async () => {
+      const before = stubMc.request.mock.calls.length;
+      const r = await http.get(`/crossborder/payments/rem_foreign_${Date.now()}`, {
+        headers: internal,
+      });
+      expect(r.status).toBe(404);
+      expect(stubMc.request.mock.calls.length).toBe(before);
+    });
+
+    // The DTO cannot reject this: MC-bound routes use the Passthrough pipe
+    // (skipMissingProperties: true), so an ABSENT property is never validated. The gate is
+    // what actually enforces presence — it fails closed rather than falling through, which
+    // is the whole point of not relying on the DTO for a security decision.
+    it('confirmation without a transactionReference → 404 (gate fails closed), MC is NOT called', async () => {
+      const before = stubMc.request.mock.calls.length;
+      const r = await http.post(
+        '/crossborder/quotes/confirmations',
+        { proposalId: 'pen_1' },
+        { headers: internal },
+      );
+      expect(r.status).toBe(404);
+      expect(stubMc.request.mock.calls.length).toBe(before);
+    });
   });
 
   it('POST /crossborder/payments — idempotency by transaction_reference (Postgres, no KV)', async () => {

@@ -155,15 +155,24 @@ export class PaymentIdempotencyStore {
   }
 
   /**
-   * True if THIS tenant has an idempotency record for the key — i.e. it actually initiated
-   * the payment behind that `transaction_reference`. Used to authorize a PLATFORM tenant's
-   * read of a shared-pool status event: pool events are keyed only by transaction_reference
-   * (a client-chosen, guessable string), so a PLATFORM tenant may read one ONLY for a
-   * transaction it owns, proven by the same `(tenantId, idemKey)` record the payment write
-   * already enforces — not by guessing the reference.
+   * True if THIS tenant COMPLETED a payment for the key — i.e. it actually initiated the
+   * payment behind that `transaction_reference`. Used to authorize a PLATFORM tenant's read
+   * of a shared-pool status event: pool events are keyed only by transaction_reference (a
+   * client-chosen, guessable string), so a PLATFORM tenant may read one ONLY for a
+   * transaction it owns.
+   *
+   * `done: true` is load-bearing and must not be relaxed. `acquire()` INSERTs the row BEFORE
+   * the Mastercard call (it is the in-flight lock), and `release()` runs only after that call
+   * returns — and deliberately not at all on a 5xx/timeout, where the payment may have
+   * executed. Counting any row would therefore let a tenant forge ownership of an arbitrary
+   * reference simply by POSTing a payment with it and reading the pool during the ~30s window,
+   * or permanently if the upstream 5xx'd. Only a `done=true` row proves the payment completed
+   * under this tenant.
    */
   async ownsKey(tenantId: string, key: string): Promise<boolean> {
-    const count = await this.repo.count({ where: { tenantId, idemKey: key } });
+    const count = await this.repo.count({
+      where: { tenantId, idemKey: key, done: true },
+    });
     return count > 0;
   }
 }

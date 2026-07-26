@@ -1,3 +1,4 @@
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CredentialsService } from '../../../credentials/services/credentials.service';
 import { McCredentials } from '../../../credentials/credentials.types';
 import {
@@ -9,6 +10,7 @@ import { Tenant } from '../../../tenants/tenant.types';
 import { sha256hex } from '../../../common/utils/crypto.util';
 import { TransactionStatusStore } from '../../../webhooks/services/transaction-status.store';
 import { CrossBorderGateway } from '../../common/gateway/cross-border.gateway';
+import { TransactionOwnership } from '../../common/ownership/transaction-ownership.service';
 import { PaymentIdempotencyStore } from './payment-idempotency.store';
 import { PaymentsService } from './payments.service';
 
@@ -22,11 +24,16 @@ const activeTenant = {
   suspended: false,
 } as unknown as Tenant;
 
-function make() {
+function make(opts?: { tenant?: Tenant; owns?: boolean }) {
   const client = {
-    request: jest.fn(async () => ({ status: 200, data: { ok: true } })),
+    request: jest.fn(
+      async (): Promise<{ status: number; data: unknown }> => ({
+        status: 200,
+        data: { ok: true },
+      }),
+    ),
   };
-  const registry = { get: jest.fn(async () => activeTenant) };
+  const registry = { get: jest.fn(async () => opts?.tenant ?? activeTenant) };
   const credentials = { resolve: jest.fn(async () => creds) };
   const idempotency = {
     run: jest.fn(
@@ -36,6 +43,19 @@ function make() {
     ownsKey: jest.fn(async () => true),
   };
   const statusEvents = { findForTenant: jest.fn(async () => []) };
+  const owns = opts?.owns ?? true;
+  const ownership = {
+    refHash: jest.fn((ref: string) => sha256hex(ref)),
+    hasClaim: jest.fn(async () => owns),
+    claim: jest.fn(async () => undefined),
+    recordPayment: jest.fn(async () => undefined),
+    assertOwnsRef: jest.fn(async () => {
+      if (!owns) throw new NotFoundException();
+    }),
+    assertOwnsPaymentId: jest.fn(async () => {
+      if (!owns) throw new NotFoundException();
+    }),
+  };
   const gw = new CrossBorderGateway(
     registry as unknown as TenantRegistry,
     credentials as unknown as CredentialsService,
@@ -45,8 +65,9 @@ function make() {
     gw,
     idempotency as unknown as PaymentIdempotencyStore,
     statusEvents as unknown as TransactionStatusStore,
+    ownership as unknown as TransactionOwnership,
   );
-  return { svc, client, idempotency, statusEvents };
+  return { svc, client, idempotency, statusEvents, ownership };
 }
 
 const reqOf = (client: { request: jest.Mock }): McRequest =>
@@ -138,11 +159,53 @@ describe('PaymentsService — path & idempotency', () => {
   });
 });
 
+describe('PaymentsService — ownership gating (PLATFORM tenants share one MC partner)', () => {
+  // Without a claim these are exactly the cross-tenant reads/cancels F2 describes: the id or
+  // ref alone resolves to the shared partner account, so MC would answer for a peer.
+  it.each([
+    ['getPaymentByRef', (s: PaymentsService) => s.getPaymentByRef('acme', 'R')],
+    ['getPayment', (s: PaymentsService) => s.getPayment('acme', 'rem_x')],
+    ['cancelPayment', (s: PaymentsService) => s.cancelPayment('acme', 'rem_x')],
+  ])('%s without a claim → rejected, MC is NOT called', async (_n, call) => {
+    const { svc, client } = make({ owns: false });
+    await expect(call(svc)).rejects.toBeInstanceOf(NotFoundException);
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('createPayment records ownership with the extracted MC payment id', async () => {
+    const { svc, client, ownership } = make();
+    client.request.mockResolvedValue({
+      status: 201,
+      data: { payment: { id: 'rem_abc' } },
+    });
+    await svc.createPayment('acme', {
+      paymentrequest: { transaction_reference: 'TX' },
+    } as never);
+    expect(ownership.recordPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'acme' }),
+      'TX',
+      'rem_abc',
+    );
+  });
+
+  it('createPayment still succeeds when ownership bookkeeping fails', async () => {
+    const { svc, ownership } = make();
+    ownership.recordPayment.mockRejectedValue(new Error('db down'));
+    await expect(
+      svc.createPayment('acme', {
+        paymentrequest: { transaction_reference: 'TX' },
+      } as never),
+    ).resolves.toEqual({ ok: true });
+  });
+});
+
 describe('PaymentsService — status events (local read)', () => {
-  const ownTenant = { id: 'own-1', credentialMode: 'OWN' } as unknown as Tenant;
-  const platformTenant = {
-    id: 'acme',
-    credentialMode: 'PLATFORM',
+  const ownTenant = {
+    id: 'own-1',
+    credentialMode: 'OWN',
+    platformApproved: true,
+    mcApproved: true,
+    suspended: false,
   } as unknown as Tenant;
 
   it('OWN → findForTenant(id, ref, includePool=false); maps to view (no id/tenantId); MC is not called', async () => {
@@ -159,16 +222,18 @@ describe('PaymentsService — status events (local read)', () => {
         payload: { a: 1 },
       },
     ];
-    const { svc, statusEvents, client, idempotency } = make();
+    const { svc, statusEvents, client, ownership } = make({
+      tenant: ownTenant,
+    });
     (statusEvents.findForTenant as jest.Mock).mockResolvedValue(rows);
-    const out = await svc.getStatusEvents(ownTenant, 'TX1');
+    const out = await svc.getStatusEvents('own-1', 'TX1');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'own-1',
       'TX1',
       false,
     );
     // OWN never reads the pool — no ownership check needed.
-    expect(idempotency.ownsKey).not.toHaveBeenCalled();
+    expect(ownership.hasClaim).not.toHaveBeenCalled();
     expect(out).toEqual([
       {
         transactionReference: 'TX1',
@@ -183,14 +248,10 @@ describe('PaymentsService — status events (local read)', () => {
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it('PLATFORM + owns the payment → includePool=true (reads the shared null pool)', async () => {
-    const { svc, statusEvents, idempotency } = make();
-    idempotency.ownsKey.mockResolvedValue(true);
-    await svc.getStatusEvents(platformTenant, 'TX2');
-    expect(idempotency.ownsKey).toHaveBeenCalledWith(
-      'acme',
-      `txref:${sha256hex('TX2')}`,
-    );
+  it('PLATFORM + owns the transaction → includePool=true (reads the shared null pool)', async () => {
+    const { svc, statusEvents, ownership } = make({ owns: true });
+    await svc.getStatusEvents('acme', 'TX2');
+    expect(ownership.hasClaim).toHaveBeenCalledWith('acme', 'TX2');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'acme',
       'TX2',
@@ -199,13 +260,37 @@ describe('PaymentsService — status events (local read)', () => {
   });
 
   it('PLATFORM + does NOT own the ref → includePool=false (no cross-tenant pool read)', async () => {
-    const { svc, statusEvents, idempotency } = make();
-    idempotency.ownsKey.mockResolvedValue(false);
-    await svc.getStatusEvents(platformTenant, 'TX2');
+    const { svc, statusEvents } = make({ owns: false });
+    await svc.getStatusEvents('acme', 'TX2');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'acme',
       'TX2',
       false,
     );
+  });
+
+  // F12a: this is the one crossborder route that never reaches the gateway's own gate,
+  // so a suspended tenant would otherwise keep reading until its 15-minute JWT expired.
+  it('a SUSPENDED tenant is refused (the route re-reads the tenant, not the auth snapshot)', async () => {
+    const suspended = { ...ownTenant, suspended: true } as Tenant;
+    const { svc, statusEvents } = make({ tenant: suspended });
+    await expect(svc.getStatusEvents('own-1', 'TX1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(statusEvents.findForTenant).not.toHaveBeenCalled();
+  });
+
+  // Reading one's own history is not transacting. A tenant awaiting dual approval is blocked
+  // from every MC-bound route by resolveActive, but must not lose sight of transactions it
+  // already made — so this route checks suspension only, not full activeness.
+  it('a PENDING (not yet dual-approved) tenant may still read its own history', async () => {
+    const pending = {
+      ...ownTenant,
+      platformApproved: false,
+      mcApproved: false,
+    } as Tenant;
+    const { svc, statusEvents } = make({ tenant: pending });
+    await expect(svc.getStatusEvents('own-1', 'TX1')).resolves.toEqual([]);
+    expect(statusEvents.findForTenant).toHaveBeenCalled();
   });
 });
