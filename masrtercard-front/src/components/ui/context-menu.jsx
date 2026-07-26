@@ -16,6 +16,7 @@ const ContextMenuSub = ContextMenuPrimitive.Sub
 
 const ContextMenuRadioGroup = ContextMenuPrimitive.RadioGroup
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuSubTrigger = React.forwardRef(({ className, inset, children, ...props }, ref) => (
   <ContextMenuPrimitive.SubTrigger
     ref={ref}
@@ -31,6 +32,7 @@ const ContextMenuSubTrigger = React.forwardRef(({ className, inset, children, ..
 ))
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuSubContent = React.forwardRef(({ className, ...props }, ref) => (
   <ContextMenuPrimitive.SubContent
     ref={ref}
@@ -42,6 +44,7 @@ const ContextMenuSubContent = React.forwardRef(({ className, ...props }, ref) =>
 ))
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuContent = React.forwardRef(({ className, ...props }, ref) => (
   <ContextMenuPrimitive.Portal>
     <ContextMenuPrimitive.Content
@@ -55,6 +58,7 @@ const ContextMenuContent = React.forwardRef(({ className, ...props }, ref) => (
 ))
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuItem = React.forwardRef(({ className, inset, ...props }, ref) => (
   <ContextMenuPrimitive.Item
     ref={ref}
@@ -67,6 +71,7 @@ const ContextMenuItem = React.forwardRef(({ className, inset, ...props }, ref) =
 ))
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuCheckboxItem = React.forwardRef(({ className, children, checked, ...props }, ref) => (
   <ContextMenuPrimitive.CheckboxItem
     ref={ref}
@@ -87,6 +92,7 @@ const ContextMenuCheckboxItem = React.forwardRef(({ className, children, checked
 ContextMenuCheckboxItem.displayName =
   ContextMenuPrimitive.CheckboxItem.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuRadioItem = React.forwardRef(({ className, children, ...props }, ref) => (
   <ContextMenuPrimitive.RadioItem
     ref={ref}
@@ -105,6 +111,7 @@ const ContextMenuRadioItem = React.forwardRef(({ className, children, ...props }
 ))
 ContextMenuRadioItem.displayName = ContextMenuPrimitive.RadioItem.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuLabel = React.forwardRef(({ className, inset, ...props }, ref) => (
   <ContextMenuPrimitive.Label
     ref={ref}
@@ -117,6 +124,7 @@ const ContextMenuLabel = React.forwardRef(({ className, inset, ...props }, ref) 
 ))
 ContextMenuLabel.displayName = ContextMenuPrimitive.Label.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const ContextMenuSeparator = React.forwardRef(({ className, ...props }, ref) => (
   <ContextMenuPrimitive.Separator
     ref={ref}

@@ -23,6 +23,11 @@ const badgeVariants = cva(
   }
 )
 
+/**
+ * `variant` is optional at runtime — `badgeVariants` supplies `default`. Without this the
+ * destructured params infer as *required*, so every `<Badge>` without a variant is an error.
+ * @param {any} props
+ */
 function Badge({
   className,
   variant,

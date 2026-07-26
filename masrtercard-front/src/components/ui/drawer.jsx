@@ -19,6 +19,7 @@ const DrawerPortal = DrawerPrimitive.Portal
 
 const DrawerClose = DrawerPrimitive.Close
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const DrawerOverlay = React.forwardRef(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
@@ -27,6 +28,7 @@ const DrawerOverlay = React.forwardRef(({ className, ...props }, ref) => (
 ))
 DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const DrawerContent = React.forwardRef(({ className, children, ...props }, ref) => (
   <DrawerPortal>
     <DrawerOverlay />
@@ -62,6 +64,7 @@ const DrawerFooter = ({
 )
 DrawerFooter.displayName = "DrawerFooter"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const DrawerTitle = React.forwardRef(({ className, ...props }, ref) => (
   <DrawerPrimitive.Title
     ref={ref}
@@ -70,6 +73,7 @@ const DrawerTitle = React.forwardRef(({ className, ...props }, ref) => (
 ))
 DrawerTitle.displayName = DrawerPrimitive.Title.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const DrawerDescription = React.forwardRef(({ className, ...props }, ref) => (
   <DrawerPrimitive.Description
     ref={ref}

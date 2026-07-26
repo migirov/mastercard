@@ -26,6 +26,7 @@ const toggleVariants = cva(
   }
 )
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const Toggle = React.forwardRef(({ className, variant, size, ...props }, ref) => (
   <TogglePrimitive.Root
     ref={ref}

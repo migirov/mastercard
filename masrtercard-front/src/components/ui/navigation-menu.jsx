@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenu = React.forwardRef(({ className, children, ...props }, ref) => (
   <NavigationMenuPrimitive.Root
     ref={ref}
@@ -19,6 +20,7 @@ const NavigationMenu = React.forwardRef(({ className, children, ...props }, ref)
 ))
 NavigationMenu.displayName = NavigationMenuPrimitive.Root.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenuList = React.forwardRef(({ className, ...props }, ref) => (
   <NavigationMenuPrimitive.List
     ref={ref}
@@ -36,6 +38,7 @@ const navigationMenuTriggerStyle = cva(
   "group inline-flex h-9 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none disabled:pointer-events-none disabled:opacity-50 data-[active]:bg-accent/50 data-[state=open]:bg-accent/50"
 )
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenuTrigger = React.forwardRef(({ className, children, ...props }, ref) => (
   <NavigationMenuPrimitive.Trigger
     ref={ref}
@@ -49,6 +52,7 @@ const NavigationMenuTrigger = React.forwardRef(({ className, children, ...props 
 ))
 NavigationMenuTrigger.displayName = NavigationMenuPrimitive.Trigger.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenuContent = React.forwardRef(({ className, ...props }, ref) => (
   <NavigationMenuPrimitive.Content
     ref={ref}
@@ -62,6 +66,7 @@ NavigationMenuContent.displayName = NavigationMenuPrimitive.Content.displayName
 
 const NavigationMenuLink = NavigationMenuPrimitive.Link
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenuViewport = React.forwardRef(({ className, ...props }, ref) => (
   <div className={cn("absolute left-0 top-full flex justify-center")}>
     <NavigationMenuPrimitive.Viewport
@@ -76,6 +81,7 @@ const NavigationMenuViewport = React.forwardRef(({ className, ...props }, ref) =
 NavigationMenuViewport.displayName =
   NavigationMenuPrimitive.Viewport.displayName
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const NavigationMenuIndicator = React.forwardRef(({ className, ...props }, ref) => (
   <NavigationMenuPrimitive.Indicator
     ref={ref}

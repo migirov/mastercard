@@ -11,6 +11,7 @@ const Tooltip = TooltipPrimitive.Root
 
 const TooltipTrigger = TooltipPrimitive.Trigger
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const TooltipContent = React.forwardRef(({ className, sideOffset = 4, ...props }, ref) => (
   <TooltipPrimitive.Portal>
     <TooltipPrimitive.Content

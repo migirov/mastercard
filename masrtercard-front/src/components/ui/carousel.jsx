@@ -17,6 +17,7 @@ function useCarousel() {
   return context
 }
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const Carousel = React.forwardRef((
   {
     orientation = "horizontal",
@@ -112,6 +113,7 @@ const Carousel = React.forwardRef((
 })
 Carousel.displayName = "Carousel"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const CarouselContent = React.forwardRef(({ className, ...props }, ref) => {
   const { carouselRef, orientation } = useCarousel()
 
@@ -130,6 +132,7 @@ const CarouselContent = React.forwardRef(({ className, ...props }, ref) => {
 })
 CarouselContent.displayName = "CarouselContent"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const CarouselItem = React.forwardRef(({ className, ...props }, ref) => {
   const { orientation } = useCarousel()
 
@@ -148,6 +151,7 @@ const CarouselItem = React.forwardRef(({ className, ...props }, ref) => {
 })
 CarouselItem.displayName = "CarouselItem"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const CarouselPrevious = React.forwardRef(({ className, variant = "outline", size = "icon", ...props }, ref) => {
   const { orientation, scrollPrev, canScrollPrev } = useCarousel()
 
@@ -169,6 +173,7 @@ const CarouselPrevious = React.forwardRef(({ className, variant = "outline", siz
 })
 CarouselPrevious.displayName = "CarouselPrevious"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const CarouselNext = React.forwardRef(({ className, variant = "outline", size = "icon", ...props }, ref) => {
   const { orientation, scrollNext, canScrollNext } = useCarousel()
 

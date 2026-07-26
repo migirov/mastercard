@@ -16,6 +16,7 @@ const Pagination = ({
 )
 Pagination.displayName = "Pagination"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const PaginationContent = React.forwardRef(({ className, ...props }, ref) => (
   <ul
     ref={ref}
@@ -24,6 +25,7 @@ const PaginationContent = React.forwardRef(({ className, ...props }, ref) => (
 ))
 PaginationContent.displayName = "PaginationContent"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const PaginationItem = React.forwardRef(({ className, ...props }, ref) => (
   <li ref={ref} className={cn("", className)} {...props} />
 ))

@@ -32,6 +32,12 @@ function entityClient(name) {
 }
 
 // A Proxy so `api.entities.Invoice` and dynamic `api.entities[name]` both resolve.
+/**
+ * Every string key resolves to a client, so the accurate type is an index signature — without
+ * it the target `{}` is what TS sees, and each `api.entities.Invoice` is an error whose fallout
+ * spreads into any `useMutation` built on top of it.
+ * @type {Record<string, ReturnType<typeof entityClient>>}
+ */
 const entities = new Proxy(
   {},
   { get: (_t, name) => (typeof name === 'string' ? entityClient(name) : undefined) },
@@ -61,6 +67,7 @@ const integrations = {
       });
       return r?.response ?? r;
     },
+    /** @param {any} args */
     UploadFile: async ({ file } = {}) => {
       const form = new FormData();
       if (file) form.append('file', file);

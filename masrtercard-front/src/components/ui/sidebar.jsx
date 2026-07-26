@@ -35,6 +35,7 @@ function useSidebar() {
   return context
 }
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarProvider = React.forwardRef((
   {
     defaultOpen = true,
@@ -128,6 +129,7 @@ const SidebarProvider = React.forwardRef((
 })
 SidebarProvider.displayName = "SidebarProvider"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const Sidebar = React.forwardRef((
   {
     side = "left",
@@ -216,6 +218,7 @@ const Sidebar = React.forwardRef((
 })
 Sidebar.displayName = "Sidebar"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarTrigger = React.forwardRef(({ className, onClick, asChild = false, ...props }, ref) => {
   const { toggleSidebar } = useSidebar()
 
@@ -245,6 +248,7 @@ const SidebarTrigger = React.forwardRef(({ className, onClick, asChild = false, 
 })
 SidebarTrigger.displayName = "SidebarTrigger"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarRail = React.forwardRef(({ className, ...props }, ref) => {
   const { toggleSidebar } = useSidebar()
 
@@ -270,6 +274,7 @@ const SidebarRail = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarRail.displayName = "SidebarRail"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarInset = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<main
@@ -284,6 +289,7 @@ const SidebarInset = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarInset.displayName = "SidebarInset"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarInput = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<Input
@@ -298,6 +304,7 @@ const SidebarInput = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarInput.displayName = "SidebarInput"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarHeader = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<div
@@ -309,6 +316,7 @@ const SidebarHeader = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarHeader.displayName = "SidebarHeader"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarFooter = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<div
@@ -320,6 +328,7 @@ const SidebarFooter = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarFooter.displayName = "SidebarFooter"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarSeparator = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<Separator
@@ -331,6 +340,7 @@ const SidebarSeparator = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarSeparator.displayName = "SidebarSeparator"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarContent = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<div
@@ -345,6 +355,7 @@ const SidebarContent = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarContent.displayName = "SidebarContent"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarGroup = React.forwardRef(({ className, ...props }, ref) => {
   return (
     (<div
@@ -356,6 +367,7 @@ const SidebarGroup = React.forwardRef(({ className, ...props }, ref) => {
 })
 SidebarGroup.displayName = "SidebarGroup"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarGroupLabel = React.forwardRef(({ className, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "div"
 
@@ -373,6 +385,7 @@ const SidebarGroupLabel = React.forwardRef(({ className, asChild = false, ...pro
 })
 SidebarGroupLabel.displayName = "SidebarGroupLabel"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarGroupAction = React.forwardRef(({ className, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "button"
 
@@ -392,6 +405,7 @@ const SidebarGroupAction = React.forwardRef(({ className, asChild = false, ...pr
 })
 SidebarGroupAction.displayName = "SidebarGroupAction"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarGroupContent = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -401,6 +415,7 @@ const SidebarGroupContent = React.forwardRef(({ className, ...props }, ref) => (
 ))
 SidebarGroupContent.displayName = "SidebarGroupContent"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenu = React.forwardRef(({ className, ...props }, ref) => (
   <ul
     ref={ref}
@@ -410,6 +425,7 @@ const SidebarMenu = React.forwardRef(({ className, ...props }, ref) => (
 ))
 SidebarMenu.displayName = "SidebarMenu"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuItem = React.forwardRef(({ className, ...props }, ref) => (
   <li
     ref={ref}
@@ -441,6 +457,7 @@ const sidebarMenuButtonVariants = cva(
   }
 )
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuButton = React.forwardRef((
   {
     asChild = false,
@@ -489,6 +506,7 @@ const SidebarMenuButton = React.forwardRef((
 })
 SidebarMenuButton.displayName = "SidebarMenuButton"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuAction = React.forwardRef(({ className, asChild = false, showOnHover = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "button"
 
@@ -513,6 +531,7 @@ const SidebarMenuAction = React.forwardRef(({ className, asChild = false, showOn
 })
 SidebarMenuAction.displayName = "SidebarMenuAction"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuBadge = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
@@ -530,6 +549,7 @@ const SidebarMenuBadge = React.forwardRef(({ className, ...props }, ref) => (
 ))
 SidebarMenuBadge.displayName = "SidebarMenuBadge"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuSkeleton = React.forwardRef(({ className, showIcon = false, ...props }, ref) => {
   // Random width between 50 to 90%.
   const width = React.useMemo(() => {
@@ -558,6 +578,7 @@ const SidebarMenuSkeleton = React.forwardRef(({ className, showIcon = false, ...
 })
 SidebarMenuSkeleton.displayName = "SidebarMenuSkeleton"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuSub = React.forwardRef(({ className, ...props }, ref) => (
   <ul
     ref={ref}
@@ -571,9 +592,11 @@ const SidebarMenuSub = React.forwardRef(({ className, ...props }, ref) => (
 ))
 SidebarMenuSub.displayName = "SidebarMenuSub"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuSubItem = React.forwardRef(({ ...props }, ref) => <li ref={ref} {...props} />)
 SidebarMenuSubItem.displayName = "SidebarMenuSubItem"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const SidebarMenuSubButton = React.forwardRef(
   ({ asChild = false, size = "md", isActive, className, ...props }, ref) => {
     const Comp = asChild ? Slot : "a"

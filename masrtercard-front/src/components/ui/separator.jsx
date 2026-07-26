@@ -3,6 +3,7 @@ import * as SeparatorPrimitive from "@radix-ui/react-separator"
 
 import { cn } from "@/lib/utils"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const Separator = React.forwardRef((
   { className, orientation = "horizontal", decorative = true, ...props },
   ref

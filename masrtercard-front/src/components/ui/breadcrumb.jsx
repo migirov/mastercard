@@ -4,11 +4,13 @@ import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const Breadcrumb = React.forwardRef(
   ({ ...props }, ref) => <nav ref={ref} aria-label="breadcrumb" {...props} />
 )
 Breadcrumb.displayName = "Breadcrumb"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const BreadcrumbList = React.forwardRef(({ className, ...props }, ref) => (
   <ol
     ref={ref}
@@ -20,6 +22,7 @@ const BreadcrumbList = React.forwardRef(({ className, ...props }, ref) => (
 ))
 BreadcrumbList.displayName = "BreadcrumbList"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const BreadcrumbItem = React.forwardRef(({ className, ...props }, ref) => (
   <li
     ref={ref}
@@ -28,6 +31,7 @@ const BreadcrumbItem = React.forwardRef(({ className, ...props }, ref) => (
 ))
 BreadcrumbItem.displayName = "BreadcrumbItem"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const BreadcrumbLink = React.forwardRef(({ asChild, className, ...props }, ref) => {
   const Comp = asChild ? Slot : "a"
 
@@ -40,6 +44,7 @@ const BreadcrumbLink = React.forwardRef(({ asChild, className, ...props }, ref) 
 })
 BreadcrumbLink.displayName = "BreadcrumbLink"
 
+/** Props pass through to the underlying element; plain-JSX `forwardRef` infers none. @type {React.ForwardRefExoticComponent<any>} */
 const BreadcrumbPage = React.forwardRef(({ className, ...props }, ref) => (
   <span
     ref={ref}
