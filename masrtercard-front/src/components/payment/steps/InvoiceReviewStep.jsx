@@ -6,9 +6,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { safeHttpUrl } from '@/lib/utils';
-import { COUNTRIES, countryFromAccount } from '@/lib/countries';
-import { AlertTriangle, FileText, Shield, TrendingUp, ArrowRight, Info, Wallet, SendHorizonal } from 'lucide-react';
+import { COUNTRIES, countryFromAccount, countryName } from '@/lib/countries';
+import { AlertTriangle, FileText, Shield, TrendingUp, ArrowRight, Info, Wallet, SendHorizonal, Check, ChevronsUpDown } from 'lucide-react';
 
 const currencySymbols = { ILS: '₪', USD: '$', EUR: '€' };
 
@@ -155,11 +157,22 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
   // Follow the IBAN while the operator edits it, but never overwrite a country they picked
   // by hand -- that choice is the whole point of the control.
   const [countryTouched, setCountryTouched] = useState(false);
+  const [countryOpen, setCountryOpen] = useState(false);
   useEffect(() => {
     if (countryTouched) return;
     const guess = countryFromAccount(inv.beneficiary_account);
     if (guess) setAddressCountry(guess);
   }, [inv.beneficiary_account, countryTouched]);
+
+  /** Apply an operator-chosen country and drop the now-stale verdict. */
+  const pickCountry = (alpha3) => {
+    setCountryTouched(true);
+    setAddressCountry(alpha3);
+    setCountryOpen(false);
+    // The previous result answered a different question ("is this a valid address in X?"),
+    // so leaving the badge up would attach an old verdict to a new country.
+    patch({ address_validated: false, address_source: null, address_check: null });
+  };
 
   // Functional update (like the async quote/validation handlers) so a synchronous field edit
   // never clobbers an in-flight quote/validation result that resolved a moment earlier.
@@ -394,30 +407,51 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
             )}
           </div>
           {/* Visible and editable on purpose: Mastercard grades the address against this
-              country, so the operator has to be able to see and correct what it was. */}
+              country, so the operator has to be able to see and correct what it was.
+              Searchable rather than a plain list — 249 entries is not something to scroll. */}
           <div className="flex items-center gap-2 mt-2">
             <Label className="text-[11px] text-muted-foreground shrink-0">Address country</Label>
-            <Select
-              value={addressCountry}
-              onValueChange={(v) => {
-                setCountryTouched(true);
-                setAddressCountry(v);
-                // The previous verdict was about a different country — drop it rather than
-                // leave a stale badge next to a changed question.
-                patch({ address_validated: false, address_source: null, address_check: null });
-              }}
-            >
-              <SelectTrigger className="h-8 text-xs w-[240px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                {COUNTRIES.map((c) => (
-                  <SelectItem key={c.alpha3} value={c.alpha3} className="text-xs">
-                    {c.name} ({c.alpha3})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={countryOpen}
+                  className="h-8 w-[240px] justify-between text-xs font-normal"
+                >
+                  {countryName(addressCountry)} ({addressCountry})
+                  <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[240px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search country…" className="h-9 text-xs" />
+                  <CommandList>
+                    <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                      No country found.
+                    </CommandEmpty>
+                    <CommandGroup>
+                      {COUNTRIES.map((c) => (
+                        <CommandItem
+                          key={c.alpha3}
+                          // Searchable by name, by the alpha-3 Mastercard wants, and by the
+                          // alpha-2 an operator reads off the front of the IBAN.
+                          value={`${c.name} ${c.alpha3} ${c.alpha2}`}
+                          onSelect={() => pickCountry(c.alpha3)}
+                          className="text-xs"
+                        >
+                          <Check
+                            className={`mr-2 h-3 w-3 ${c.alpha3 === addressCountry ? 'opacity-100' : 'opacity-0'}`}
+                          />
+                          {c.name}
+                          <span className="ml-1 text-muted-foreground">({c.alpha3})</span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           {!inv.beneficiary_address && (
             <p className="text-[11px] text-orange-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Required field</p>
