@@ -15,9 +15,34 @@ export interface AccountValidationResponse {
 }
 
 export interface AddressValidationResponse {
+  /**
+   * `true` only when something actually confirmed the address. Always `false` when
+   * `checked` is false — a consumer that reads nothing but this field must not be misled
+   * into treating "we could not check" as "this is fine".
+   */
   valid: boolean;
+  /**
+   * Whether an address check ran at all. An address, unlike an IBAN, has no offline test:
+   * there is no checksum, and "the string is not empty" proves nothing. So when the live
+   * service is unavailable the honest answer is `checked: false`, not a verdict.
+   */
+  checked: boolean;
+  /**
+   * The country the check ran against. Reported because it is not always the one the caller
+   * had in mind: an omitted country falls back to `DEFAULT_ADDRESS_COUNTRY`, and validating a
+   * Tel Aviv address against US address rules returns "invalid" for a reason nobody can see
+   * from the verdict alone.
+   */
+  country: string;
   source: Source;
 }
+
+/**
+ * Used when the caller sends no country. Mastercard requires one, so something must be
+ * chosen — but the choice is now reported back in the response instead of being applied
+ * silently. Callers should send the real country; the SPA derives it from the IBAN prefix.
+ */
+export const DEFAULT_ADDRESS_COUNTRY = 'USA';
 
 @Injectable()
 export class ValidationsService {
@@ -67,28 +92,41 @@ export class ValidationsService {
     return { valid: truthyValid(v), normalized, source: 'live' };
   }
 
+  /**
+   * Address validation. `live` → POST to the gateway; `demo` (or any live failure) → a
+   * NON-verdict, because there is nothing an offline check could honestly assert.
+   *
+   * The demo branch used to return `valid: req.address.trim().length > 0`, i.e. every
+   * non-empty string was a valid beneficiary address. That is the same fail-open the IBAN
+   * path had before it gained a checksum — except an address has no checksum to add, so the
+   * fix is to stop answering rather than to answer better.
+   *
+   * Worth knowing when reading a `demo` result on the Mastercard sandbox: the sandbox accepts
+   * `country: USA` only (anything else is a 400 on the `country` field), and within USA it
+   * verifies exactly one documented test address. So a real non-US address legitimately ends
+   * up here — unchecked, not invalid.
+   */
   async validateAddress(
     req: ValidateAddressDto,
   ): Promise<AddressValidationResponse> {
+    const country = (req.country || DEFAULT_ADDRESS_COUNTRY).toUpperCase();
     return liveOrDemo(
       this.cfg.mode('validation') === 'live',
-      () => this.tryLiveAddress(req),
-      () => ({ valid: req.address.trim().length > 0, source: 'demo' }),
+      () => this.tryLiveAddress(req.address, country),
+      () => ({ valid: false, checked: false, country, source: 'demo' }),
     );
   }
 
   /** MC address-validation (FLE), per the gateway's live e2e:
    *  `{ country, address }` → `{ status: 'VALID', verification: 'VERIFIED' }`. */
   private async tryLiveAddress(
-    req: ValidateAddressDto,
+    address: string,
+    country: string,
   ): Promise<AddressValidationResponse | undefined> {
     const res = await this.gw.call({
       method: 'POST',
       path: '/crossborder/address-validations',
-      body: {
-        country: (req.country ?? 'USA').toUpperCase(),
-        address: req.address,
-      },
+      body: { country, address },
     });
     if (!res.ok) return undefined;
     const v = firstDefined(res.data, [
@@ -98,7 +136,7 @@ export class ValidationsService {
       ['addressValidationResponse', 'verification'],
       ['valid'],
     ]);
-    return { valid: truthyValid(v), source: 'live' };
+    return { valid: truthyValid(v), checked: true, country, source: 'live' };
   }
 
   /**

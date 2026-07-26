@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { safeHttpUrl } from '@/lib/utils';
+import { COUNTRIES, countryFromAccount } from '@/lib/countries';
 import { AlertTriangle, FileText, Shield, TrendingUp, ArrowRight, Info, Wallet, SendHorizonal } from 'lucide-react';
 
 const currencySymbols = { ILS: '₪', USD: '$', EUR: '€' };
@@ -37,6 +38,9 @@ function calcFxRate(invoiceCurrency, paymentCurrency) {
  * fabricated fallback answer — or a network error, which used to set the flag to true — was
  * visually indistinguishable from a genuine confirmation.
  */
+/** Mirrors the BFF's DEFAULT_ADDRESS_COUNTRY — used only when the account is not an IBAN. */
+const DEFAULT_COUNTRY = 'USA';
+
 function CheckBadge({ check, source }) {
   if (!check) return null;
   const styles = {
@@ -46,11 +50,15 @@ function CheckBadge({ check, source }) {
         : 'bg-amber-50 text-amber-700 border-amber-200',
     failed: 'bg-red-50 text-red-700 border-red-200',
     error: 'bg-amber-50 text-amber-700 border-amber-200',
+    // Neutral, not red: "nobody checked this" is a different statement from "this is wrong",
+    // and colouring them alike would push operators to fix an address that is fine.
+    unchecked: 'bg-slate-100 text-slate-600 border-slate-200',
   };
   const labels = {
     ok: source === 'live' ? 'Validated · Mastercard' : 'Format check · Demo',
     failed: 'Not valid',
     error: 'Check unavailable',
+    unchecked: 'Not checked',
   };
   return (
     <Badge className={`text-[10px] ${styles[check]}`}>
@@ -134,6 +142,25 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
   const [quote, setQuote] = useState(null);
   const [busy, setBusy] = useState({ iban: false, address: false });
 
+  /**
+   * Country the address check runs against. Seeded from the IBAN prefix, which carries the
+   * account's ISO-3166 alpha-2 and is therefore a good guess -- but only a guess, so it is
+   * shown in an editable control. Deriving it silently was the original defect: the API
+   * substituted USA for everyone and reported an Israeli address as invalid.
+   */
+  const [addressCountry, setAddressCountry] = useState(
+    () => countryFromAccount(inv.beneficiary_account) || DEFAULT_COUNTRY,
+  );
+
+  // Follow the IBAN while the operator edits it, but never overwrite a country they picked
+  // by hand -- that choice is the whole point of the control.
+  const [countryTouched, setCountryTouched] = useState(false);
+  useEffect(() => {
+    if (countryTouched) return;
+    const guess = countryFromAccount(inv.beneficiary_account);
+    if (guess) setAddressCountry(guess);
+  }, [inv.beneficiary_account, countryTouched]);
+
   // Functional update (like the async quote/validation handlers) so a synchronous field edit
   // never clobbers an in-flight quote/validation result that resolved a moment earlier.
   const updateField = (field, value) => {
@@ -213,11 +240,21 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
   const validateAddress = async () => {
     setBusy((b) => ({ ...b, address: true }));
     try {
-      const r = await xbs.validateAddress({ address: inv.beneficiary_address });
+      // Send the country explicitly. Mastercard checks the address against that country's
+      // rules, and the API falls back to USA when none is given -- which quietly graded a Tel
+      // Aviv address as an American one and returned a confident "invalid".
+      const r = await xbs.validateAddress({
+        address: inv.beneficiary_address,
+        country: addressCountry,
+      });
       patch({
         address_validated: r?.valid === true,
         address_source: r?.source ?? null,
-        address_check: r?.valid === true ? 'ok' : 'failed',
+        // `checked: false` means no check ran at all -- distinct from one that ran and
+        // failed. Only the address response carries this; the IBAN path has an offline
+        // checksum and always reaches a verdict, so it falls through to ok/failed.
+        address_check:
+          r?.checked === false ? 'unchecked' : r?.valid === true ? 'ok' : 'failed',
       });
     } catch {
       patch({
@@ -355,6 +392,32 @@ function InvoiceCard({ inv, index, total, onUpdate, profile }) {
             {!inv.address_validated && inv.beneficiary_address && (
               <Button size="sm" variant="outline" onClick={validateAddress} disabled={busy.address} className="text-xs shrink-0">{busy.address ? 'Validating…' : 'Validate'}</Button>
             )}
+          </div>
+          {/* Visible and editable on purpose: Mastercard grades the address against this
+              country, so the operator has to be able to see and correct what it was. */}
+          <div className="flex items-center gap-2 mt-2">
+            <Label className="text-[11px] text-muted-foreground shrink-0">Address country</Label>
+            <Select
+              value={addressCountry}
+              onValueChange={(v) => {
+                setCountryTouched(true);
+                setAddressCountry(v);
+                // The previous verdict was about a different country — drop it rather than
+                // leave a stale badge next to a changed question.
+                patch({ address_validated: false, address_source: null, address_check: null });
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs w-[240px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {COUNTRIES.map((c) => (
+                  <SelectItem key={c.alpha3} value={c.alpha3} className="text-xs">
+                    {c.name} ({c.alpha3})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           {!inv.beneficiary_address && (
             <p className="text-[11px] text-orange-600 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Required field</p>

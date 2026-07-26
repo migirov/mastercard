@@ -70,10 +70,15 @@ Stop: `docker compose down` (keep data) or `docker compose down -v` (wipe data +
 3. **See a REAL Mastercard call** 👇
    - Tick **INV-1006 (Cedar Cloud Services, $5,600)** → click **"Pay now"** (top-right).
    - In the **Review** step, INV-1006 already has Mastercard's *documented sandbox* IBAN
-     (`FR07…`) and address.
-   - Click **"Validate"** next to the IBAN and next to the Address → the **Validated** badge
-     appears. **This is a real call to the Mastercard sandbox** through our gateway
-     (account/address validation returns a real `SUCCESS`/`VERIFIED`).
+     (`FR07…`) and its documented test address — **use this invoice**, it is the one the
+     sandbox actually verifies.
+   - Click **"Validate"** next to the IBAN and next to the Address → a green
+     **"Validated · Mastercard"** badge appears. **This is a real call to the Mastercard
+     sandbox** through our gateway (`SUCCESS` / `VALID`+`VERIFIED`).
+   - On any other invoice the address reads **"Not checked"** — that is correct, not a bug:
+     the sandbox rejects every country except `USA` and verifies only that one address. The
+     **Address country** selector next to the field shows which country was used (pre-filled
+     from the IBAN, editable). See [docs/en/test.md §1.1](docs/en/test.md).
 4. **FX quote** — change "Payment Currency" (e.g. to ILS/EUR). The **FX Quote** panel shows a
    rate with an **"Indicative · Demo"** badge (demo rate — see §5 why).
 5. **Funding + Submit + status** —
@@ -134,7 +139,7 @@ matches what the Mastercard *sandbox* actually supports:
 | Operation (`/xbs/*`) | Mode | Why |
 |---|---|---|
 | `validate-account` (IBAN) | 🟢 **live** | Sandbox returns a real `SUCCESS` for the documented test IBAN |
-| `validate-address` | 🟢 **live** | Sandbox returns a real `VALID`/`VERIFIED` for the documented test address |
+| `validate-address` | 🟡 **live call, fixture data** | Sandbox verifies **one** documented address and accepts `country: USA` only — anything else is a 400, reported as "Not checked" rather than invalid ([§1.1](docs/en/test.md)) |
 | `balances` | 🟢 **live** | Sandbox returns real account balances |
 | `quote` (FX) | 🟡 **demo** | Sandbox returns a *dummy* rate (`777`), unusable for display → realistic demo rate instead |
 | `pay` (submit) | 🟡 **demo** | Payment submission needs MTF/Prod access (not on sandbox) |

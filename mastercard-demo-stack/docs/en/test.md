@@ -17,7 +17,7 @@ sandbox policy, not a bug on our side:
 | API (the gateway supports it) | What the **sandbox** does | Status |
 |---|---|---|
 | **Account validation** (IBAN) | real `SUCCESS` | 🟢 live |
-| **Address validation** | real `VALID` / `VERIFIED` | 🟢 live |
+| **Address validation** | `VALID`/`VERIFIED` for **one documented test address**; `country` other than `USA` is rejected outright | 🟡 live call, fixture data — see §1.1 |
 | **Balances** | real account balances | 🟢 live |
 | **Bank lookup** | real bank data | 🟢 live (Features → Bank Lookup) |
 | **IBAN generation** | real generated IBAN | 🟢 live (Features → IBAN Generator) |
@@ -33,6 +33,34 @@ So "the other APIs don't work" is **not** the case — they work in the gateway,
 **Mastercard sandbox** returns fake data or rejects payments/status/quotes until the partner is
 onboarded. **Getting MTF/Prod access is exactly what the email to Mastercard requests.** Once
 granted, it's an env flip (`demo → live`) — no code change.
+
+### 1.1 Address validation is a sandbox fixture, not a service
+
+Worth stating separately, because the call really does reach Mastercard and really does return
+200 — so it *looks* like a working service until you try a second address. Measured against the
+sandbox:
+
+| Request | Sandbox response |
+|---|---|
+| `country: USA` + `4 CLARK STREET, EVERETT, MA, 02149` | `VALID` / `VERIFIED` + a full parsed match |
+| `country: USA` + any other real US address | `INVALID` / `AMBIGUOUS` |
+| `country: ISR`, `DEU`, `GBR`, … | **HTTP 400** — `Source: country`, `ReasonCode: INVALID_INPUT_VALUE` |
+
+So the sandbox accepts **`USA` only**, and inside `USA` it verifies **one documented address**.
+That address is seeded on **INV-1006** (together with the documented test IBAN `FR07…`), which
+is why that invoice is the one to use when demonstrating a live Mastercard address check.
+
+Two consequences the UI now makes visible rather than hiding:
+
+- **The country is explicit.** The payment form has an **Address country** selector next to the
+  address, pre-filled from the IBAN prefix (`IL62…` → Israel) and editable. Previously no country
+  was sent and the API substituted `USA` silently — so a Tel Aviv address was graded against US
+  address rules and came back "invalid" with nothing on screen explaining why.
+- **A non-US address reads "Not checked", not "invalid".** The 400 above means no check ran. The
+  fallback used to answer `valid: true` for any non-empty string; it now reports that nothing was
+  verified. An address, unlike an IBAN, has no checksum — there is no offline test to substitute.
+
+Real per-country address validation needs MTF/Prod, exactly like quote / pay / status.
 
 ## 2. Features pages — the rest of the gateway APIs, now surfaced in the UI
 
@@ -226,8 +254,10 @@ docker compose up -d mastercard-bff
 ## Summary
 
 - ❌ Not a gateway problem — the gateway implements everything and is tested.
-- 🟢 Real on sandbox today: **account validation, address validation, balances, bank lookup,
-  IBAN generation, cash pickup**.
+- 🟢 Real on sandbox today: **account validation, balances, bank lookup, IBAN generation,
+  cash pickup**.
+- 🟡 **Address validation** reaches Mastercard and returns 200, but the sandbox accepts `USA`
+  only and verifies a single documented address (§1.1) — a live call over fixture data.
 - 🟡 Payments / quotes / status / rates / endpoint-guide / RFI — sandbox returns stubs or rejects
   → **waiting on MTF/Prod from Mastercard** (the email). Code is ready; toggled via `.env`.
 - Every other cross-border API the gateway implements is now surfaced under the **Features**

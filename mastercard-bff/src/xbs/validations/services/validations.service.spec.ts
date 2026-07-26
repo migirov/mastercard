@@ -1,7 +1,11 @@
 import { McConfig, XbsMode } from '../../../config/mc-config';
 import { GatewayClient } from '../../common/gateway/gateway.client';
 import { ValidateAccountDto } from '../dto/validate-account.dto';
-import { ValidationsService } from './validations.service';
+import { ValidateAddressDto } from '../dto/validate-address.dto';
+import {
+  DEFAULT_ADDRESS_COUNTRY,
+  ValidationsService,
+} from './validations.service';
 
 const VALID_IBAN = 'DE89370400440532013000';
 /** Mastercard's sandbox test IBAN — structurally plausible, checksum-invalid by design. */
@@ -74,5 +78,85 @@ describe('ValidationsService — account validation', () => {
     const call = jest.fn();
     await make('demo', call).validateAccount(acct(VALID_IBAN));
     expect(call).not.toHaveBeenCalled();
+  });
+});
+
+const addr = (address: string, country?: string) =>
+  ({ address, country }) as unknown as ValidateAddressDto;
+
+describe('ValidationsService — address validation', () => {
+  it('live success: reports the Mastercard answer, tagged live and checked', async () => {
+    const call = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { status: 'VALID', verification: 'VERIFIED' },
+    });
+    const r = await make('live', call).validateAddress(
+      addr('4 CLARK STREET, EVERETT, MA, 02149', 'USA'),
+    );
+    expect(r).toEqual({
+      valid: true,
+      checked: true,
+      country: 'USA',
+      source: 'live',
+    });
+  });
+
+  it('live INVALID is a real verdict: checked, but not valid', async () => {
+    const call = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { status: 'INVALID', verification: 'AMBIGUOUS' },
+    });
+    const r = await make('live', call).validateAddress(
+      addr('HaYarkon 99, Tel Aviv, Israel', 'USA'),
+    );
+    expect(r).toMatchObject({ valid: false, checked: true, source: 'live' });
+  });
+
+  /**
+   * The fail-open this replaces: the fallback used to answer
+   * `valid: req.address.trim().length > 0`, so any non-empty string was a valid beneficiary
+   * address. Unlike an IBAN there is no checksum to add — an address simply cannot be
+   * verified offline — so the fix is to stop answering rather than to answer better.
+   */
+  it('the fallback does NOT vouch for an address — it reports that nothing was checked', async () => {
+    const call = jest.fn().mockResolvedValue({ ok: false });
+    const r = await make('live', call).validateAddress(
+      addr('literally anything', 'ISR'),
+    );
+    expect(r).toEqual({
+      valid: false,
+      checked: false,
+      country: 'ISR',
+      source: 'demo',
+    });
+  });
+
+  it('demo mode reports unchecked and never calls the gateway', async () => {
+    const call = jest.fn();
+    const r = await make('demo', call).validateAddress(addr('anything', 'DEU'));
+    expect(call).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ valid: false, checked: false, country: 'DEU' });
+  });
+
+  // The country is no longer applied invisibly: an omitted one still defaults, but the
+  // response says which was used, so "invalid" can be traced to "graded as a US address".
+  it('defaults the country when absent and REPORTS the one it used', async () => {
+    const call = jest.fn().mockResolvedValue({ ok: false });
+    const r = await make('live', call).validateAddress(addr('somewhere'));
+    expect(r.country).toBe(DEFAULT_ADDRESS_COUNTRY);
+  });
+
+  it('passes the caller country upstream, upper-cased', async () => {
+    const call = jest
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, data: { status: 'VALID' } });
+    await make('live', call).validateAddress(addr('somewhere', 'isr'));
+    expect(call).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { country: 'ISR', address: 'somewhere' },
+      }),
+    );
   });
 });
