@@ -24,7 +24,7 @@ const activeTenant = {
   suspended: false,
 } as unknown as Tenant;
 
-function make(opts?: { tenant?: Tenant; owns?: boolean }) {
+function make(opts?: { tenant?: Tenant; owns?: boolean; paid?: boolean }) {
   const client = {
     request: jest.fn(
       async (): Promise<{ status: number; data: unknown }> => ({
@@ -40,13 +40,16 @@ function make(opts?: { tenant?: Tenant; owns?: boolean }) {
       (_t: string, _k: string | undefined, producer: () => unknown) =>
         producer(),
     ),
-    ownsKey: jest.fn(async () => true),
   };
   const statusEvents = { findForTenant: jest.fn(async () => []) };
   const owns = opts?.owns ?? true;
+  // `paid` (a completed payment) defaults to `owns`; set it independently to model a tenant
+  // that holds only a QUOTE claim (owns=true, paid=false) — which must NOT unlock the pool.
+  const paid = opts?.paid ?? owns;
   const ownership = {
     refHash: jest.fn((ref: string) => sha256hex(ref)),
     hasClaim: jest.fn(async () => owns),
+    hasCompletedClaim: jest.fn(async () => paid),
     claim: jest.fn(async () => undefined),
     recordPayment: jest.fn(async () => undefined),
     assertOwnsRef: jest.fn(async () => {
@@ -233,7 +236,7 @@ describe('PaymentsService — status events (local read)', () => {
       false,
     );
     // OWN never reads the pool — no ownership check needed.
-    expect(ownership.hasClaim).not.toHaveBeenCalled();
+    expect(ownership.hasCompletedClaim).not.toHaveBeenCalled();
     expect(out).toEqual([
       {
         transactionReference: 'TX1',
@@ -248,14 +251,25 @@ describe('PaymentsService — status events (local read)', () => {
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it('PLATFORM + owns the transaction → includePool=true (reads the shared null pool)', async () => {
-    const { svc, statusEvents, ownership } = make({ owns: true });
+  it('PLATFORM + completed a payment on the ref → includePool=true (reads the shared null pool)', async () => {
+    const { svc, statusEvents, ownership } = make({ owns: true, paid: true });
     await svc.getStatusEvents('acme', 'TX2');
-    expect(ownership.hasClaim).toHaveBeenCalledWith('acme', 'TX2');
+    expect(ownership.hasCompletedClaim).toHaveBeenCalledWith('acme', 'TX2');
     expect(statusEvents.findForTenant).toHaveBeenCalledWith(
       'acme',
       'TX2',
       true,
+    );
+  });
+
+  it('PLATFORM + only a QUOTE claim (no completed payment) → includePool=false (a quote must not unlock the pool)', async () => {
+    const { svc, statusEvents, ownership } = make({ owns: true, paid: false });
+    await svc.getStatusEvents('acme', 'TX2');
+    expect(ownership.hasCompletedClaim).toHaveBeenCalledWith('acme', 'TX2');
+    expect(statusEvents.findForTenant).toHaveBeenCalledWith(
+      'acme',
+      'TX2',
+      false,
     );
   });
 

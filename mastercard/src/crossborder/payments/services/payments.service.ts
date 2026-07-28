@@ -134,9 +134,11 @@ export class PaymentsService {
    *    and never land in the shared pool);
    *  - a PLATFORM tenant shares ONE MC partner account, so its pushes cannot be attributed
    *    per-merchant and sit in the null pool keyed only by transaction_reference. Because
-   *    that reference is a guessable client string, pool visibility is gated on OWNERSHIP:
-   *    the tenant may read a pooled event ONLY for a transaction it actually created, proven
-   *    by a `tx_ownership` claim — not by guessing another merchant's reference.
+   *    that reference is a guessable client string, pool visibility is gated on a COMPLETED
+   *    PAYMENT: the tenant may read a pooled event ONLY for a transaction it actually paid,
+   *    proven by a `tx_ownership` row carrying an MC payment id — not by a bare quote claim,
+   *    and not by guessing another merchant's reference. A quote alone must never unlock the
+   *    shared pool (that is what `hasClaim` allowed and `hasCompletedClaim` closes).
    *
    * ref is already validated by SafeIdPipe in the controller. The tenant is re-read here
    * rather than taken from the auth context: the context is a snapshot from when the guard
@@ -154,7 +156,7 @@ export class PaymentsService {
     const tenant = await this.gw.unsuspendedTenant(tenantId);
     const includePool =
       tenant.credentialMode === CredentialMode.PLATFORM &&
-      (await this.ownership.hasClaim(tenant.id, ref));
+      (await this.ownership.hasCompletedClaim(tenant.id, ref));
     const rows = await this.statusEvents.findForTenant(
       tenant.id,
       ref,

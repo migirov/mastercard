@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 import { sha256hex } from '../../../common/utils/crypto.util';
 import { CredentialMode, Tenant } from '../../../tenants/tenant.types';
 import { TransactionOwnershipEntity } from '../entities/transaction-ownership.entity';
@@ -57,10 +57,34 @@ export class TransactionOwnership {
     await this.upsert(tenant, ref, mcPaymentId);
   }
 
-  /** Raw predicate for callers that need a boolean rather than a throw. */
+  /** Raw predicate for callers that need a boolean rather than a throw. Any claim (incl. a bare quote). */
   async hasClaim(tenantId: string, ref: string): Promise<boolean> {
     const count = await this.repo.count({
       where: { tenantId, refHash: this.refHash(ref) },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Like `hasClaim`, but requires a COMPLETED payment: a row whose `mcPaymentId` is set, which
+   * only `recordPayment` writes, and only after Mastercard accepted the payment. A bare quote
+   * claim (mcPaymentId NULL) does NOT satisfy it.
+   *
+   * This is the predicate that gates reading the shared status pool. Pool rows belong to no
+   * tenant, so "may I read them for this reference?" must mean "I own a completed payment on
+   * this reference", never merely "I once quoted it" — anything weaker lets a PLATFORM tenant
+   * unlock a peer's pooled webhook events by quoting the peer's (guessable) reference. This
+   * restores the invariant the entity doc-comment states: only what actually completed may be
+   * trusted. (Fail-safe edge: a payment MC accepted but returned with no id yields NULL here
+   * and denies the pool read — an availability miss, never an over-grant.)
+   */
+  async hasCompletedClaim(tenantId: string, ref: string): Promise<boolean> {
+    const count = await this.repo.count({
+      where: {
+        tenantId,
+        refHash: this.refHash(ref),
+        mcPaymentId: Not(IsNull()),
+      },
     });
     return count > 0;
   }

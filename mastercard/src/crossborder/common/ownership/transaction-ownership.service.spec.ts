@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 import { sha256hex } from '../../../common/utils/crypto.util';
 import { CredentialMode, Tenant } from '../../../tenants/tenant.types';
 import { TransactionOwnershipEntity } from '../entities/transaction-ownership.entity';
@@ -120,6 +120,39 @@ describe('TransactionOwnership — assertOwnsPaymentId', () => {
       NotFoundException,
     );
     expect(repo.count).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransactionOwnership — hasCompletedClaim (gates shared-pool reads)', () => {
+  // Only a COMPLETED payment (a row whose mcPaymentId is set) may unlock the shared status
+  // pool; a bare quote claim (mcPaymentId NULL) must not. This is the invariant the pool read
+  // depends on, moved here from the retired PaymentIdempotencyStore.ownsKey.
+  it('true for a completed-payment row, filtering on mcPaymentId IS NOT NULL', async () => {
+    const repo = makeRepo();
+    repo.count.mockResolvedValue(1);
+    const { svc } = make(repo);
+    await expect(svc.hasCompletedClaim('acme', 'R1')).resolves.toBe(true);
+    expect(repo.count).toHaveBeenCalledWith({
+      where: {
+        tenantId: 'acme',
+        refHash: sha256hex('R1'),
+        mcPaymentId: Not(IsNull()),
+      },
+    });
+  });
+
+  // The load-bearing filter must actually reach the DB — a mocked count cannot prove the
+  // WHERE clause on its own, so assert the mcPaymentId IS NOT NULL predicate is present.
+  it('false when only a quote claim exists (mcPaymentId NULL is not counted)', async () => {
+    const repo = makeRepo();
+    repo.count.mockResolvedValue(0);
+    const { svc } = make(repo);
+    await expect(svc.hasCompletedClaim('acme', 'R1')).resolves.toBe(false);
+    expect(repo.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ mcPaymentId: Not(IsNull()) }),
+      }),
+    );
   });
 });
 

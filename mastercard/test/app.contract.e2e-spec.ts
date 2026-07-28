@@ -93,14 +93,19 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
   });
 
   /**
-   * A PLATFORM tenant (acme) may read a pooled status event ONLY for a payment it OWNS
+   * A PLATFORM tenant (acme) may read a pooled status event ONLY for a payment it COMPLETED
    * (ownership-gated isolation — the shared pool is keyed by a guessable transaction_reference).
-   * This establishes that ownership by initiating a payment for `ref`, which writes the
-   * payment_idempotency record the pool read is authorized against. The stubbed MC succeeds.
+   * This establishes that ownership by initiating a payment for `ref` whose stubbed MC response
+   * carries a payment id, so `recordPayment` writes a `tx_ownership` row with `mcPaymentId` set —
+   * which is exactly what the pool read (`hasCompletedClaim`) authorizes against. A bare quote
+   * claim (mcPaymentId NULL) does NOT confer pool access (see `claimQuoteAsPlatform`).
    */
   async function claimRefAsPlatform(ref: string): Promise<void> {
     stubMc.shouldThrow = false;
-    stubMc.next = { status: 200, data: { ok: true } };
+    stubMc.next = {
+      status: 200,
+      data: { payment: { id: `rem_e2e_${Date.now()}` } },
+    };
     const r = await http.post(
       '/crossborder/payments',
       { paymentrequest: { transaction_reference: ref } },
@@ -477,7 +482,15 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
       { headers: internal },
     );
     expect(platNoOwn.data).toHaveLength(0);
-    // …but once acme OWNS that ref (it initiated the payment), it may read its pooled status
+    // A bare QUOTE claim must NOT unlock the pool — a quote is only a guessable reference away
+    // from a peer's pooled events, so pool access requires a COMPLETED payment, not a quote.
+    await claimQuoteAsPlatform(refPool);
+    const platQuoteOnly = await http.get(
+      `/crossborder/status-events?ref=${refPool}`,
+      { headers: internal },
+    );
+    expect(platQuoteOnly.data).toHaveLength(0);
+    // …but once acme COMPLETED a payment on that ref, it may read its pooled status
     await claimRefAsPlatform(refPool);
     const platSeesPool = await http.get(
       `/crossborder/status-events?ref=${refPool}`,

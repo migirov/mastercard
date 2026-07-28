@@ -91,6 +91,16 @@ export class MastercardClient implements OnApplicationShutdown {
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Hard TOTAL-duration bound per attempt. The axios `timeout` above is a socket-INACTIVITY
+      // timer armed on socket ASSIGNMENT (verified against axios 1.6.0 http adapter): with
+      // maxSockets:50 a queued request runs untimed, and once armed a trickling response resets
+      // it — neither bounds wall-clock time. This call runs inside the payment idempotency lock
+      // (LOCK_TTL 120s) and MUST finish well before it, or another pod re-claims the slot and
+      // re-POSTs the payment, so we abort at MC_REQUEST_TIMEOUT_MS regardless.
+      const abort = new AbortController();
+      const killer = setTimeout(() => abort.abort(), MC_REQUEST_TIMEOUT_MS);
+      // Don't let the abort timer hold the event loop open if the process is otherwise idle.
+      killer.unref();
       // Build the config FRESH on every attempt: the request interceptor mutates
       // config.data (encrypts + serializes) and sets a fresh OAuth1 signature.
       const config: McAxiosConfig = {
@@ -100,6 +110,7 @@ export class MastercardClient implements OnApplicationShutdown {
         headers: { ...(req.headers ?? {}) },
         validateStatus: () => true, // we interpret the status ourselves
         mcCreds: creds,
+        signal: abort.signal,
       };
       try {
         const res = await this.http.request<T>(config);
@@ -113,12 +124,14 @@ export class MastercardClient implements OnApplicationShutdown {
         // deterministic — do NOT retry (otherwise 2 extra signed round-trips to
         // MC and a delayed 502). Only a network failure is transient.
         if (e instanceof NonRetryableMcError) throw e;
-        lastErr = e; // network failure
+        lastErr = e; // network failure (an abort at MC_REQUEST_TIMEOUT_MS lands here too)
         if (attempt < maxAttempts) {
           await delay(backoffMs(attempt));
           continue;
         }
         throw e;
+      } finally {
+        clearTimeout(killer);
       }
     }
     throw lastErr;

@@ -1,6 +1,7 @@
 import {
   ConflictException,
   HttpException,
+  Logger,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Repository } from 'typeorm';
@@ -12,7 +13,8 @@ function makeRepo() {
   return {
     query: jest.fn(),
     findOne: jest.fn(),
-    update: jest.fn(async () => undefined),
+    // complete() reads res.affected — default to a normal 1-row update.
+    update: jest.fn(async () => ({ affected: 1 })),
     delete: jest.fn(async () => undefined),
     count: jest.fn(async () => 0),
   };
@@ -25,6 +27,7 @@ function makeStore(repo: ReturnType<typeof makeRepo>): PaymentIdempotencyStore {
 }
 
 const FP = 'fp-body';
+const TOK = 'tok-1'; // the per-claim lock token acquire() returns via RETURNING "lockToken"
 
 describe('PaymentIdempotencyStore', () => {
   it('no key → producer directly, DB untouched', async () => {
@@ -38,12 +41,12 @@ describe('PaymentIdempotencyStore', () => {
 
   it('fresh claim + success → records the result (done=true) and returns it', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]); // slot claimed
+    repo.query.mockResolvedValue([{ lockToken: TOK }]); // slot claimed
     const producer = jest.fn(async () => ({ paymentId: 'P1' }));
     const r = await makeStore(repo).run('t1', 'k1', producer, FP);
     expect(r).toEqual({ paymentId: 'P1' });
     expect(repo.update).toHaveBeenCalledWith(
-      { tenantId: 't1', idemKey: 'k1' },
+      { lockToken: TOK },
       expect.objectContaining({ done: true }),
     );
   });
@@ -99,7 +102,7 @@ describe('PaymentIdempotencyStore', () => {
 
   it('producer 4xx → releases the slot (delete), error propagates', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     const err = new HttpException('bad', 400);
     await expect(
       makeStore(repo).run(
@@ -112,8 +115,7 @@ describe('PaymentIdempotencyStore', () => {
       ),
     ).rejects.toBe(err);
     expect(repo.delete).toHaveBeenCalledWith({
-      tenantId: 't1',
-      idemKey: 'k1',
+      lockToken: TOK,
       done: false,
     });
     expect(repo.update).not.toHaveBeenCalled();
@@ -121,7 +123,7 @@ describe('PaymentIdempotencyStore', () => {
 
   it('producer 5xx → slot NOT released (fail-safe against double charges)', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     const err = new HttpException('upstream', 502);
     await expect(
       makeStore(repo).run(
@@ -138,7 +140,7 @@ describe('PaymentIdempotencyStore', () => {
 
   it('producer 401/403 (UpstreamUnavailable executed=no) → slot RELEASED (payment did not run)', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     const err = new UpstreamUnavailableException('no');
     await expect(
       makeStore(repo).run(
@@ -151,15 +153,14 @@ describe('PaymentIdempotencyStore', () => {
       ),
     ).rejects.toBe(err);
     expect(repo.delete).toHaveBeenCalledWith({
-      tenantId: 't1',
-      idemKey: 'k1',
+      lockToken: TOK,
       done: false,
     });
   });
 
   it('producer 5xx/network (UpstreamUnavailable executed=unknown) → slot NOT released', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     const err = new UpstreamUnavailableException('unknown');
     await expect(
       makeStore(repo).run(
@@ -176,7 +177,7 @@ describe('PaymentIdempotencyStore', () => {
 
   it('network error (not HttpException) → slot NOT released', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     await expect(
       makeStore(repo).run(
         't1',
@@ -192,7 +193,7 @@ describe('PaymentIdempotencyStore', () => {
 
   it('a failed result write does NOT turn a successful payment into an error', async () => {
     const repo = makeRepo();
-    repo.query.mockResolvedValue([{ id: 1 }]);
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
     repo.update.mockRejectedValue(new Error('db down'));
     const r = await makeStore(repo).run(
       't1',
@@ -203,35 +204,26 @@ describe('PaymentIdempotencyStore', () => {
     expect(r).toEqual({ paymentId: 'P9' });
   });
 
-  describe('ownsKey (authorizes PLATFORM pool reads)', () => {
-    it('true when a COMPLETED record exists for (tenantId, key)', async () => {
-      const repo = makeRepo();
-      repo.count.mockResolvedValue(1);
-      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(true);
-      expect(repo.count).toHaveBeenCalledWith({
-        where: { tenantId: 't1', idemKey: 'k1', done: true },
-      });
-    });
-
-    it('false when no record exists (cannot prove ownership of the ref)', async () => {
-      const repo = makeRepo();
-      repo.count.mockResolvedValue(0);
-      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(false);
-    });
-
-    // An in-progress row is the in-flight LOCK, not proof of ownership: acquire() writes it
-    // before the Mastercard call, so counting it would let any tenant forge ownership of an
-    // arbitrary transaction_reference. Assert the filter is actually sent to the DB rather
-    // than that the count is 0 — a mocked count cannot prove the WHERE clause on its own.
-    it('requires done=true, so an in-progress claim does NOT prove ownership', async () => {
-      const repo = makeRepo();
-      repo.count.mockResolvedValue(0);
-      await expect(makeStore(repo).ownsKey('t1', 'k1')).resolves.toBe(false);
-      expect(repo.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ done: true }),
-        }),
-      );
-    });
+  // The result write is scoped to OUR lockToken. If the slot went stale and was re-claimed by
+  // another caller mid-flight, our update matches zero rows: the payment still returns, but the
+  // zero-row case is logged loudly because it means two producers reached Mastercard for one ref.
+  it('result write matches zero rows (lock reclaimed) → still returns, logs a duplicate warning', async () => {
+    const repo = makeRepo();
+    repo.query.mockResolvedValue([{ lockToken: TOK }]);
+    repo.update.mockResolvedValue({ affected: 0 });
+    const errSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const r = await makeStore(repo).run(
+      't1',
+      'k1',
+      async () => ({ paymentId: 'P0' }),
+      FP,
+    );
+    expect(r).toEqual({ paymentId: 'P0' });
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('possible duplicate submission'),
+    );
+    errSpy.mockRestore();
   });
 });

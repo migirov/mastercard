@@ -54,4 +54,16 @@ export class PaymentIdempotencyEntity {
    */
   @Column({ type: 'timestamptz', default: () => 'now()' })
   lockedAt!: Date;
+
+  /**
+   * Per-claim lock token, regenerated on every (re)claim (see `PaymentIdempotencyStore`).
+   * `release`/`complete` scope on THIS token, not `(tenantId, idemKey)`: after a stale reclaim
+   * the same row is held by a new caller, so the original acquirer must not delete or complete
+   * it. The auto-increment `id` cannot serve as the token — `ON CONFLICT DO UPDATE` mutates the
+   * one row in place, so `id` is identical for both holders. NULL only for rows predating this
+   * column (in-flight rows finish under the pre-column code path). `gen_random_uuid()` is set by
+   * the migration/`acquire`, so no decorator default is needed.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  lockToken?: string | null;
 }

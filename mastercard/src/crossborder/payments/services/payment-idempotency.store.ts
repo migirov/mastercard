@@ -43,10 +43,10 @@ export class PaymentIdempotencyStore {
     if (!key) return producer(); // no key (no transaction_reference) — no idempotency
 
     // Claim the slot atomically: insert a NEW row, OR re-claim a STALE in-progress lock
-    // (process crash). If the slot is held by a fresh in-progress call or already done —
-    // returns false, and we resolve the existing row below.
-    const owned = await this.acquire(tenantId, key, fingerprint);
-    if (!owned) return this.resolveExisting<T>(tenantId, key, fingerprint);
+    // (process crash). Returns a per-claim lock token we own, or null if the slot is held by a
+    // fresh in-progress call or is already done — then we resolve the existing row below.
+    const lockToken = await this.acquire(tenantId, key, fingerprint);
+    if (!lockToken) return this.resolveExisting<T>(tenantId, key, fingerprint);
 
     let result: T;
     try {
@@ -60,28 +60,18 @@ export class PaymentIdempotencyStore {
       // On 5xx / timeout / network the outcome is UNKNOWN (MC may have accepted it before the
       // drop) → do NOT touch the slot (fail-safe against double charges): a retry within
       // LOCK_TTL gets 409, after that it re-claims the lock, and MC dedups by
-      // transaction_reference.
+      // transaction_reference. Scoped to OUR lockToken: if the slot went stale and was
+      // re-claimed by another caller mid-flight, we must not delete the row it now owns.
       const status = e instanceof HttpException ? e.getStatus() : 500;
       const definitelyNotExecuted =
         status < 500 ||
         (e instanceof UpstreamUnavailableException && e.executed === 'no');
-      if (definitelyNotExecuted) await this.release(tenantId, key);
+      if (definitelyNotExecuted) await this.release(lockToken);
       throw e;
     }
 
-    // The MC call SUCCEEDED — record the result. A write failure must NOT turn a successful
-    // payment into an error for the client: return the result, the lock will expire by
-    // LOCK_TTL.
-    try {
-      await this.repo.update(
-        { tenantId, idemKey: key },
-        { result: result as never, done: true },
-      );
-    } catch (err) {
-      this.logger.error(
-        `payment_idempotency: failed to record the result for '${key}': ${(err as Error).message}`,
-      );
-    }
+    // The MC call SUCCEEDED — record the result under OUR lock.
+    await this.complete(lockToken, result);
     return result;
   }
 
@@ -93,25 +83,33 @@ export class PaymentIdempotencyStore {
    * fresh in-progress / done row / stale row with a DIFFERENT body → `WHERE` is false → 0
    * rows → resolved in `resolveExisting` (where "different body" → 422, consistent with the
    * fresh-lock path; otherwise 409). The body is NOT overwritten on re-claim (we only take
-   * over a matching one), so `SET` touches only `lockedAt`.
+   * over a matching one), so `SET` touches `lockedAt` and a FRESH `lockToken`.
+   *
+   * Returns the row's `lockToken` (a per-claim uuid regenerated on every insert/reclaim) so the
+   * caller can scope `release`/`complete` to the exact claim it holds. The auto-increment `id`
+   * cannot serve this: `DO UPDATE` mutates the one row in place, so `id` is identical for the
+   * original acquirer and a stale re-claimer, and scoping to it would let one caller's cleanup
+   * clobber the other's live claim.
    */
   private async acquire(
     tenantId: string,
     key: string,
     fingerprint: string,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     const rows = await this.repo.query(
-      `INSERT INTO payment_idempotency ("tenantId", "idemKey", fingerprint, done, "lockedAt")
-       VALUES ($1, $2, $3, false, now())
+      `INSERT INTO payment_idempotency ("tenantId", "idemKey", fingerprint, done, "lockedAt", "lockToken")
+       VALUES ($1, $2, $3, false, now(), gen_random_uuid())
        ON CONFLICT ("tenantId", "idemKey") DO UPDATE
-         SET "lockedAt" = now()
+         SET "lockedAt" = now(), "lockToken" = gen_random_uuid()
          WHERE payment_idempotency.done = false
            AND payment_idempotency."lockedAt" < now() - make_interval(secs => $4)
            AND payment_idempotency.fingerprint = EXCLUDED.fingerprint
-       RETURNING id`,
+       RETURNING "lockToken"`,
       [tenantId, key, fingerprint, LOCK_TTL_SECONDS],
     );
-    return Array.isArray(rows) && rows.length > 0;
+    return Array.isArray(rows) && rows.length > 0
+      ? String(rows[0].lockToken)
+      : null;
   }
 
   /**
@@ -149,30 +147,38 @@ export class PaymentIdempotencyStore {
     }
   }
 
-  /** Release the in-progress slot (only on a client 4xx — the payment did not go through). */
-  private async release(tenantId: string, key: string): Promise<void> {
-    await this.repo.delete({ tenantId, idemKey: key, done: false });
+  /**
+   * Release the in-progress slot (only on a client 4xx — the payment did not go through).
+   * Scoped to OUR `lockToken` (never `(tenantId, idemKey)`): a stale reclaim gives the row a new
+   * token, so a `delete` keyed on the slot could remove a claim another caller now holds. The
+   * `done: false` guard additionally refuses to delete a completed row.
+   */
+  private async release(lockToken: string): Promise<void> {
+    await this.repo.delete({ lockToken, done: false });
   }
 
   /**
-   * True if THIS tenant COMPLETED a payment for the key — i.e. it actually initiated the
-   * payment behind that `transaction_reference`. Used to authorize a PLATFORM tenant's read
-   * of a shared-pool status event: pool events are keyed only by transaction_reference (a
-   * client-chosen, guessable string), so a PLATFORM tenant may read one ONLY for a
-   * transaction it owns.
-   *
-   * `done: true` is load-bearing and must not be relaxed. `acquire()` INSERTs the row BEFORE
-   * the Mastercard call (it is the in-flight lock), and `release()` runs only after that call
-   * returns — and deliberately not at all on a 5xx/timeout, where the payment may have
-   * executed. Counting any row would therefore let a tenant forge ownership of an arbitrary
-   * reference simply by POSTing a payment with it and reading the pool during the ~30s window,
-   * or permanently if the upstream 5xx'd. Only a `done=true` row proves the payment completed
-   * under this tenant.
+   * Record the successful result under OUR lock. Scoped to `lockToken`, same reasoning as
+   * `release`. A write failure must NOT turn a payment that already succeeded at Mastercard into
+   * an error for the client — swallow it and let the lock expire by LOCK_TTL. `affected === 0`
+   * means our lock was reclaimed and completed by someone else while we were in flight: log it
+   * loudly, because it means two producers reached Mastercard for one `transaction_reference`.
    */
-  async ownsKey(tenantId: string, key: string): Promise<boolean> {
-    const count = await this.repo.count({
-      where: { tenantId, idemKey: key, done: true },
-    });
-    return count > 0;
+  private async complete(lockToken: string, result: unknown): Promise<void> {
+    try {
+      const res = await this.repo.update(
+        { lockToken },
+        { result: result as never, done: true },
+      );
+      if (!res.affected) {
+        this.logger.error(
+          'payment_idempotency: lock reclaimed before completion — possible duplicate submission',
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `payment_idempotency: failed to record the result: ${(err as Error).message}`,
+      );
+    }
   }
 }

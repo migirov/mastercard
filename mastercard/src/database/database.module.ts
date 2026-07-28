@@ -35,7 +35,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
           // "Auto-load entities"): an explicit list in the root module leaks
           // domain boundaries (techniques/sql). The host does the same when embedding.
           autoLoadEntities: true,
-          extra: { max: poolMax },
+          // connectionTimeoutMillis bounds how long a checkout waits for a free connection.
+          // node-postgres defaults it to 0 = wait forever; the payment result-write happens
+          // inside the idempotency lock, so an unbounded wait on a saturated pool would push
+          // past LOCK_TTL_SECONDS and let another producer reclaim the slot mid-flight.
+          extra: { max: poolMax, connectionTimeoutMillis: 5_000 },
           // Schema is migrations-ONLY. We don't set `synchronize` (TypeORM
           // default=false): auto-sync risks data loss and is used in neither dev nor prod.
           migrations: [join(__dirname, 'migrations', '*{.ts,.js}')],
