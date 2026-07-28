@@ -108,6 +108,20 @@ function assertProdSecrets(): void {
 async function bootstrap() {
   assertProdSecrets();
 
+  // Report the posture that actually took effect. Compose `environment:` precedence, shell
+  // exports and image ENV defaults can each silently win over the operator's .env, and a
+  // healthy container is NOT evidence that the production gates ran — so state it out loud.
+  {
+    const isProduction = process.env.NODE_ENV === 'production';
+    new Logger('Bootstrap').log(
+      `boot posture: NODE_ENV=${process.env.NODE_ENV ?? '<unset>'} ` +
+        `productionGates=${isProduction ? 'ENFORCED' : 'SKIPPED'} ` +
+        `secretStore=${process.env.MC_SECRET_STORE ?? 'local'} ` +
+        `webhookMtls=${process.env.MC_WEBHOOK_MTLS_ENABLED === 'true'} ` +
+        `swagger=${!isProduction || process.env.SWAGGER_ENABLED === 'true' ? 'ON' : 'OFF'}`,
+    );
+  }
+
   // Disable bodyParser so we can register the JSON parser with our own limit.
   // bufferLogs: buffer startup logs until the pino logger is attached.
   // httpsOptions (gated): terminate TLS in the app so the webhook guard can validate MC's

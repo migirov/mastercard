@@ -174,4 +174,46 @@ export class McConfig {
       rfi: this.featureMode('rfi'),
     };
   }
+
+  /**
+   * Whether a `live` capability can actually reach the gateway. A `live` capability with no
+   * GATEWAY_INTERNAL_TOKEN calls the gateway, gets 401, and silently falls back to demo — so
+   * "configured live" is not "effectively live". This is the static half of that signal (token
+   * presence); true reachability would need a network probe, which /health deliberately avoids.
+   */
+  get gatewayConfigured(): boolean {
+    return this.gateway.internalToken !== '';
+  }
+
+  /** Configured `live` degrades to the mode a caller actually gets when the gateway isn't wired. */
+  private effective(mode: XbsMode): XbsMode {
+    return mode === 'live' && !this.gatewayConfigured ? 'demo' : mode;
+  }
+
+  /** The five modes a caller ACTUALLY gets (not just what is configured). */
+  get effectiveModes(): Record<XbsCapability, XbsMode> {
+    const m = this.modes;
+    return {
+      quote: this.effective(m.quote),
+      validation: this.effective(m.validation),
+      balances: this.effective(m.balances),
+      payment: this.effective(m.payment),
+      status: this.effective(m.status),
+    };
+  }
+
+  /** The eight feature modes a caller ACTUALLY gets. */
+  get effectiveFeatureModes(): Record<FeatureCapability, XbsMode> {
+    const f = this.featureModes;
+    return {
+      bankLookup: this.effective(f.bankLookup),
+      ibanGen: this.effective(f.ibanGen),
+      cashPickup: this.effective(f.cashPickup),
+      rates: this.effective(f.rates),
+      endpointGuide: this.effective(f.endpointGuide),
+      quoteLifecycle: this.effective(f.quoteLifecycle),
+      paymentTracker: this.effective(f.paymentTracker),
+      rfi: this.effective(f.rfi),
+    };
+  }
 }

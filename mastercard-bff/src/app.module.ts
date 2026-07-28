@@ -48,6 +48,14 @@ export class AppModule implements NestModule {
    * FIRST — Express uses the first parser that sets `req._body`, so the route-scoped 2 MB limit
    * wins for that route while every other route keeps the strict 256 kb limit. `main.ts` creates
    * the app with `bodyParser: false` so Nest's default parser doesn't pre-empt these.
+   *
+   * `urlencoded` is `extended: false` deliberately. The installed body-parser 1.20.2 hardcodes
+   * `depth: Infinity` in its extended (qs) parser (CVE-2024-45590): one unauthenticated 256 kb
+   * body of nested `a[b][b]…` groups costs ~2 s of blocked event loop, and this parser runs as
+   * middleware BEFORE DemoAuthGuard — the shared-token boundary does not protect it. Passing
+   * `depth` to `urlencoded()` is a no-op on 1.20.2 (the option is ignored), so `extended: false`
+   * (the simple `querystring` parser) is the version-free fix. Nothing in this service consumes
+   * `application/x-www-form-urlencoded`, so the simple parser costs nothing.
    */
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(json({ limit: '2mb' })).forRoutes({
@@ -57,7 +65,7 @@ export class AppModule implements NestModule {
     consumer
       .apply(
         json({ limit: '256kb' }),
-        urlencoded({ extended: true, limit: '256kb' }),
+        urlencoded({ extended: false, limit: '256kb' }),
       )
       .forRoutes('*');
   }

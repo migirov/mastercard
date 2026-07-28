@@ -33,7 +33,11 @@ services:
       - ../mastercard/.env # sandbox MC creds/tokens (NOT baked into the image)
     environment:
       DATABASE_URL: postgres://mc:mc@postgres:5432/mc_gateway
-      NODE_ENV: development # non-prod: runs migrations on boot, seeds the baseline `platform` tenant
+      # NODE_ENV is intentionally NOT set here. Compose gives `environment:` precedence over
+      # `env_file:`, so hardcoding it silently discarded any NODE_ENV an operator set in
+      # ../mastercard/.env (including the `NODE_ENV=production` that .env.example invites) — the
+      # container then came up healthy, reading as "the production gates passed" when they never
+      # ran. Let env_file (or the image default) own it; default stays development.
       PORT: '3000'
     volumes:
       - ../mastercard/certs:/app/certs:ro
@@ -98,7 +102,10 @@ services:
         condition: service_started
     environment:
       GATEWAY_URL: http://app:3000
-      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
+      # `:?` aborts the stack if unset/empty. Without it an empty token boots cleanly and every
+      # live capability silently degrades to synthesized data (GatewayClient never throws) while
+      # /health still reports `live`. Its value MUST equal the gateway's MC_INTERNAL_TOKEN.
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:?set GATEWAY_INTERNAL_TOKEN in mastercard-demo-stack/.env, equal to the gateway MC_INTERNAL_TOKEN}
       GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
       # Same shared token as app-bff and the frontend build — see the note there.
       DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
@@ -148,7 +155,13 @@ services:
       - app-bff
       - mastercard-bff
     ports:
-      - '8080:80'
+      # Loopback only: the host reverse proxy (Cloudflare → host nginx → 127.0.0.1:8080) reaches
+      # this over loopback, so binding every interface only adds a way to hit the origin directly
+      # and skip Cloudflare's TLS / WAF / rate-limiting. The served bundle carries DEMO_API_TOKEN
+      # by design, so a direct cleartext path hands it out. Same reasoning as the two BFF ports.
+      # (Docker publishes via nat/DOCKER-USER and bypasses ufw's INPUT chain — a host firewall
+      # rule is not a substitute for this binding.)
+      - '127.0.0.1:8080:80'
     restart: unless-stopped
 
 volumes:

@@ -7,7 +7,10 @@ services:
       POSTGRES_PASSWORD: mc
       POSTGRES_DB: mc_gateway
     ports:
-      - '5432:5432'
+      # Loopback only. These are local-dev conveniences and the mc/mc credentials are published
+      # in this public repo; the sibling mastercard-demo-stack binds its ports the same way,
+      # noting that publishing on every interface put an unauthenticated store on the LAN.
+      - '127.0.0.1:5432:5432'
     volumes:
       - mc_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -37,7 +40,10 @@ services:
       # Sandbox certs mounted read-only; .env paths are ./certs/... resolved from WORKDIR /app.
       - ./certs:/app/certs:ro
     ports:
-      - '3000:3000'
+      # Loopback only: this service loads the real sandbox secrets (env_file) and mounts the
+      # signing key (certs). A bare `docker compose up -d` starts it, so it must not land on
+      # 0.0.0.0 where the dev tokens (derivable from this public repo) would reach it.
+      - '127.0.0.1:3000:3000'
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
       interval: 10s

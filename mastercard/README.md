@@ -82,8 +82,9 @@ Requires Node 22 and Docker (for PostgreSQL).
 # 1) dependencies
 npm install
 
-# 2) PostgreSQL
-docker compose up -d            # Postgres 16, see docker-compose.yml
+# 2) PostgreSQL — name the service; a bare `docker compose up -d` also starts the
+#    gateway container (which loads .env and mounts certs), not just Postgres.
+docker compose up -d postgres   # Postgres 16, see docker-compose.yml
 
 # 3) put the keys in certs/ and fill in .env (see above)
 

@@ -48,7 +48,11 @@ const EnvSchema = z.object({
 
   // --- cross-border gateway (the sibling `mastercard` service) ---
   GATEWAY_URL: z.string().optional(),
-  GATEWAY_INTERNAL_TOKEN: z.string().optional(),
+  // `optionalNonEmpty`, not a plain optional: an EMPTY token must read as "unset", not
+  // "configured with an empty secret". A live capability with an empty token calls the gateway,
+  // gets 401, and silently falls back to demo — so an empty value must fail closed downstream
+  // (the McConfig getter returns '' either way, but /health then reports effective mode).
+  GATEWAY_INTERNAL_TOKEN: optionalNonEmpty,
   GATEWAY_TENANT_ID: z.string().optional(),
 
   // --- per-capability live|demo switch (validate the enum if present and non-empty) ---

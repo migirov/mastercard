@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Client } from 'pg';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { AppConfig, DB_DEFAULTS } from './config/app-config';
 
@@ -134,7 +135,16 @@ function assertApiTokenConfigured(cfg: AppConfig, log: Logger): void {
 async function bootstrap() {
   installCrashGuard();
   await ensureDatabase();
-  const app = await NestFactory.create(AppModule);
+  // Own the body parsers explicitly (bodyParser:false disables Nest's defaults). Nest would
+  // otherwise register urlencoded({extended:true}), which on the installed body-parser 1.20.2
+  // means qs depth:Infinity (CVE-2024-45590): one unauthenticated ~100 kb nested body burns
+  // ~0.5 s of event loop BEFORE DemoAuthGuard runs. Nothing here consumes form bodies, so the
+  // simple parser is free; json keeps the express 100 kb default.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+  app.useBodyParser('json');
+  app.useBodyParser('urlencoded', { extended: false });
   const log = new Logger('Bootstrap');
   // Typed config (not a stray process.env read) now that the DI container exists.
   const cfg = app.get(AppConfig);
