@@ -46,9 +46,9 @@ docker compose up -d --build      # первый запуск собирает �
 docker compose ps                 # все 5 должны быть running/healthy
 ```
 
-> **Пересобирать нужно все три образа приложения разом.** Фронт зашивает `DEMO_API_TOKEN` в свой
-> JS-бандл на этапе сборки, поэтому пересборка одних только BFF оставит SPA со старым токеном и
-> каждый запрос из браузера ответит 401. `docker compose up -d --build` делает всё правильно.
+> **Смена `DEMO_API_TOKEN` — это перезапуск, а не пересборка.** Контейнер фронта подставляет
+> токен в отдаваемую страницу при старте (его энтрипойнт генерирует `/config.js`), поэтому
+> `docker compose up -d` разносит новый токен сразу по всем трём сервисам.
 
 - **Веб-интерфейс:** http://localhost:8080 — пароль **`REDACTED-DEMO-PASSWORD`**
 - app-bff (прямой API, для разработчика): http://localhost:4010/health
@@ -212,7 +212,7 @@ curl http://localhost:4011/health          # разводка live|demo (masterc
 AUTH="Authorization: Bearer $(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)"
 curl -H "$AUTH" http://localhost:4010/entities/Invoice   # засеянные сущности (app-bff)
 
-docker compose up -d --build               # пересборка после правок кода (все три образа)
+docker compose up -d --build               # пересборка после правок кода
 docker compose down -v                     # полный сброс (пересев при следующем подъёме)
 ```
 

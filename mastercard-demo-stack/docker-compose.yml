@@ -144,13 +144,19 @@ services:
     build:
       context: ../masrtercard-front
       dockerfile: Dockerfile
-      args:
-        VITE_DEMO_API_URL: /demo-api # browser → /demo-api → nginx splits to app-bff / mastercard-bff
-        # Baked into the JS bundle at build time, from the SAME variable the BFFs read above.
-        # Consequence to remember: changing the token means rebuilding this image too —
-        # `docker compose up -d --build` with all three, or the SPA 401s against fresh BFFs.
-        VITE_DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
     container_name: mc-demo-frontend
+    environment:
+      DEMO_API_URL: /demo-api # browser → /demo-api → nginx splits to app-bff / mastercard-bff
+      # Read at container START (the entrypoint writes /config.js and fills the nginx
+      # template), from the SAME variable the BFFs read above — so the SPA and the APIs cannot
+      # drift apart. It used to be a build arg baked into the JS bundle, which tied one image
+      # to one token and forced a rebuild on every rotation; now `docker compose up -d` is
+      # enough, and the published image carries no token at all.
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
+      # Where nginx proxies /demo-api. Compose service names here; a different orchestrator
+      # points them at whatever it calls those two services.
+      APP_BFF_URL: app-bff:4000
+      MASTERCARD_BFF_URL: mastercard-bff:4000
     depends_on:
       - app-bff
       - mastercard-bff

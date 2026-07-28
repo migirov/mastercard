@@ -19,6 +19,7 @@ can't yet (each is an env switch, no code change).
 | [`app-bff/`](app-bff/) | **Permanent app backend.** Schema-less entity store + `auth.me` + integrations. Holds all UI data (invoices, cards, employees…). No Mastercard. | `4010` | Postgres `mc_demo` |
 | [`masrtercard-front/`](masrtercard-front/) | **Web UI** (React / Vite, served by nginx). Talks only to `/demo-api`; nginx splits the path between the two BFFs. | `8080` | none |
 | [`mastercard-demo-stack/`](mastercard-demo-stack/) | **Docker Compose** that ties the five containers together (incl. shared Postgres), plus the step-by-step test guide. | — | — |
+| [`deploy/`](deploy/) | **Deployment kit.** Compose file that *pulls* the published images, annotated `.env.example` and the operator guide — the handoff to whoever runs this in production. | — | — |
 
 ```
  browser ─► frontend (nginx, :8080) ─► /demo-api ─┬─ /xbs/* + /features/* ─► mastercard-bff (:4011) ─► mastercard gateway (:3000) ─► Mastercard SANDBOX
@@ -46,8 +47,8 @@ docker compose ps             # all 5 should be running/healthy
 - app-bff health: http://localhost:4010/health · mastercard-bff health (live/demo wiring): http://localhost:4011/health
 
 Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN`; `/health` is the only public
-route. The frontend bakes the same token into its bundle at build time, so **rebuild all three
-app images together** — rebuilding only the BFFs makes every call from the SPA 401.
+route. The frontend container reads the same token from its environment at start, so rotating it
+is `docker compose up -d` — no rebuild, and the three cannot drift apart.
 
 Full run/test walkthrough, page-by-page data sources, and the live-vs-demo matrix are in
 **[mastercard-demo-stack/README.md](mastercard-demo-stack/README.md)** and its
@@ -75,6 +76,7 @@ mastercard-app/
 ├─ app-bff/              app data BFF (entities/auth)       → :4010, db mc_demo
 ├─ masrtercard-front/     web UI (React/Vite + nginx)        → :8080
 ├─ mastercard-demo-stack/ docker compose + test docs
+├─ deploy/                production deployment kit (pulls published images)
 └─ .gitignore             root safety net for secrets
 ```
 

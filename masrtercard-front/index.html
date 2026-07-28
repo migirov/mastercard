@@ -12,6 +12,10 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Runtime configuration, written by the container entrypoint from its environment.
+         MUST load before the bundle: src/api/demoApi.js reads window.__XBS_CONFIG__ at module
+         evaluation time. Not a module and not deferred, so it executes immediately. -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

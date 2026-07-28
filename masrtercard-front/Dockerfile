@@ -1,25 +1,36 @@
 # syntax=docker/dockerfile:1
 #
 # Frontend image: build the Vite/React SPA, serve it with nginx (which also reverse-proxies
-# the demo BFF). VITE_DEMO_API_URL is inlined at BUILD time by Vite — default /demo-api is the
-# nginx-proxied path, so the browser only ever talks to this origin.
+# the BFFs). The image is ENVIRONMENT-AGNOSTIC — it holds no API token and no backend
+# hostnames. Both are supplied as environment variables at container start and materialised by
+# docker-entrypoint.sh into /config.js and the nginx config. That is what makes one published
+# image deployable anywhere: nothing here has to be rebuilt to change a token.
 
 FROM node:20-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-ARG VITE_DEMO_API_URL=/demo-api
-ENV VITE_DEMO_API_URL=$VITE_DEMO_API_URL
-# The shared bearer token both BFFs require. Inlined into the bundle at build time, so the
-# image must be rebuilt whenever the token changes — compose feeds the SAME ${DEMO_API_TOKEN}
-# here and to the BFFs so the two cannot drift. No default: an unset token yields a bundle
-# whose every API call 401s, which is the honest failure rather than a silently open stack.
-ARG VITE_DEMO_API_TOKEN
-ENV VITE_DEMO_API_TOKEN=$VITE_DEMO_API_TOKEN
 RUN npm run build
 
 FROM nginx:alpine AS runtime
+# gettext: provides envsubst, used by the entrypoint to fill the nginx template.
+RUN apk add --no-cache gettext
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
+# /entrypoint.sh, not /docker-entrypoint.sh: the nginx base image owns the latter.
+COPY docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 EXPOSE 80
+# Runtime configuration (defaults match the compose stack; override per deployment):
+#   DEMO_API_TOKEN     shared bearer token for both BFFs — REQUIRED, no default
+#   DEMO_API_URL       base path the SPA calls (default /demo-api, proxied by this nginx)
+#   APP_BFF_URL        host:port of app-bff        (default app-bff:4000)
+#   MASTERCARD_BFF_URL host:port of mastercard-bff (default mastercard-bff:4000)
+# 127.0.0.1, not `localhost`: nginx here listens on IPv4 only, and busybox wget resolves
+# `localhost` to ::1 first and gives up on connection-refused instead of falling back to IPv4 —
+# so the probe failed against a perfectly healthy server. (curl, used by the Node images, does
+# fall back; wget does not.)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=5 \
+  CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1
+ENTRYPOINT ["/entrypoint.sh"]

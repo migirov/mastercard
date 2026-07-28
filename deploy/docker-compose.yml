@@ -1,0 +1,149 @@
+# Production deployment of the XBS Embedded stack from PUBLISHED images.
+#
+# This file pulls; it never builds. It is the artifact handed to an operator who has no access
+# to the source repository — everything they need is this file, `.env`, and the Mastercard key
+# material delivered out of band. See DEPLOY.md.
+#
+# Postgres is OPTIONAL and off by default, on the assumption that production uses a managed
+# instance (RDS). To run one in-stack instead:  docker compose --profile with-postgres up -d
+name: xbs
+
+services:
+  # ── Optional in-stack Postgres ────────────────────────────────────────────────────────────
+  # Not started unless the `with-postgres` profile is requested. One server, two databases:
+  # `mc_gateway` (created here) and `mc_demo` (created by app-bff on first boot).
+  postgres:
+    profiles: ['with-postgres']
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:?set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${GATEWAY_DB_NAME:-mc_gateway}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${GATEWAY_DB_NAME:-mc_gateway}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ── The product: Mastercard Cross-Border gateway ──────────────────────────────────────────
+  gateway:
+    image: ${REGISTRY:-ghcr.io/migirov/mastercard}/gateway:${IMAGE_TAG:?set IMAGE_TAG in .env}
+    environment:
+      # --- Mastercard API (all four REQUIRED — the service refuses to start without them) ---
+      MC_BASE_URL: ${MC_BASE_URL:?}
+      MC_CONSUMER_KEY: ${MC_CONSUMER_KEY:?}
+      MC_PARTNER_ID: ${MC_PARTNER_ID:?}
+      MC_SIGNING_KEY_PATH: ${MC_SIGNING_KEY_PATH:?}
+      MC_SIGNING_KEY_PASSWORD: ${MC_SIGNING_KEY_PASSWORD:?}
+      # --- Field-level encryption (JWE) ---
+      MC_ENCRYPTION_ENABLED: ${MC_ENCRYPTION_ENABLED:-false}
+      MC_ENCRYPTION_CERT_PATH: ${MC_ENCRYPTION_CERT_PATH:-}
+      MC_ENCRYPTION_FINGERPRINT: ${MC_ENCRYPTION_FINGERPRINT:-}
+      MC_DECRYPTION_KEY_PATH: ${MC_DECRYPTION_KEY_PATH:-}
+      # --- Auth (all REQUIRED) ---
+      MC_JWT_SECRET: ${MC_JWT_SECRET:?}
+      MC_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:?} # same value mastercard-bff sends
+      MC_ADMIN_TOKEN: ${MC_ADMIN_TOKEN:?}
+      # --- Database ---
+      DATABASE_URL: ${GATEWAY_DATABASE_URL:?}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      # --- Runtime ---
+      # Leave NODE_ENV unset for the first deployment. Setting it to `production` turns on gates
+      # that fail startup unless the whole production checklist in DEPLOY.md is satisfied.
+      NODE_ENV: ${GATEWAY_NODE_ENV:-}
+      PORT: '3000'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-}
+      TRUST_PROXY: ${TRUST_PROXY:-} # number of proxy hops in front (ALB = 1), empty = off
+      MC_SECRET_STORE: ${MC_SECRET_STORE:-local}
+      MC_SECRET_STORE_REGION: ${MC_SECRET_STORE_REGION:-}
+      # --- Webhook authenticity (mTLS) — required once NODE_ENV=production ---
+      MC_WEBHOOK_MTLS_ENABLED: ${MC_WEBHOOK_MTLS_ENABLED:-false}
+      MC_WEBHOOK_ALLOWED_CLIENT_CNS: ${MC_WEBHOOK_ALLOWED_CLIENT_CNS:-}
+      MC_WEBHOOK_ALLOWED_ISSUER_CNS: ${MC_WEBHOOK_ALLOWED_ISSUER_CNS:-}
+      MC_WEBHOOK_TOKEN: ${MC_WEBHOOK_TOKEN:-}
+      TLS_KEY_PATH: ${TLS_KEY_PATH:-}
+      TLS_CERT_PATH: ${TLS_CERT_PATH:-}
+      TLS_CLIENT_CA_PATH: ${TLS_CLIENT_CA_PATH:-}
+    volumes:
+      # Mastercard key material. NEVER baked into the image — delivered out of band and mounted
+      # read-only. The MC_*_PATH values above are relative to /app, so `./certs/x.p12` resolves
+      # here. Populate ${CERTS_DIR} on the host before the first start.
+      - ${CERTS_DIR:-./certs}:/app/certs:ro
+    restart: unless-stopped
+
+  # ── Cross-border BFF (stateless) ──────────────────────────────────────────────────────────
+  mastercard-bff:
+    image: ${REGISTRY:-ghcr.io/migirov/mastercard}/mastercard-bff:${IMAGE_TAG:?set IMAGE_TAG in .env}
+    depends_on:
+      # Ordering only. This service is stateless and degrades to demo responses while the
+      # gateway boots, then recovers — a hard health gate here would abort the whole stack
+      # whenever the gateway's migrations run long.
+      gateway:
+        condition: service_started
+    environment:
+      GATEWAY_URL: http://gateway:3000
+      GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:?} # must equal the gateway's MC_INTERNAL_TOKEN
+      GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in .env}
+      NODE_ENV: ${BFF_NODE_ENV:-}
+      PORT: '4000'
+      # Per-capability live|demo switches. `live` calls the real Mastercard API through the
+      # gateway; `demo` synthesizes a realistic response. Flip to live as Mastercard enables
+      # each one — no rebuild, just a restart.
+      XBS_QUOTE_MODE: ${XBS_QUOTE_MODE:-demo}
+      XBS_VALIDATION_MODE: ${XBS_VALIDATION_MODE:-live}
+      XBS_BALANCES_MODE: ${XBS_BALANCES_MODE:-live}
+      XBS_PAYMENT_MODE: ${XBS_PAYMENT_MODE:-demo}
+      XBS_STATUS_MODE: ${XBS_STATUS_MODE:-demo}
+      XBS_BANK_LOOKUP_MODE: ${XBS_BANK_LOOKUP_MODE:-live}
+      XBS_IBAN_MODE: ${XBS_IBAN_MODE:-live}
+      XBS_CASH_PICKUP_MODE: ${XBS_CASH_PICKUP_MODE:-live}
+      XBS_RATES_MODE: ${XBS_RATES_MODE:-demo}
+      XBS_ENDPOINT_GUIDE_MODE: ${XBS_ENDPOINT_GUIDE_MODE:-demo}
+      XBS_QUOTE_LIFECYCLE_MODE: ${XBS_QUOTE_LIFECYCLE_MODE:-demo}
+      XBS_PAYMENT_TRACKER_MODE: ${XBS_PAYMENT_TRACKER_MODE:-demo}
+      XBS_RFI_MODE: ${XBS_RFI_MODE:-demo}
+    restart: unless-stopped
+
+  # ── App backend (entity store / auth / integrations) ──────────────────────────────────────
+  app-bff:
+    image: ${REGISTRY:-ghcr.io/migirov/mastercard}/app-bff:${IMAGE_TAG:?set IMAGE_TAG in .env}
+    environment:
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in .env}
+      # This service CREATEs its database on first boot, so the role needs CREATEDB (or the
+      # database must be pre-created with this exact name).
+      DEMO_DB_HOST: ${APP_DB_HOST:?}
+      DEMO_DB_PORT: ${APP_DB_PORT:-5432}
+      DEMO_DB_USER: ${DB_USER:?}
+      DEMO_DB_PASSWORD: ${DB_PASSWORD:?}
+      DEMO_DB_NAME: ${APP_DB_NAME:-mc_demo}
+      NODE_ENV: ${BFF_NODE_ENV:-}
+      PORT: '4000'
+    restart: unless-stopped
+
+  # ── Web UI (nginx) ────────────────────────────────────────────────────────────────────────
+  frontend:
+    image: ${REGISTRY:-ghcr.io/migirov/mastercard}/frontend:${IMAGE_TAG:?set IMAGE_TAG in .env}
+    depends_on:
+      - app-bff
+      - mastercard-bff
+    environment:
+      # Read at container START by the image's entrypoint — no rebuild when the token rotates.
+      DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in .env}
+      DEMO_API_URL: /demo-api
+      APP_BFF_URL: app-bff:4000
+      MASTERCARD_BFF_URL: mastercard-bff:4000
+    ports:
+      # Loopback by default: put a TLS-terminating reverse proxy (ALB, nginx, Cloudflare) in
+      # front. The bundle carries DEMO_API_TOKEN by design, so a direct cleartext path to the
+      # origin hands it out. Set FRONTEND_BIND=0.0.0.0 only if something else fronts this host.
+      - '${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80'
+    restart: unless-stopped
+
+volumes:
+  pgdata:

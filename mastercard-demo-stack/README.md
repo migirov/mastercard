@@ -46,9 +46,9 @@ docker compose up -d --build      # first run builds all images
 docker compose ps                 # all 5 should be running/healthy
 ```
 
-> **Rebuild all three app images together.** The frontend bakes `DEMO_API_TOKEN` into its JS
-> bundle at build time, so rebuilding only the BFFs leaves the SPA holding the old token and
-> every call in the browser returns 401. `docker compose up -d --build` does the right thing.
+> **Changing `DEMO_API_TOKEN` needs a restart, not a rebuild.** The frontend container writes
+> the token into the page it serves at container start (its entrypoint generates `/config.js`),
+> so `docker compose up -d` propagates a new token to all three services at once.
 
 - **Web UI:** http://localhost:8080 — password **`REDACTED-DEMO-PASSWORD`**
 - app-bff (direct API, for devs): http://localhost:4010/health
@@ -210,7 +210,7 @@ curl http://localhost:4011/health          # the live|demo wiring (mastercard-bf
 AUTH="Authorization: Bearer $(grep '^DEMO_API_TOKEN=' .env | cut -d= -f2-)"
 curl -H "$AUTH" http://localhost:4010/entities/Invoice   # seeded entities (app-bff)
 
-docker compose up -d --build               # rebuild after code changes (all three images)
+docker compose up -d --build               # rebuild after code changes
 docker compose down -v                     # reset everything (re-seeds on next up)
 ```
 

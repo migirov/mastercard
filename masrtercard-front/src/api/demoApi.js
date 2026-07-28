@@ -1,20 +1,30 @@
 /// <reference types="vite/client" />
-// Thin fetch wrapper around the demo BFF. The base URL comes from VITE_DEMO_API_URL
-// (injected at build time by docker-compose); falls back to localhost for `npm run dev`.
-// The reference above is what teaches `checkJs` about `import.meta.env` — jsconfig sets
-// `"types": []`, so nothing is picked up implicitly.
-const BASE = (import.meta.env.VITE_DEMO_API_URL ?? 'http://localhost:4000').replace(
-  /\/+$/,
-  '',
-);
-
-// Shared bearer token for both BFFs, inlined at BUILD time like VITE_DEMO_API_URL.
+// Thin fetch wrapper around the demo BFF.
 //
-// Being in the bundle means it is readable by anyone who can load the app — this is one trust
+// Configuration is read at RUNTIME from `window.__XBS_CONFIG__`, which the container's
+// entrypoint writes to `/config.js` from its environment before nginx starts (index.html loads
+// that file ahead of the bundle). Baking these into the bundle at build time instead would tie
+// one image to one deployment's token — the published image must be environment-agnostic, so
+// an operator can set the token at `docker run` time and no secret ever enters an image layer.
+//
+// The `import.meta.env` fallbacks keep `npm run dev` working (Vite serves the `public/config.js`
+// stub, which sets no values). The reference above is what teaches `checkJs` about
+// `import.meta.env` — jsconfig sets `"types": []`, so nothing is picked up implicitly.
+const RUNTIME = /** @type {any} */ (globalThis).__XBS_CONFIG__ ?? {};
+
+const BASE = (
+  RUNTIME.apiUrl ||
+  import.meta.env.VITE_DEMO_API_URL ||
+  'http://localhost:4000'
+).replace(/\/+$/, '');
+
+// Shared bearer token for both BFFs.
+//
+// Reaching the browser means it is readable by anyone who can load the app — this is one trust
 // boundary keeping the APIs off the open internet, NOT per-user authorization. Do not treat it
 // as a user secret. Empty here → every call 401s, which is the intended failure: see the
-// build-arg wiring in Dockerfile and docker-compose.yml.
-const TOKEN = import.meta.env.VITE_DEMO_API_TOKEN ?? '';
+// entrypoint wiring in Dockerfile and docker-compose.yml.
+const TOKEN = RUNTIME.apiToken || import.meta.env.VITE_DEMO_API_TOKEN || '';
 
 /**
  * @param {string} method

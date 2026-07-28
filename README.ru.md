@@ -19,6 +19,7 @@ Mastercard** там, где она доступна, и синтезируя р�
 | [`app-bff/`](app-bff/) | **Постоянный бэкенд приложения.** Бессхемное хранилище сущностей + `auth.me` + integrations. Держит все данные UI (инвойсы, карты, сотрудники…). Без Mastercard. | `4010` | Postgres `mc_demo` |
 | [`masrtercard-front/`](masrtercard-front/) | **Веб-интерфейс** (React / Vite, раздаётся nginx). Ходит только в `/demo-api`; nginx разводит путь между двумя BFF. | `8080` | нет |
 | [`mastercard-demo-stack/`](mastercard-demo-stack/) | **Docker Compose**, связывающий пять контейнеров (включая общий Postgres), плюс пошаговый гайд по тестированию. | — | — |
+| [`deploy/`](deploy/) | **Комплект развёртывания.** Compose-файл, который *тянет* опубликованные образы, аннотированный `.env.example` и руководство оператора — то, что передаётся тому, кто разворачивает прод. | — | — |
 
 ```
  браузер ─► frontend (nginx, :8080) ─► /demo-api ─┬─ /xbs/* + /features/* ─► mastercard-bff (:4011) ─► шлюз mastercard (:3000) ─► Mastercard ПЕСОЧНИЦА
@@ -46,8 +47,8 @@ docker compose ps             # все 5 должны быть running/healthy
 - health app-bff: http://localhost:4010/health · health mastercard-bff (разводка live/demo): http://localhost:4011/health
 
 API обоих BFF требуют `Authorization: Bearer $DEMO_API_TOKEN`; публичный маршрут только
-`/health`. Фронт зашивает тот же токен в бандл на этапе сборки, поэтому **пересобирать нужно все
-три образа приложения разом** — иначе каждый запрос из SPA ответит 401.
+`/health`. Контейнер фронта читает тот же токен из окружения при старте, поэтому его ротация —
+это `docker compose up -d` без пересборки, и три сервиса не могут разойтись.
 
 Полный гайд по запуску/тестированию, источники данных каждой страницы и матрица live-vs-demo —
 в **[mastercard-demo-stack/README.ru.md](mastercard-demo-stack/README.ru.md)** и гайдах
@@ -75,6 +76,7 @@ mastercard-app/
 ├─ app-bff/              app-data BFF (сущности/auth)       → :4010, бд mc_demo
 ├─ masrtercard-front/     веб-интерфейс (React/Vite + nginx) → :8080
 ├─ mastercard-demo-stack/ docker compose + тест-доки
+├─ deploy/                комплект развёртывания прода (тянет опубликованные образы)
 └─ .gitignore             корневая защита от секретов
 ```
 

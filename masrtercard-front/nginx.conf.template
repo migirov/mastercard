@@ -1,3 +1,11 @@
+# nginx config TEMPLATE. `docker-entrypoint.sh` runs envsubst over it with an explicit
+# variable list — ${APP_BFF_URL} and ${MASTERCARD_BFF_URL} only — and writes the result to
+# /etc/nginx/conf.d/default.conf. The explicit list is what keeps nginx's own runtime
+# variables ($host, $remote_addr, $uri) from being substituted away to empty strings.
+#
+# The two upstreams are variables, not hardcoded service names, because the published image
+# has to run wherever the operator puts the backends (compose service names, ECS service
+# discovery, a k8s Service). Defaults match the compose stack.
 server {
   listen 80;
   server_name _;
@@ -27,15 +35,33 @@ server {
   #    built CSS; fonts.gstatic.com serves the font files themselves.
   #  - frame-src is deliberately broad: the invoice viewer frames customer-supplied document
   #    URLs. The containment for that frame is its sandbox="" attribute, not this directive.
-  #  - script-src stays 'self': the built index.html has no inline script. If a dynamic import
-  #    is ever added, Vite emits an inline modulepreload polyfill and this would break the app.
+  #  - script-src stays 'self': the built index.html has no inline script. The runtime
+  #    /config.js is a same-origin FILE (written by the entrypoint), not inline, so 'self'
+  #    covers it. If a dynamic import is ever added, Vite emits an inline modulepreload
+  #    polyfill and this would break the app.
   add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://images.unsplash.com https://upload.wikimedia.org; connect-src 'self'; frame-src https:; media-src 'none'; worker-src 'none'" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header X-Frame-Options "DENY" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
   add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;
 
-  # The SPA calls the BFFs under /demo-api/* (VITE_DEMO_API_URL=/demo-api). nginx splits the
+  # Container liveness. Public and cheap by design — it is the only route an orchestrator
+  # (docker HEALTHCHECK, an ALB target group, a k8s probe) needs, and it reveals nothing.
+  location = /healthz {
+    access_log off;
+    add_header Content-Type text/plain;
+    return 200 "ok\n";
+  }
+
+  # The runtime config carries the deployment's API token, and unlike the hashed bundle assets
+  # its URL never changes — so it must never be cached, or a redeployed token would be masked
+  # by a stale copy in a browser or an intermediary.
+  location = /config.js {
+    add_header Cache-Control "no-store" always;
+    try_files $uri =404;
+  }
+
+  # The SPA calls the BFFs under /demo-api/* (DEMO_API_URL=/demo-api). nginx splits the
   # path between the two backends (same-origin for the browser, so no CORS). The trailing
   # slash on proxy_pass strips the matched prefix. Most specific location wins:
   #   /demo-api/xbs/*      + /demo-api/features/*  → mastercard-bff (cross-border layer)
@@ -43,13 +69,13 @@ server {
 
   # Cross-border (Mastercard) — the /xbs and /features API.
   location /demo-api/xbs/ {
-    proxy_pass http://mastercard-bff:4000/xbs/;
+    proxy_pass http://${MASTERCARD_BFF_URL}/xbs/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
   }
   location /demo-api/features/ {
-    proxy_pass http://mastercard-bff:4000/features/;
+    proxy_pass http://${MASTERCARD_BFF_URL}/features/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
@@ -57,7 +83,7 @@ server {
 
   # App data (entities / auth.me / integrations) — the permanent frontend backend.
   location /demo-api/ {
-    proxy_pass http://app-bff:4000/;
+    proxy_pass http://${APP_BFF_URL}/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
