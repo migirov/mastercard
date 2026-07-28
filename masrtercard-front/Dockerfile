@@ -27,6 +27,8 @@ EXPOSE 80
 #   DEMO_API_URL       base path the SPA calls (default /demo-api, proxied by this nginx)
 #   APP_BFF_URL        host:port of app-bff        (default app-bff:4000)
 #   MASTERCARD_BFF_URL host:port of mastercard-bff (default mastercard-bff:4000)
+#   DNS_RESOLVER       override the nameserver nginx uses; defaults to the container's own
+#                      /etc/resolv.conf, which is what you want under compose/ECS/Kubernetes
 # 127.0.0.1, not `localhost`: nginx here listens on IPv4 only, and busybox wget resolves
 # `localhost` to ::1 first and gives up on connection-refused instead of falling back to IPv4 —
 # so the probe failed against a perfectly healthy server. (curl, used by the Node images, does

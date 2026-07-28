@@ -62,20 +62,38 @@ server {
   }
 
   # The SPA calls the BFFs under /demo-api/* (DEMO_API_URL=/demo-api). nginx splits the
-  # path between the two backends (same-origin for the browser, so no CORS). The trailing
-  # slash on proxy_pass strips the matched prefix. Most specific location wins:
+  # path between the two backends (same-origin for the browser, so no CORS). Most specific
+  # location wins:
   #   /demo-api/xbs/*      + /demo-api/features/*  → mastercard-bff (cross-border layer)
   #   everything else under /demo-api/*            → app-bff       (entities/auth/integrations)
+  #
+  # Each upstream goes through a VARIABLE, and the DNS server comes from the container's own
+  # /etc/resolv.conf (filled in by the entrypoint). This is not style — with a literal hostname
+  # nginx resolves it ONCE, at startup, and REFUSES TO START if it does not resolve yet. In an
+  # orchestrator that means the frontend CrashLoopBackOffs whenever it is applied before the
+  # backend services exist, and it also pins the address for the container's whole life. Through
+  # a variable, nginx resolves per request and a missing backend degrades to 502 instead of a
+  # dead container.
+  #
+  # The cost of the variable form: nginx no longer appends the matched URI to proxy_pass, so
+  # each location rewrites the path explicitly. The rewrites below reproduce exactly what the
+  # trailing-slash form used to do — /demo-api/xbs/foo → /xbs/foo, /demo-api/bar → /bar — and
+  # `rewrite` carries the original query string over on its own.
+  resolver ${DNS_RESOLVER} valid=10s ipv6=off;
+  set $mastercard_bff ${MASTERCARD_BFF_URL};
+  set $app_bff ${APP_BFF_URL};
 
   # Cross-border (Mastercard) — the /xbs and /features API.
   location /demo-api/xbs/ {
-    proxy_pass http://${MASTERCARD_BFF_URL}/xbs/;
+    rewrite ^/demo-api(/xbs/.*)$ $1 break;
+    proxy_pass http://$mastercard_bff;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
   }
   location /demo-api/features/ {
-    proxy_pass http://${MASTERCARD_BFF_URL}/features/;
+    rewrite ^/demo-api(/features/.*)$ $1 break;
+    proxy_pass http://$mastercard_bff;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
@@ -83,7 +101,8 @@ server {
 
   # App data (entities / auth.me / integrations) — the permanent frontend backend.
   location /demo-api/ {
-    proxy_pass http://${APP_BFF_URL}/;
+    rewrite ^/demo-api(/.*)$ $1 break;
+    proxy_pass http://$app_bff;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 5m;
