@@ -82,8 +82,9 @@ TRUST_PROXY                             # число хопов ингресса
 # 1) зависимости
 npm install
 
-# 2) PostgreSQL
-docker compose up -d            # Postgres 16, см. docker-compose.yml
+# 2) PostgreSQL — укажите сервис; голый `docker compose up -d` также поднимет
+#    контейнер шлюза (он грузит .env и монтирует certs), не только Postgres.
+docker compose up -d postgres   # Postgres 16, см. docker-compose.yml
 
 # 3) положить ключи в certs/ и заполнить .env (см. выше)
 

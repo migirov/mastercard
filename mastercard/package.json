@@ -2,6 +2,9 @@
   "name": "mastercard-crossborder",
   "version": "0.0.1",
   "description": "Embeddable multi-tenant NestJS gateway to Mastercard Cross-Border Services",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "scripts": {
     "build": "nest build",
     "start": "nest start",

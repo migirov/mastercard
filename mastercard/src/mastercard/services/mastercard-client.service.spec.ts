@@ -3,6 +3,7 @@ import oauthSigner = require('mastercard-oauth1-signer');
 import { GatewayConfig } from '../../config/gateway-config';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { McCredentials } from '../../credentials/credentials.types';
+import { MIN_TLS_VERSION } from '../../common/utils/tls';
 import { MastercardClient } from './mastercard-client.service';
 
 jest.mock('axios');
@@ -230,5 +231,23 @@ describe('MastercardClient — decrypt-no-retry (regression)', () => {
     ).rejects.toThrow();
     // GET, but NO retry: the crypto error is deterministic.
     expect(httpRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MastercardClient — TLS floor', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('pins minVersion TLSv1.2 on the agent, independent of the host process default', () => {
+    setup();
+
+    const createArgs = (axios.create as jest.Mock).mock.calls[0][0] as {
+      httpsAgent: { options?: { minVersion?: string } };
+    };
+    // Asserted on the agent, not on tls.DEFAULT_MIN_VERSION: the process default is the
+    // HOST's to change (NODE_OPTIONS --tls-min-v1.0 etc.), and this module must not inherit
+    // whatever it happens to be. The inbound listener reads the same constant — see
+    // harness/https-options.spec.ts.
+    expect(createArgs.httpsAgent.options?.minVersion).toBe(MIN_TLS_VERSION);
+    expect(MIN_TLS_VERSION).toBe('TLSv1.2');
   });
 });

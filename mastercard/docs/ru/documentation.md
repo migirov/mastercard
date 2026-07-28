@@ -18,6 +18,7 @@
 | [OAuthClient](#oauthclient) | Postgres `oauth_clients` | OAuth2-клиент партнёра (доступ к API) |
 | [AuditLog](#auditlog-auditentry) | Postgres `audit_log` | Запись журнала операций |
 | [PaymentIdempotency](#paymentidempotency-payment_idempotency) | Postgres `payment_idempotency` | Идемпотентность платежей (ключ `txref:sha256(transaction_reference)`) |
+| TransactionOwnership | Postgres `tx_ownership` | Авторитетное владение PLATFORM-тенанта над `transaction_reference` (`UNIQUE(tenantId, refHash)`) |
 | [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Персист событий вебхука (статусные push + дедуп НЕ-статусных) |
 | [McCredentials](#mccredentials) | не хранится (резолв + кэш) | Резолвенные ключи Mastercard для тенанта |
 | [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore (AWS Secrets Manager) | Секреты партнёра (ключи, consumerKey) |
@@ -39,6 +40,7 @@
 | `oauth_clients` | **Postgres** (TypeORM) | домен | ключ выпущен на A → аутентификация на B |
 | `audit_log` | **Postgres** (TypeORM) | домен | агрегируется со всех подов |
 | `idempotency` | **Postgres** `payment_idempotency` (`PaymentIdempotencyStore`) | домен | ретрай платежа на другом поде → иначе двойное списание |
+| `tx_ownership` (PLATFORM) | **Postgres** `tx_ownership` (`TransactionOwnership`) | домен | claim записан на поде A → доступ PLATFORM by-ref/by-id проверяется на B; `UNIQUE(tenantId, refHash)` |
 | webhook-дедуп (НЕ-статусные) | **Postgres** `tx_status` (`INSERT…ON CONFLICT` eventRef) | домен | ретрай вебхука MC на другом поде → иначе дубль |
 | `tx_status` (все события вебхука) | **Postgres** (TypeORM) | домен | событие приходит на поде A → мерчант читает на B; дедуп = UNIQUE(eventRef) |
 | rate-limit | самодостаточный per-pod `@nestjs/throttler` | эфемерный | корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative |
@@ -427,6 +429,7 @@ txref:sha256(transaction_reference)`; заголовка `Idempotency-Key` **н�
 | `done` | `boolean` | `true`, как только вызов MC завершился и результат записан. |
 | `result` | `jsonb` | Кэшированный результат MC (отдаётся ретраю при `done`). |
 | `lockedAt` | `timestamptz` | Когда захвачен in-progress-слот (пере-захват после `LOCK_TTL`). |
+| `lockToken` | `uuid?` | Токен на захват, регенерируется при каждом (пере)захвате; `release`/`complete` скоупятся по нему, чтобы протухший пере-захват на другом поде не затёр живой захват. NULL только для строк до миграции. |
 
 Индекс: **UNIQUE(`tenantId`, `idemKey`)**.
 
@@ -434,8 +437,9 @@ txref:sha256(transaction_reference)`; заголовка `Idempotency-Key` **н�
 
 - **Атомарный захват** — `INSERT … ON CONFLICT (tenantId, idemKey) DO UPDATE … WHERE done
   = false AND lockedAt < now() − LOCK_TTL AND fingerprint = EXCLUDED.fingerprint`: вставит
-  свежий in-progress-слот либо пере-захватит протухший. Непустой `RETURNING id` ⇔ слот наш,
-  выполняем вызов MC.
+  свежий in-progress-слот либо пере-захватит протухший. `SET` также регенерирует `lockToken =
+  gen_random_uuid()`; непустой `RETURNING "lockToken"` ⇔ слот наш, выполняем вызов MC, а
+  `release`/`complete` скоупятся по этому токену (общий `id` не отличит протухшего пере-захватчика).
 - **In-progress** (слот держит свежий вызов) → **409** «уже обрабатывается».
 - **Тот же ключ, ДРУГОЕ тело** (несовпадение `fingerprint`) → **422** (семантика IETF
   Idempotency-Key / Stripe).
@@ -486,8 +490,11 @@ Status Change) для доставки мерчанту через polling. Де
   (`eventRef`/`transactionReference`) ограничены выше по стеку `@MaxLength` в DTO вебхука,
   `tenantId` — внутренний резолвнутый id.
 - **Чтение (`findForTenant`)** — по `transaction_reference`, tenant-scoped: OWN видит
-  СТРОГО свои строки; PLATFORM — свои + общий пул (`tenantId IS NULL`). Потолок `LIMIT 200`,
-  сортировка по `id ASC`. Эндпоинт: `GET /crossborder/status-events?ref=`.
+  СТРОГО свои строки; PLATFORM-тенант видит свои строки плюс строку общего пула
+  (`tenantId IS NULL`) по `ref` только при ЗАВЕРШЁННОМ платеже на этот ref
+  (`TransactionOwnership.hasCompletedClaim` — строка `tx_ownership` с `mcPaymentId IS NOT NULL`);
+  одна котировка пул не открывает. Потолок `LIMIT 200`, сортировка по `id ASC`. Эндпоинт:
+  `GET /crossborder/status-events?ref=`.
 
 ---
 
@@ -573,6 +580,11 @@ in-memory (per-pod). Остальной код работает только с 
 
 `OwnCredentialsProvider.validateBundle` требует минимум для подписи: `consumerKey` и
 `signing`. Поля шифрования опциональны (нужны только при `MC_ENCRYPTION_ENABLED`).
+
+Кроме формы бандла, резолв OWN **отклоняется (422)**, если полученные `consumerKey` или
+`partnerId` совпадают с платформенной идентичностью (`assertNotPlatformIdentity`): OWN-тенант
+обязан ходить под своей идентичностью Mastercard, поэтому `secretRef`, по ошибке указывающий
+на платформенный бандл, ловится здесь.
 
 ---
 

@@ -204,7 +204,9 @@ no `Idempotency-Key` header. Completed records are permanent (one
 ### GET /crossborder/status-events?ref=…
 **Purpose.** Stored push statuses by `transaction_reference`. · **Upstream:** **no MC call** — local read from the `tx_status` table. · **Auth:** tenant. Query `ref` (required) — `SafeIdPipe`.
 
-Tenant-scoped: OWN sees strictly its own events; PLATFORM — its own + the shared pool by ref.
+Tenant-scoped: OWN sees strictly its own events; a PLATFORM tenant sees its own, plus shared-pool
+events for a `ref` only if it holds a COMPLETED payment on that ref (a `tx_ownership` row with an
+MC payment id) — a quote alone does not unlock the pool.
 Response — an array of `StatusEventViewDto`: `transactionReference`, `eventType`,
 `transactionType`, `status`, `stage`, `receivedAt`, `payload` (internal `id`/`tenantId` not exposed).
 
@@ -418,7 +420,7 @@ A partner becomes `ACTIVE` (transactions allowed) only with **both** approvals a
 # OAuth — issue a merchant token
 
 ### POST /oauth/token
-**Purpose.** Issue a merchant JWT (this *is* the authentication point). · **Upstream:** none (local JWT) · **Auth:** public, protected by `OAuthThrottlerGuard` (**10/min per `client_id`**, IP fallback) · **Code:** `200` (RFC 6749), headers `Cache-Control: no-store`.
+**Purpose.** Issue a merchant JWT (this *is* the authentication point). · **Upstream:** none (local JWT) · **Auth:** public, protected by `OAuthThrottlerGuard` (**10/min per `client_id` + source IP**; IP-only when no `client_id`) · **Code:** `200` (RFC 6749), headers `Cache-Control: no-store`.
 
 Body (`form-urlencoded` or JSON), `TokenRequestDto` (strict validation), grant `client_credentials`:
 
@@ -452,7 +454,7 @@ JWT lives 15 min (HS256, `tid` = tenantId). Errors: `400 unsupported_grant_type`
 | Group | Limit | Key |
 |---|---|---|
 | `/crossborder/*` | 120 / min | `tenantId` (fail-closed) |
-| `/oauth/token` | 10 / min | `client_id` (not bypassable by IP rotation) |
+| `/oauth/token` | 10 / min | `client_id` + source IP |
 | `/admin/*` | 120 / min | IP |
 | `/webhooks/*` | 1200 / min | per-pod |
 

@@ -4,6 +4,7 @@ import * as https from 'https';
 import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import { EncryptionService } from '../../encryption/services/encryption.service';
+import { MIN_TLS_VERSION } from '../../common/utils/tls';
 import { NonRetryableMcError } from './mc.errors';
 import { installMcInterceptors, McAxiosConfig } from './mc-interceptors';
 import {
@@ -63,6 +64,15 @@ export class MastercardClient implements OnApplicationShutdown {
       maxSockets: 50,
       maxFreeSockets: 10,
       scheduling: 'lifo',
+      // Pin the TLS floor rather than inheriting it. Node's own default is already TLSv1.2,
+      // so this changes nothing at runtime today — but the default is process-global and the
+      // HOST owns the process: `--tls-min-v1.0`/`--tls-min-v1.1` in NODE_OPTIONS, or a call to
+      // `tls.DEFAULT_MIN_VERSION`, would silently drop every Mastercard connection to a
+      // deprecated protocol. This module is embedded in a foreign monolith and cannot police
+      // the host's flags, so it states its own floor per-agent, where the host cannot reach it.
+      // Shared with the inbound listener via MIN_TLS_VERSION — see that file for the full
+      // rationale and for why this is our baseline rather than a quoted MC requirement.
+      minVersion: MIN_TLS_VERSION,
     });
     this.http = axios.create({
       baseURL: this.baseUrl,

@@ -92,6 +92,7 @@ across pods; everything domain-related is in **PostgreSQL**. Full breakdown in
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
 | payment idempotency | **PostgreSQL** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, atomic `INSERT ON CONFLICT`) |
+| transaction ownership (PLATFORM) | **PostgreSQL** (`tx_ownership`, `UNIQUE(tenantId, refHash)`; `mcPaymentId` set once a payment completes) |
 | webhook dedup | **PostgreSQL** (`tx_status`, `UNIQUE(eventRef)`, atomic `INSERT ON CONFLICT`) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` (correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative) |
 | credentials cache | **in-memory per-pod** (cache from AWS Secrets Manager, TTL) |
@@ -141,7 +142,8 @@ interface McCredentials {
 
 - **PLATFORM** → the shared platform set from `.env`/config; cache without TTL.
 - **OWN** → `tenant.secretRef` from AWS Secrets Manager (`SecretStore`) → the partner's keys; cache
-  with TTL (`MC_CREDS_CACHE_TTL_MS`) + stampede dedup + `invalidate()` for rotation.
+  with TTL (`MC_CREDS_CACHE_TTL_MS`) + LRU cap (500) + `invalidate()` for rotation (cache-manager v5
+  does not coalesce concurrent misses — no stampede dedup, matching §10).
 - **Secrets are not logged and never leave in responses.** Signing is **stateless** —
   `McCredentials` are passed on every call.
 
@@ -184,8 +186,10 @@ if needed (downsides — in documentation.md).
 ## 9. Authorization (R5)
 
 - **External:** the partner gets OAuth2 client credentials (`POST /oauth/token` →
-  JWT 15 min). `client_id`/`secret` are stored hashed; rate-limit on `/oauth/token`
-  is by **`client_id`** (`OAuthThrottlerGuard`, not bypassable by IP rotation behind a proxy).
+  JWT 15 min). `client_id`/`secret` are stored hashed; the rate-limit on `/oauth/token`
+  (10/min) is keyed on **`client_id` + source IP** (`OAuthThrottlerGuard`, falling back to IP-only
+  when no `client_id`): a foreign IP can no longer drain a victim's token-minting bucket, and
+  secret brute-force stays capped at 10/min per IP against a 192-bit secret.
 - **Internal:** trusted services — `X-Internal-Token` + explicit `X-Tenant-Id`.
 - Both paths converge on a single `req.tenantContext` (`@CurrentTenant`), so the code
   doesn't know where the request came from. `tenantId` is **never** taken from the

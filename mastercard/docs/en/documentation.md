@@ -18,6 +18,7 @@ Related documents: [architecture.md](./architecture.md) (design).
 | [OAuthClient](#oauthclient) | Postgres `oauth_clients` | Partner's OAuth2 client (API access) |
 | [AuditLog](#auditlog-auditentry) | Postgres `audit_log` | Operation log record |
 | [PaymentIdempotency](#paymentidempotency-payment_idempotency) | Postgres `payment_idempotency` | Payment idempotency (keyed by `txref:sha256(transaction_reference)`) |
+| TransactionOwnership | Postgres `tx_ownership` | Authoritative PLATFORM ownership of a `transaction_reference` (`UNIQUE(tenantId, refHash)`) |
 | [TransactionStatus](#transactionstatus-tx_status) | Postgres `tx_status` | Persisted webhook events (status push + non-status dedup) |
 | [McCredentials](#mccredentials) | not stored (resolve + cache) | Resolved Mastercard keys for a tenant |
 | [MerchantSecretBundle](#merchantsecretbundle--keymaterial) | SecretStore (AWS Secrets Manager) | Partner secrets (keys, consumerKey) |
@@ -39,6 +40,7 @@ The service is deployed to Docker/Kubernetes on **many pods**. Hence the rule:
 | `oauth_clients` | **Postgres** (TypeORM) | domain | key issued on A → authentication on B |
 | `audit_log` | **Postgres** (TypeORM) | domain | aggregated across all pods |
 | `idempotency` | **Postgres** `payment_idempotency` (`PaymentIdempotencyStore`) | domain | payment retry on another pod → otherwise a double charge |
+| `tx_ownership` (PLATFORM) | **Postgres** `tx_ownership` (`TransactionOwnership`) | domain | claim written on pod A → PLATFORM by-ref/by-id access checked on B; `UNIQUE(tenantId, refHash)` |
 | webhook dedup (NON-status) | **Postgres** `tx_status` (`INSERT…ON CONFLICT` eventRef) | domain | MC webhook retry on another pod → otherwise a duplicate |
 | `tx_status` (all webhook events) | **Postgres** (TypeORM) | domain | event arrives on pod A → merchant reads on B; dedup = UNIQUE(eventRef) |
 | rate-limit | self-standing per-pod `@nestjs/throttler` | ephemeral | correctness independent of the ingress; an ingress limit, if any, is optional defense-in-depth, not authoritative |
@@ -424,6 +426,7 @@ Table `payment_idempotency`.
 | `done` | `boolean` | `true` once the MC call completed and the result was recorded. |
 | `result` | `jsonb` | The cached MC result (returned to a retry once `done`). |
 | `lockedAt` | `timestamptz` | When the in-progress slot was claimed (re-claimable after `LOCK_TTL`). |
+| `lockToken` | `uuid?` | Per-claim token, regenerated on every (re)claim; `release`/`complete` scope on it so a stale re-claim by another pod can't clobber a live claim. NULL only for pre-migration rows. |
 
 Index: **UNIQUE(`tenantId`, `idemKey`)**.
 
@@ -431,8 +434,10 @@ Index: **UNIQUE(`tenantId`, `idemKey`)**.
 
 - **Atomic claim** — `INSERT … ON CONFLICT (tenantId, idemKey) DO UPDATE … WHERE done =
   false AND lockedAt < now() − LOCK_TTL AND fingerprint = EXCLUDED.fingerprint`: inserts a
-  fresh in-progress slot, or re-claims a stale one. `RETURNING id` non-empty ⇔ we own the
-  slot and run the MC call.
+  fresh in-progress slot, or re-claims a stale one. The `SET` also regenerates `lockToken =
+  gen_random_uuid()`; a non-empty `RETURNING "lockToken"` ⇔ we own the slot and run the MC
+  call, and `release`/`complete` are scoped to that token (the shared `id` can't distinguish a
+  stale re-claimer).
 - **In-progress** (slot held by a fresh call) → **409** "already being processed".
 - **Same key, DIFFERENT body** (`fingerprint` mismatch) → **422** (IETF Idempotency-Key /
   Stripe semantics).
@@ -483,8 +488,11 @@ read-by-ref path; (`receivedAt`).
   (`eventRef`/`transactionReference`) are bounded upstream by the webhook DTO's `@MaxLength`,
   `tenantId` is an internally resolved id.
 - **Read (`findForTenant`)** — by `transaction_reference`, tenant-scoped: OWN sees STRICTLY
-  its own rows; PLATFORM sees its own + the shared pool (`tenantId IS NULL`). `LIMIT 200`,
-  ordered by `id ASC`. Endpoint: `GET /crossborder/status-events?ref=`.
+  its own rows; a PLATFORM tenant sees its own rows, plus a shared-pool row (`tenantId IS NULL`)
+  for a `ref` only when it holds a COMPLETED payment on that ref
+  (`TransactionOwnership.hasCompletedClaim` — a `tx_ownership` row with `mcPaymentId IS NOT NULL`);
+  a quote claim alone never unlocks the pool. `LIMIT 200`, ordered by `id ASC`. Endpoint:
+  `GET /crossborder/status-events?ref=`.
 
 ---
 
@@ -569,6 +577,11 @@ normalized to PEM (`loadPrivateKeyFromP12*`).
 
 `OwnCredentialsProvider.validateBundle` requires the minimum for signing: `consumerKey`
 and `signing`. Encryption fields are optional (needed only with `MC_ENCRYPTION_ENABLED`).
+
+Beyond the bundle shape, an OWN resolution is **rejected (422)** when the resolved `consumerKey`
+or `partnerId` equals the platform's identity (`assertNotPlatformIdentity`): an OWN tenant must
+transact under its own Mastercard identity, so a `secretRef` mistakenly pointing at the platform
+bundle is caught here.
 
 ---
 

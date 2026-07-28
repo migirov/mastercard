@@ -10,7 +10,7 @@ lives here, seeded on boot. **It has NOTHING to do with Mastercard** — cross-b
 `/features`) is served by `mastercard-bff`. In the stack, nginx routes everything under
 `/demo-api` here EXCEPT `/demo-api/xbs/*` and `/demo-api/features/*`.
 
-It mirrors the sibling gateway's conventions: Zod-validated env, a typed `DemoConfig` (no
+It mirrors the sibling gateway's conventions: Zod-validated env, a typed `AppConfig` (no
 scattered `process.env`), migrations-only TypeORM (`synchronize: false`, `autoLoadEntities`),
 module-by-responsibility.
 

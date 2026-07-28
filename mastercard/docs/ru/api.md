@@ -205,7 +205,9 @@ JWE (RSA-OAEP-256 + A256GCM), реализован как **axios-интерце
 ### GET /crossborder/status-events?ref=…
 **Назначение.** Сохранённые push-статусы по `transaction_reference`. · **Upstream:** **нет вызова MC** — локальное чтение из таблицы `tx_status`. · **Auth:** tenant. Query `ref` (обязателен) — `SafeIdPipe`.
 
-Tenant-scoped: OWN видит строго свои события; PLATFORM — свои + общий пул по ref. Ответ —
+Tenant-scoped: OWN видит строго свои события; PLATFORM-тенант видит свои плюс события общего
+пула по `ref` только при ЗАВЕРШЁННОМ платеже на этот ref (строка `tx_ownership` с id платежа
+MC) — одна котировка пул не открывает. Ответ —
 массив `StatusEventViewDto`: `transactionReference`, `eventType`, `transactionType`, `status`,
 `stage`, `receivedAt`, `payload` (внутренние `id`/`tenantId` не отдаются).
 
@@ -419,7 +421,7 @@ Rate-limit 120/мин по IP. Вызовов в Mastercard нет.
 # OAuth — выдача токена мерчанта
 
 ### POST /oauth/token
-**Назначение.** Выдать JWT мерчанту (сам является точкой аутентификации). · **Upstream:** нет (локальный JWT) · **Auth:** публичный, защищён `OAuthThrottlerGuard` (**10/мин по `client_id`**, фолбэк на IP) · **Код:** `200` (RFC 6749), заголовки `Cache-Control: no-store`.
+**Назначение.** Выдать JWT мерчанту (сам является точкой аутентификации). · **Upstream:** нет (локальный JWT) · **Auth:** публичный, защищён `OAuthThrottlerGuard` (**10/мин по `client_id` + IP источника**; только IP, если нет `client_id`) · **Код:** `200` (RFC 6749), заголовки `Cache-Control: no-store`.
 
 Тело (`form-urlencoded` или JSON), `TokenRequestDto` (строгая валидация), grant `client_credentials`:
 
@@ -453,7 +455,7 @@ JWT живёт 15 мин (HS256, `tid` = tenantId). Ошибки: `400 unsupport
 | Группа | Лимит | Ключ |
 |---|---|---|
 | `/crossborder/*` | 120 / мин | `tenantId` (fail-closed) |
-| `/oauth/token` | 10 / мин | `client_id` (не обходится ротацией IP) |
+| `/oauth/token` | 10 / мин | `client_id` + IP источника |
 | `/admin/*` | 120 / мин | IP |
 | `/webhooks/*` | 1200 / мин | per-pod |
 

@@ -4,38 +4,9 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
-import { readFileSync } from 'node:fs';
 import { AppModule } from './app.module';
+import { httpsOptionsFromEnv } from './https-options';
 import { isWeakSecret } from '../common/utils/secret-strength';
-
-/**
- * Dev-harness server TLS (gated on TLS_KEY_PATH/TLS_CERT_PATH). `requestCert` makes the app
- * ASK for a client certificate so `WebhookAuthGuard` can validate MC's cert IN-APP;
- * `rejectUnauthorized: false` keeps non-webhook routes (merchants, no client cert) working —
- * the guard enforces the cert only on the webhook route. The host replicates this in its own
- * bootstrap (TLS terminated by the app; the ingress is L4 passthrough).
- */
-function httpsOptionsFromEnv():
-  | {
-      key: Buffer;
-      cert: Buffer;
-      ca?: Buffer;
-      requestCert: boolean;
-      rejectUnauthorized: boolean;
-    }
-  | undefined {
-  const key = process.env.TLS_KEY_PATH;
-  const cert = process.env.TLS_CERT_PATH;
-  if (!key || !cert) return undefined;
-  const ca = process.env.TLS_CLIENT_CA_PATH;
-  return {
-    key: readFileSync(key),
-    cert: readFileSync(cert),
-    ca: ca ? readFileSync(ca) : undefined,
-    requestCert: true,
-    rejectUnauthorized: false,
-  };
-}
 
 /**
  * Secrets that must be strong before this gateway faces anything real. `MC_WEBHOOK_TOKEN` is

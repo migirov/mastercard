@@ -15,7 +15,7 @@ sandbox) or `demo` (synthesized), with **graceful fallback** to demo on any gate
 Every response carries a `source: 'live' | 'demo'` field. In the stack, nginx routes
 `/demo-api/xbs/*` and `/demo-api/features/*` here.
 
-It mirrors the sibling gateway's conventions: Zod-validated env, a typed `DemoConfig` (no
+It mirrors the sibling gateway's conventions: Zod-validated env, a typed `McConfig` (no
 scattered `process.env`), module-by-responsibility, per-route validation DTOs, and body
 parsing as Nest middleware (`AppModule.configure`, RFI route gets a larger limit — gateway
 issue #11). No TypeORM/Postgres — this service holds no state.
@@ -48,7 +48,8 @@ npm run lint      # eslint (+ prettier)
 | `GATEWAY_URL` | `http://app:3000` | The Mastercard gateway |
 | `GATEWAY_INTERNAL_TOKEN` | — | Internal service-to-service token for the gateway |
 | `GATEWAY_TENANT_ID` | `platform` | Gateway tenant for live calls (the gateway's seeded baseline) |
-| `XBS_QUOTE_MODE` / `XBS_VALIDATION_MODE` / `XBS_BALANCES_MODE` | `live` | `live` \| `demo` |
+| `XBS_QUOTE_MODE` | `demo` | `live` \| `demo` (sandbox returns a stub rate `777` → demo until MTF/Prod) |
+| `XBS_VALIDATION_MODE` / `XBS_BALANCES_MODE` | `live` | `live` \| `demo` |
 | `XBS_PAYMENT_MODE` / `XBS_STATUS_MODE` | `demo` | `live` \| `demo` (need MTF/Prod) |
 | `XBS_BANK_LOOKUP_MODE` / `XBS_IBAN_MODE` / `XBS_CASH_PICKUP_MODE` | `live` | Feature pages — real sandbox data |
 | `XBS_RATES_MODE` / `XBS_ENDPOINT_GUIDE_MODE` / `XBS_QUOTE_LIFECYCLE_MODE` / `XBS_PAYMENT_TRACKER_MODE` / `XBS_RFI_MODE` | `demo` | Feature pages — sandbox-limited |

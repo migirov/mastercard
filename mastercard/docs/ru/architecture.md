@@ -93,6 +93,7 @@
 |---|---|
 | `tenants`, `oauth_clients`, `audit_log` | **PostgreSQL** (TypeORM) |
 | идемпотентность платежей | **PostgreSQL** (`payment_idempotency`, `UNIQUE(tenantId, idemKey)`, атомарный `INSERT ON CONFLICT`) |
+| владение транзакцией (PLATFORM) | **PostgreSQL** (`tx_ownership`, `UNIQUE(tenantId, refHash)`; `mcPaymentId` проставляется после завершения платежа) |
 | дедуп вебхуков | **PostgreSQL** (`tx_status`, `UNIQUE(eventRef)`, атомарный `INSERT ON CONFLICT`) |
 | rate-limit | самодостаточный per-pod `@nestjs/throttler` (корректность не зависит от ингресса; лимит на ингрессе, если есть — опциональная доп. защита, не authoritative) |
 | кэш credentials | **in-memory per-pod** (кэш из AWS Secrets Manager, TTL) |
@@ -143,7 +144,8 @@ interface McCredentials {
 
 - **PLATFORM** → общий набор платформы из `.env`/конфигурации; кэш без TTL.
 - **OWN** → `tenant.secretRef` из AWS Secrets Manager (`SecretStore`) → ключи партнёра; кэш с TTL
-  (`MC_CREDS_CACHE_TTL_MS`) + дедуп stampede + `invalidate()` для ротации.
+  (`MC_CREDS_CACHE_TTL_MS`) + LRU-лимит (500) + `invalidate()` для ротации (cache-manager v5 не
+  коалесцирует одновременные промахи — stampede-дедупа нет, как в §10).
 - **Секреты не логируются и не уходят в ответы.** Подпись **stateless** —
   `McCredentials` передаются на каждый вызов.
 
@@ -186,8 +188,10 @@ documentation.md).
 ## 9. Авторизация (R5)
 
 - **External:** партнёр получает OAuth2 client credentials (`POST /oauth/token` →
-  JWT 15 мин). `client_id`/`secret` хранятся хэшем; rate-limit `/oauth/token` —
-  по **`client_id`** (`OAuthThrottlerGuard`, не обходится ротацией IP за прокси).
+  JWT 15 мин). `client_id`/`secret` хранятся хэшем; rate-limit `/oauth/token` (10/мин) —
+  по **`client_id` + IP источника** (`OAuthThrottlerGuard`, фолбэк на IP-only, если нет
+  `client_id`): чужой IP больше не исчерпает бакет минтинга жертвы, а перебор секрета
+  остаётся в пределах 10/мин на IP при 192-битном секрете.
 - **Internal:** доверенные сервисы — `X-Internal-Token` + явный `X-Tenant-Id`.
 - Оба пути сходятся в единый `req.tenantContext` (`@CurrentTenant`), чтобы код не
   знал, откуда пришёл запрос. `tenantId` **никогда** не берётся из тела/квери —
