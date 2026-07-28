@@ -48,13 +48,23 @@ function ApprovalRow({ approval, onApprove, onReject, onDismiss }) {
   const [rejectNote, setRejectNote] = useState('');
   const [viewingDoc, setViewingDoc] = useState(null); // { fileUrl, invoiceNumber }
   const [noDocInvoice, setNoDocInvoice] = useState(null); // invoice number with no doc
-  const cfg = STATUS_CONFIG[approval.status] || STATUS_CONFIG.pending;
+  // hasOwnProperty guard: a `status` equal to a prototype key ("constructor", "toString", …)
+  // would otherwise resolve to a truthy native function, skip the `|| pending` fallback, and
+  // leave `Icon` undefined → a render-phase throw. The records are attacker-writable.
+  const cfg =
+    (approval.status &&
+      Object.prototype.hasOwnProperty.call(STATUS_CONFIG, approval.status) &&
+      STATUS_CONFIG[approval.status]) ||
+    STATUS_CONFIG.pending;
   const Icon = cfg.icon;
 
-  const totals = {};
-  (approval.invoice_details || []).forEach(inv => {
-    const cur = inv.payment_currency || inv.currency;
-    const amt = inv.payment_amount || inv.amount;
+  // Null-proto map so a currency of "__proto__" is a plain key; coerce so a non-array
+  // `invoice_details` or a non-numeric amount degrades to a safe value instead of crashing.
+  const totals = Object.create(null);
+  (Array.isArray(approval.invoice_details) ? approval.invoice_details : []).forEach(inv => {
+    const cur = inv?.payment_currency || inv?.currency;
+    if (!cur) return;
+    const amt = Number(inv?.payment_amount ?? inv?.amount) || 0;
     totals[cur] = (totals[cur] || 0) + amt;
   });
 
