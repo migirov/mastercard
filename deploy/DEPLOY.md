@@ -71,6 +71,31 @@ gateway). If either pair drifts, calls fail with 401 or silently fall back to de
 Rotating `DEMO_API_TOKEN` is a restart, not a rebuild: the frontend image reads it at container
 start and writes it into the page it serves.
 
+### Not deploying with Compose? Six names change
+
+`.env.example` uses **stack-level** names. The compose file renames six of them on the way into
+the containers, because two services want the same value under different names and two need a
+database each. **If you write Kubernetes manifests, ECS task definitions or a plain `docker run`,
+you do that renaming yourself** — and four of the six fail quietly rather than loudly.
+
+| Name in `.env.example` | Goes to | As | If you get it wrong |
+|---|---|---|---|
+| `GATEWAY_INTERNAL_TOKEN` | gateway | **`MC_INTERNAL_TOKEN`** | container starts, every live capability silently answers with demo data |
+| `GATEWAY_INTERNAL_TOKEN` | mastercard-bff | `GATEWAY_INTERNAL_TOKEN` | same — the two MUST hold the identical value |
+| `GATEWAY_DATABASE_URL` | gateway | **`DATABASE_URL`** | refuses to start |
+| `APP_DB_HOST` / `APP_DB_PORT` / `APP_DB_NAME` | app-bff | **`DEMO_DB_HOST`** / **`DEMO_DB_PORT`** / **`DEMO_DB_NAME`** | refuses to start |
+| `DB_USER` / `DB_PASSWORD` | app-bff | **`DEMO_DB_USER`** / **`DEMO_DB_PASSWORD`** | refuses to start |
+| `GATEWAY_NODE_ENV` | gateway | **`NODE_ENV`** | production gates never run — see §6 |
+| `BFF_NODE_ENV` | app-bff, mastercard-bff | **`NODE_ENV`** | as above |
+
+Everything else keeps its name. The authoritative per-service list is the `environment:` block of
+each service in [`docker-compose.yml`](docker-compose.yml) — read it as the exact set of variables
+that service expects, whatever you deploy with.
+
+Two more values are not in `.env.example` at all because compose derives them from service names:
+`GATEWAY_URL` (mastercard-bff → gateway, e.g. `http://gateway:3000`) and the frontend's
+`APP_BFF_URL` / `MASTERCARD_BFF_URL`. Point them at whatever your platform calls those services.
+
 ### Mounted files (gateway only)
 
 Mount the key directory at `/app/certs` read-only. The `MC_*_PATH` variables are relative to
