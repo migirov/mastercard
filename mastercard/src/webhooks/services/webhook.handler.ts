@@ -165,13 +165,27 @@ export class WebhookHandler {
    * investigable. Residual risk is documented rather than traded for lost notifications.
    */
   private async attributeTenant(n: NormalizedEvent): Promise<string | null> {
-    if (!n.partnerId) return null;
+    if (!n.partnerId) {
+      // A genuine Mastercard push always names its partner account. A status push with NO
+      // partnerId is malformed or forged, yet it still lands in the shared null pool that
+      // PLATFORM tenants read by reference — and it bypasses the corroboration check below
+      // entirely. There is no partner to attribute it to, so it stays pooled; flag it as the
+      // one detective signal we can raise on this path.
+      this.logger.warn(
+        `Status push with NO partnerId for tx=${clipForLog(n.transactionReference)} ` +
+          `(type=${clipForLog(n.transactionType)}, status=${clipForLog(n.status)}) — recorded ` +
+          `in the shared pool unattributed. Genuine MC pushes name a partner; investigate if unexpected.`,
+      );
+      return null;
+    }
     const tenantId = await this.tenants.findOwnTenantIdByPartnerId(n.partnerId);
     if (!tenantId) return null;
 
     const ref = n.transactionReference;
+    // A DB failure reads as NOT corroborated (fires the warn below), never as corroborated —
+    // silencing the signal on the exact path where it is most needed would be backwards.
     const corroborated = ref
-      ? await this.ownership.hasClaim(tenantId, ref).catch(() => true)
+      ? await this.ownership.hasClaim(tenantId, ref).catch(() => false)
       : false;
     if (!corroborated) {
       this.logger.warn(
