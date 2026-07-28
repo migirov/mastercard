@@ -27,9 +27,12 @@ const ownTenant = (id: string, over?: Partial<Tenant>): Tenant =>
     ...over,
   }) as unknown as Tenant;
 
-function make(getMerchantSecrets = jest.fn(async () => bundle)) {
+function make(
+  getMerchantSecrets = jest.fn(async () => bundle),
+  configOver?: Partial<GatewayConfig>,
+) {
   const secrets = { getMerchantSecrets } as unknown as SecretStore;
-  const config = { credsCacheTtlMs: 600_000 } as GatewayConfig;
+  const config = { credsCacheTtlMs: 600_000, ...configOver } as GatewayConfig;
   return { provider: new OwnCredentialsProvider(config, secrets) };
 }
 
@@ -114,6 +117,24 @@ describe('OwnCredentialsProvider — fetch & boundary validation', () => {
       jest.fn(async () => ({ ...bundle, signing: undefined })) as never,
     );
     await expect(provider.get(ownTenant('a'))).rejects.toThrow(/signing/);
+  });
+
+  // Isolation invariant: an OWN tenant must never resolve onto the platform's own Mastercard
+  // identity (e.g. a secretRef pointed at the dev-seeded platform bundle). The gate is a no-op
+  // for OWN tenants because MC isolates them by their own partnerId — so a collapse onto the
+  // platform's consumerKey/partnerId would sign as the platform while being treated as isolated.
+  it('OWN resolving to the PLATFORM consumerKey → rejected', async () => {
+    const { provider } = make(undefined, {
+      consumerKey: 'ck',
+    } as Partial<GatewayConfig>);
+    await expect(provider.get(ownTenant('a'))).rejects.toThrow(/misconfigured/);
+  });
+
+  it('OWN resolving to the PLATFORM partnerId → rejected', async () => {
+    const { provider } = make(undefined, {
+      partnerId: 'PID12345',
+    } as Partial<GatewayConfig>);
+    await expect(provider.get(ownTenant('a'))).rejects.toThrow(/misconfigured/);
   });
 
   it('OWN without secretRef → rejected', async () => {

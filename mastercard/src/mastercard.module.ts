@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BoundedThrottlerStorage } from './common/throttler/bounded-throttler.storage';
 import {
   GatewayConfig,
   MastercardModuleOptions,
@@ -64,7 +65,15 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
     // The named set 'default' (120/min) is referenced by name from the per-route
     // override `@Throttle({ default: { limit: 10, ... } })` on /oauth/token.
     // Multiple simultaneous windows (short+long) aren't needed → a single set.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    //
+    // A BOUNDED storage (LRU cap, no timers) replaces the library default: some trackers key
+    // on unauthenticated, caller-chosen values (the OAuth client_id), and the default storage
+    // never evicts keys and drains its per-hit timers in O(n) — an attacker rotating client_id
+    // would grow memory without bound and pin a core. See BoundedThrottlerStorage.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+      storage: new BoundedThrottlerStorage(),
+    }),
     AuditModule,
     TenantModule,
     SecretsModule,

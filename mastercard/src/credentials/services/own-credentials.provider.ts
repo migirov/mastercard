@@ -46,7 +46,7 @@ export class OwnCredentialsProvider {
   private cache?: Promise<MemoryCache>;
 
   constructor(
-    config: GatewayConfig,
+    private readonly config: GatewayConfig,
     @Inject(SECRET_STORE) private readonly secrets: SecretStore,
   ) {
     this.ttlMs = config.credsCacheTtlMs;
@@ -105,8 +105,40 @@ export class OwnCredentialsProvider {
         : undefined,
     };
 
+    this.assertNotPlatformIdentity(tenant.id, creds);
+
     this.logger.log(`OWN credentials for tenant '${tenant.id}' cached`);
     return creds;
+  }
+
+  /**
+   * Enforce the OWN-isolation invariant the ownership gate relies on: an OWN tenant must
+   * transact under its OWN Mastercard identity, never the platform's. The gate is a no-op for
+   * OWN tenants precisely because Mastercard isolates them by their own partnerId — but nothing
+   * else guarantees that. If an OWN tenant's resolved credentials collapse onto the platform's
+   * consumerKey or partnerId (e.g. a `secretRef` pointed at the dev-seeded platform bundle
+   * `mc/tenants/own-sandbox`, however the ref is spelled), it would sign as the platform while
+   * being treated as self-isolated — the worst of both. Comparing the RESOLVED material, not the
+   * ref string, closes that regardless of how the leak was configured. Reached only on a cold
+   * cache miss (the result is cached), so the cost is negligible.
+   */
+  private assertNotPlatformIdentity(
+    tenantId: string,
+    creds: McCredentials,
+  ): void {
+    if (
+      creds.consumerKey === this.config.consumerKey ||
+      creds.partnerId === this.config.partnerId
+    ) {
+      this.logger.error(
+        `Tenant '${tenantId}' (OWN) resolves to the PLATFORM's own Mastercard identity ` +
+          `(consumerKey/partnerId) — refusing. An OWN tenant must use its own credentials; ` +
+          `check that its secretRef/partnerId is not the platform's.`,
+      );
+      throw new UnprocessableEntityException(
+        'tenant credentials are misconfigured',
+      );
+    }
   }
 
   /** Secret-boundary validation: the bundle must hold the minimum to sign. */
