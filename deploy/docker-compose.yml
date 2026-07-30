@@ -115,6 +115,9 @@ services:
     image: ${REGISTRY:-ghcr.io/migirov/mastercard}/app-bff:${IMAGE_TAG:?set IMAGE_TAG in .env}
     environment:
       DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in .env}
+      # Password for the UI access gate, checked server-side by POST /gate/verify. THIS SERVICE
+      # ONLY — never mastercard-bff, never the frontend: it must not reach the browser.
+      DEMO_GATE_PASSWORD: ${DEMO_GATE_PASSWORD:?set DEMO_GATE_PASSWORD in .env}
       # This service CREATEs its database on first boot, so the role needs CREATEDB (or the
       # database must be pre-created with this exact name).
       DEMO_DB_HOST: ${APP_DB_HOST:?}

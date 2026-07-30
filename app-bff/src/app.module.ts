@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { AppConfigModule } from './config/config.module';
 import { DemoAuthGuard } from './common/guards/demo-auth.guard';
+import { BoundedThrottlerStorage } from './common/throttler/bounded-throttler.storage';
 import { DatabaseModule } from './database/database.module';
 import { RecordsModule } from './records/records.module';
 import { SeedModule } from './seed/seed.module';
+import { GateModule } from './gate/gate.module';
 import { HealthController } from './health/controllers/health.controller';
 
 /**
@@ -24,9 +27,19 @@ import { HealthController } from './health/controllers/health.controller';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     // typed AppConfig (global) — must precede DatabaseModule, which injects it
     AppConfigModule,
+    // Rate-limit buckets for the access gate. Registered here (the module is @Global in v5) but
+    // NOT wired as an APP_GUARD: a global ThrottlerGuard would also cap the generic /entities
+    // CRUD, which the scripted demo walkthrough drives hard enough to trip it. Scope stays on
+    // GateController. Named 'gate' rather than 'default' so `@Throttle({ gate: … })` reads as
+    // documentation and a future second tracker cannot silently inherit these limits.
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'gate', ttl: 900_000, limit: 10 }],
+      storage: new BoundedThrottlerStorage(),
+    }),
     DatabaseModule,
     RecordsModule,
     SeedModule,
+    GateModule,
   ],
   controllers: [HealthController],
   providers: [

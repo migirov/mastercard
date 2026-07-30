@@ -48,7 +48,18 @@ async function req(method, path, { body, isForm } = {}) {
   const res = await fetch(BASE + path, opts);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`demo-api ${method} ${path} → ${res.status} ${text}`);
+    // The status is attached as a PROPERTY, not just interpolated into the message. The gate
+    // screen has to tell "wrong password" (401) from "rate-limited" (429) from "backend down"
+    // (5xx / network), and string-matching a human-readable message for that would be fragile.
+    // The message format is unchanged, so every existing call site behaves exactly as before.
+    // Note a `fetch` REJECTION (DNS failure, connection refused, CSP block) throws a TypeError
+    // with no `.status` at all — which is itself the "unreachable" signal.
+    const err = /** @type {Error & { status?: number, body?: string }} */ (
+      new Error(`demo-api ${method} ${path} → ${res.status} ${text}`)
+    );
+    err.status = res.status;
+    err.body = text;
+    throw err;
   }
   if (res.status === 204) return null;
   const ct = res.headers.get('content-type') || '';

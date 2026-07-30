@@ -18,6 +18,24 @@ describe('AppConfig.demoApiToken', () => {
   });
 });
 
+describe('AppConfig.demoGatePassword', () => {
+  it('returns the configured password', () => {
+    expect(make({ DEMO_GATE_PASSWORD: 'pw' }).demoGatePassword).toBe('pw');
+  });
+
+  // Same DENY signal as demoApiToken, and the stakes are the same: a literal fallback here would
+  // be published in this repo, and the gate would then open for anyone who read it.
+  it('returns an empty string when unset — never a default password', () => {
+    expect(make().demoGatePassword).toBe('');
+  });
+
+  // The password must live ONLY in backend env. This pins that it is not read from, and cannot be
+  // satisfied by, the variable the frontend bundle used to carry.
+  it('does not fall back to any other variable', () => {
+    expect(make({ DEMO_API_TOKEN: 'tok' }).demoGatePassword).toBe('');
+  });
+});
+
 describe('AppConfig.corsOrigins', () => {
   it('falls back to the localhost dev origins when unset', () => {
     expect(make().corsOrigins).toEqual([...DEV_CORS_ORIGINS]);

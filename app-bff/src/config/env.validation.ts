@@ -32,6 +32,12 @@ const EnvSchema = z.object({
   // handled where the consequence can be stated — main.ts throws in production and warns
   // loudly otherwise, and the guard denies every request either way.
   DEMO_API_TOKEN: optionalNonEmpty,
+  // Password for the UI access gate, checked by POST /gate/verify. Deliberately optional HERE for
+  // the same reason as DEMO_API_TOKEN — main.ts states the consequence (throws in production,
+  // warns loudly otherwise) and the check fails closed either way. `optionalNonEmpty`, not a bare
+  // `.optional()`, so a compose `DEMO_GATE_PASSWORD=` reads as UNSET rather than as "configured
+  // with an empty password" — which would otherwise be a gate that any empty submission opens.
+  DEMO_GATE_PASSWORD: optionalNonEmpty,
   // Comma-separated browser origins allowed to call this API cross-origin. Unset → the
   // localhost dev defaults in AppConfig. Only relevant to `npm run dev`: in the compose
   // stack the SPA reaches this service same-origin through nginx.

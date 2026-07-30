@@ -68,10 +68,21 @@ Three services share **one** `DEMO_API_TOKEN` (frontend, app-bff, mastercard-bff
 **one** internal token (`GATEWAY_INTERNAL_TOKEN` on the BFF = `MC_INTERNAL_TOKEN` on the
 gateway). If either pair drifts, calls fail with 401 or silently fall back to demo data.
 
-Rotating `DEMO_API_TOKEN` is a restart, not a rebuild: the frontend image reads it at container
-start and writes it into the page it serves.
+`DEMO_GATE_PASSWORD` is different in kind: **one** service gets it (app-bff), and it never leaves
+the backend. It is the password typed into the UI's access gate, verified server-side by
+`POST /demo-api/gate/verify`. Do not set it on `frontend` or `mastercard-bff` — the point is that
+the browser never receives it. Note that `DEMO_API_TOKEN`, by contrast, *is* served to the browser
+in `/config.js` by design, so it is a barrier against unauthenticated API access rather than a
+secret.
+
+Rotating either is a restart, not a rebuild: the frontend image reads its configuration at
+container start and writes it into the page it serves, and app-bff reads the gate password from its
+environment on boot.
 
 ### Not deploying with Compose? Six names change
+
+`DEMO_GATE_PASSWORD` is **not** one of the six — its name is identical everywhere it appears, so
+there is nothing to translate for Kubernetes or ECS. It simply has to reach app-bff.
 
 `.env.example` uses **stack-level** names. The compose file renames six of them on the way into
 the containers, because two services want the same value under different names and two need a

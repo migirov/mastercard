@@ -62,6 +62,20 @@ export class AppConfig {
     return this.config.get<string>('DEMO_API_TOKEN') ?? '';
   }
 
+  /**
+   * Password typed into the UI's access gate, checked by `POST /gate/verify` (see `GateService`).
+   *
+   * Lives here and NOWHERE in the frontend: it used to be a constant in `PasswordGate.jsx`, which
+   * Vite inlined into the built bundle and therefore into the published image.
+   *
+   * Returns '' when unset, and '' is DENY — `matchSharedToken` treats an unconfigured secret as a
+   * failed match, so the gate rejects every attempt rather than opening. Never default this to a
+   * literal: a fallback would be published in this repo and the gate would then accept it.
+   */
+  get demoGatePassword(): string {
+    return this.config.get<string>('DEMO_GATE_PASSWORD') ?? '';
+  }
+
   /** Browser origins allowed to call this API cross-origin; unset → `DEV_CORS_ORIGINS`. */
   get corsOrigins(): string[] {
     const raw = this.config.get<string>('CORS_ORIGINS');

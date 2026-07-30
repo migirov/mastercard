@@ -132,6 +132,24 @@ function assertApiTokenConfigured(cfg: AppConfig, log: Logger): void {
   log.warn('Set DEMO_API_TOKEN (see .env.example) and restart.');
 }
 
+/**
+ * Same treatment for the UI gate password, and for the same reason: the alternative is a stack
+ * that comes up looking healthy behind a login screen nobody can get past.
+ *
+ * Production throws — a deployment nobody can enter is worse than no deployment, and it fails at
+ * boot where it is visible instead of at the first user. Elsewhere it warns, because the guard
+ * denies every attempt anyway and this line is the only thing standing between a developer and a
+ * "the password stopped working" hunt.
+ */
+function assertGatePasswordConfigured(cfg: AppConfig, log: Logger): void {
+  if (cfg.demoGatePassword) return;
+  const msg =
+    'DEMO_GATE_PASSWORD is not set — the UI access gate will reject every attempt.';
+  if (cfg.isProduction) throw new Error(msg);
+  log.warn(msg);
+  log.warn('Set DEMO_GATE_PASSWORD (see .env.example) and restart.');
+}
+
 async function bootstrap() {
   installCrashGuard();
   await ensureDatabase();
@@ -149,6 +167,7 @@ async function bootstrap() {
   // Typed config (not a stray process.env read) now that the DI container exists.
   const cfg = app.get(AppConfig);
   assertApiTokenConfigured(cfg, log);
+  assertGatePasswordConfigured(cfg, log);
   // An explicit origin allowlist, not `origin: true` (which reflects whatever Origin the
   // caller sent — i.e. every site). `Authorization` MUST stay in allowedHeaders: naming the
   // list at all disables cors's default reflection, so omitting it makes the browser reject

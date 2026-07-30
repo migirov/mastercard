@@ -33,13 +33,21 @@ nginx serves one origin (`/demo-api`) and splits the path between them:
 
 ## 2. Run & access
 
-First, put a shared API token in `.env` — the stack refuses to start without it:
+First, put a shared API token **and the UI gate password** in `.env` — the stack refuses to start
+without either:
 
 ```bash
 cd mastercard-demo-stack
 cp .env.example .env    # if you don't have one yet, then fill GATEWAY_INTERNAL_TOKEN
 echo "DEMO_API_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" >> .env
+echo "DEMO_GATE_PASSWORD=pick-the-demo-access-password" >> .env
 ```
+
+> **The two are not the same kind of value.** `DEMO_API_TOKEN` is served to the browser in
+> `/config.js` by design — anyone who can load the UI can read it, so it is a boundary against
+> unauthenticated API access, not a secret. `DEMO_GATE_PASSWORD` goes to **app-bff only**, is
+> checked server-side by `POST /demo-api/gate/verify`, and never reaches the browser in any form.
+> Do not add it to `mastercard-bff` or to `frontend`.
 
 ```bash
 docker compose up -d --build      # first run builds all images
@@ -50,7 +58,7 @@ docker compose ps                 # all 5 should be running/healthy
 > the token into the page it serves at container start (its entrypoint generates `/config.js`),
 > so `docker compose up -d` propagates a new token to all three services at once.
 
-- **Web UI:** http://localhost:8080 — password **`REDACTED-DEMO-PASSWORD`**
+- **Web UI:** http://localhost:8080 — password: your `DEMO_GATE_PASSWORD` from `.env`
 - app-bff (direct API, for devs): http://localhost:4010/health
 - mastercard-bff (direct API, live/demo wiring): http://localhost:4011/health
 
@@ -65,7 +73,7 @@ Stop: `docker compose down` (keep data) or `docker compose down -v` (wipe data +
 
 ## 3. How to test (step by step)
 
-1. Open **http://localhost:8080**, enter password **`REDACTED-DEMO-PASSWORD`**.
+1. Open **http://localhost:8080**, enter the password you set as `DEMO_GATE_PASSWORD` in `.env`.
 2. **Dashboard "Accounts Payable"** — a list of seeded invoices (INV-1001…1006).
 3. **See a REAL Mastercard call** 👇
    - Tick **INV-1006 (Cedar Cloud Services, $5,600)** → click **"Pay now"** (top-right).

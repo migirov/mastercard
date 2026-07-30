@@ -33,13 +33,21 @@ nginx отдаёт один origin (`/demo-api`) и разводит путь м
 
 ## 2. Запуск и доступ
 
-Сначала пропишите общий API-токен в `.env` — без него стек не поднимется:
+Сначала пропишите общий API-токен **и пароль гейта UI** в `.env` — без любого из них стек не
+поднимется:
 
 ```bash
 cd mastercard-demo-stack
 cp .env.example .env    # если файла ещё нет; затем заполните GATEWAY_INTERNAL_TOKEN
 echo "DEMO_API_TOKEN=$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')" >> .env
+echo "DEMO_GATE_PASSWORD=задайте-пароль-доступа-к-демо" >> .env
 ```
+
+> **Это значения разного рода.** `DEMO_API_TOKEN` по замыслу отдаётся в браузер в `/config.js` —
+> его может прочитать любой, кто открыл UI, поэтому это барьер против неаутентифицированного
+> доступа к API, а не секрет. `DEMO_GATE_PASSWORD` идёт **только в app-bff**, проверяется на
+> сервере (`POST /demo-api/gate/verify`) и не попадает в браузер ни в каком виде. Не добавляйте
+> его ни в `mastercard-bff`, ни во `frontend`.
 
 ```bash
 docker compose up -d --build      # первый запуск собирает образы
@@ -50,7 +58,7 @@ docker compose ps                 # все 5 должны быть running/healt
 > токен в отдаваемую страницу при старте (его энтрипойнт генерирует `/config.js`), поэтому
 > `docker compose up -d` разносит новый токен сразу по всем трём сервисам.
 
-- **Веб-интерфейс:** http://localhost:8080 — пароль **`REDACTED-DEMO-PASSWORD`**
+- **Веб-интерфейс:** http://localhost:8080 — пароль: ваш `DEMO_GATE_PASSWORD` из `.env`
 - app-bff (прямой API, для разработчика): http://localhost:4010/health
 - mastercard-bff (прямой API, разводка live/demo): http://localhost:4011/health
 
@@ -66,7 +74,7 @@ API от доступа извне, но это не авторизация по
 
 ## 3. Как тестировать (по шагам)
 
-1. Открой **http://localhost:8080**, введи пароль **`REDACTED-DEMO-PASSWORD`**.
+1. Открой **http://localhost:8080**, введи пароль, заданный в `DEMO_GATE_PASSWORD` в `.env`.
 2. **Дашборд «Accounts Payable»** — список засеянных инвойсов (INV-1001…1006).
 3. **Увидеть РЕАЛЬНЫЙ вызов Mastercard** 👇
    - Отметь галкой **INV-1006 (Cedar Cloud Services, $5 600)** → нажми **«Pay now»** (справа сверху).

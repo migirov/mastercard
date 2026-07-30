@@ -1,10 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Lock } from 'lucide-react';
+import { verifyGatePassword } from '@/api/gate';
 
-const PASSWORD = 'REDACTED-DEMO-PASSWORD';
 const STORAGE_KEY = 'xbs_access_granted';
+
+// There is deliberately NO password constant in this file. The value is checked server-side by
+// app-bff against DEMO_GATE_PASSWORD; a constant here would be inlined into the built bundle by
+// Vite and would therefore ship inside the published image, which is how it leaked before.
+
+/** Messages per failure state. `bad-password` is the only one the user caused. */
+const MESSAGES = {
+  'bad-password': 'Incorrect password',
+  'rate-limited': 'Too many attempts. Try again in a few minutes.',
+  unavailable: 'Cannot reach the server. Check that the backend is running.',
+};
 
 // sessionStorage can throw (Safari private mode / hardened privacy) — never let that crash the app.
 function readGranted() {
@@ -18,25 +29,55 @@ function readGranted() {
 export default function PasswordGate({ children }) {
   const [granted, setGranted] = useState(readGranted);
   const [value, setValue] = useState('');
-  const [error, setError] = useState(false);
+  /** @type {['idle'|'pending'|'bad-password'|'rate-limited'|'unavailable', Function]} */
+  const [status, setStatus] = useState('idle');
+  const clearTimer = useRef(/** @type {any} */ (null));
 
-  const handleSubmit = (e) => {
+  // The 2s auto-clear below sets state on a timer; if the component unmounts first (it unmounts on
+  // success) React warns. Cancel on unmount.
+  useEffect(
+    () => () => {
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+    },
+    [],
+  );
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (value === PASSWORD) {
+    // Re-entry guard. Without it, holding Enter fires one request per keypress and burns the whole
+    // 10-attempt server-side budget in about a second — locking the user out with a 429.
+    if (status === 'pending') return;
+    setStatus('pending');
+
+    const result = await verifyGatePassword(value);
+
+    if (result === 'ok') {
       try {
         sessionStorage.setItem(STORAGE_KEY, 'true');
       } catch {
         /* private mode — gate just won't persist across reloads */
       }
       setGranted(true);
-    } else {
-      setError(true);
-      setValue('');
-      setTimeout(() => setError(false), 2000);
+      return;
     }
+
+    setStatus(result);
+    // Clear the field only when the value was wrong. On a backend failure the value is still
+    // correct, so keeping it means a retry after `docker compose up` needs no retyping.
+    if (result === 'bad-password') {
+      setValue('');
+      if (clearTimer.current) clearTimeout(clearTimer.current);
+      clearTimer.current = setTimeout(() => setStatus('idle'), 2000);
+    }
+    // 'rate-limited' and 'unavailable' persist until the next submit: neither condition has gone
+    // away after two seconds, so silently hiding the message would just confuse.
   };
 
   if (granted) return children;
+
+  const pending = status === 'pending';
+  const wrongPassword = status === 'bad-password';
+  const message = MESSAGES[status];
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-background">
@@ -63,12 +104,25 @@ export default function PasswordGate({ children }) {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Password"
-              className={`pl-9 ${error ? 'border-destructive ring-1 ring-destructive' : ''}`}
+              // The red ring keys off a WRONG PASSWORD only — a 502 must not paint the field as
+              // though the user erred.
+              className={`pl-9 ${wrongPassword ? 'border-destructive ring-1 ring-destructive' : ''}`}
+              disabled={pending}
               autoFocus
             />
           </div>
-          {error && <p className="text-xs text-destructive text-center">Incorrect password</p>}
-          <Button type="submit" className="w-full">Enter</Button>
+          {message && (
+            // Destructive styling only for the user's own mistake; the other two are our fault and
+            // are styled as information, so the visual language itself distinguishes them.
+            <p
+              className={`text-xs text-center ${wrongPassword ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
+              {message}
+            </p>
+          )}
+          <Button type="submit" className="w-full" disabled={pending}>
+            {pending ? 'Checking…' : 'Enter'}
+          </Button>
         </form>
       </div>
     </div>

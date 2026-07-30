@@ -66,10 +66,17 @@ services:
       DEMO_DB_PASSWORD: mc
       DEMO_DB_NAME: mc_demo
       # Shared bearer token for the whole demo tier. The SAME variable feeds both BFFs and the
-      # frontend build arg below, so the SPA and the APIs cannot drift apart. `:?` aborts the
-      # stack with a one-line error if it is unset — deliberately louder than starting up with
-      # an open entity store.
+      # frontend's runtime environment below, so the SPA and the APIs cannot drift apart. `:?`
+      # aborts the stack with a one-line error if it is unset — deliberately louder than starting
+      # up with an open entity store.
       DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
+      # Password for the UI access gate, checked by POST /gate/verify. app-bff ONLY — it is
+      # deliberately absent from mastercard-bff and from the frontend, because the whole point is
+      # that it never reaches the browser. (It used to be a constant in PasswordGate.jsx, which
+      # Vite compiled into the published image.) `:?` for the same reason as the token above: a
+      # stack that boots behind a login screen nobody can pass is worse than one that refuses.
+      # Rotating it is a restart of this one service — no rebuild anywhere.
+      DEMO_GATE_PASSWORD: ${DEMO_GATE_PASSWORD:?set DEMO_GATE_PASSWORD in mastercard-demo-stack/.env (see .env.example)}
       NODE_ENV: development
       PORT: '4000'
     ports:

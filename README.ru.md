@@ -43,7 +43,7 @@ docker compose up -d --build  # первый запуск собирает вс�
 docker compose ps             # все 5 должны быть running/healthy
 ```
 
-- **Веб-интерфейс:** http://localhost:8080 — пароль **`REDACTED-DEMO-PASSWORD`**
+- **Веб-интерфейс:** http://localhost:8080 — пароль: тот, что вы задали в `DEMO_GATE_PASSWORD` в `mastercard-demo-stack/.env`
 - health app-bff: http://localhost:4010/health · health mastercard-bff (разводка live/demo): http://localhost:4011/health
 
 API обоих BFF требуют `Authorization: Bearer $DEMO_API_TOKEN`; публичный маршрут только

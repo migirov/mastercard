@@ -43,7 +43,7 @@ docker compose up -d --build  # first run builds all 5 images
 docker compose ps             # all 5 should be running/healthy
 ```
 
-- **Web UI:** http://localhost:8080 — password **`REDACTED-DEMO-PASSWORD`**
+- **Web UI:** http://localhost:8080 — password: whatever you set as `DEMO_GATE_PASSWORD` in `mastercard-demo-stack/.env`
 - app-bff health: http://localhost:4010/health · mastercard-bff health (live/demo wiring): http://localhost:4011/health
 
 Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN`; `/health` is the only public

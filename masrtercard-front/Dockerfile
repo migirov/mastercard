@@ -29,6 +29,11 @@ EXPOSE 80
 #   MASTERCARD_BFF_URL host:port of mastercard-bff (default mastercard-bff:4000)
 #   DNS_RESOLVER       override the nameserver nginx uses; defaults to the container's own
 #                      /etc/resolv.conf, which is what you want under compose/ECS/Kubernetes
+#
+# NOT here, deliberately: the UI access-gate password. It lives in app-bff as DEMO_GATE_PASSWORD
+# and is verified server-side (POST /demo-api/gate/verify). This is the natural place to look for
+# it, which is exactly why the absence is spelled out — it was previously a constant in
+# src/components/PasswordGate.jsx and Vite compiled it into this image's JS bundle.
 # 127.0.0.1, not `localhost`: nginx here listens on IPv4 only, and busybox wget resolves
 # `localhost` to ::1 first and gives up on connection-refused instead of falling back to IPv4 —
 # so the probe failed against a perfectly healthy server. (curl, used by the Node images, does

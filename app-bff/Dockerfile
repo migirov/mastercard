@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 #
 # Multi-stage image for app-bff (dist/main.js). Mirrors the gateway's Dockerfile.
-# No secrets are baked in: the DB config is passed as env at runtime (see docker-compose).
+# No secrets are baked in: the DB config, the API token and the UI gate password
+# (DEMO_GATE_PASSWORD) are all passed as env at runtime (see docker-compose).
 # The compiled migrations ship in dist and run on boot (non-prod).
 
 # --- build: compile TypeScript → dist (needs devDependencies: @nestjs/cli, typescript) ---
