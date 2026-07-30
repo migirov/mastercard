@@ -7,6 +7,7 @@ import {
 import { Request } from 'express';
 import { McConfig } from '../../config/mc-config';
 import { matchSharedToken } from '../utils/crypto.util';
+import { verifyGateProof } from '../utils/gate-proof.util';
 
 /**
  * Paths reachable WITHOUT a token.
@@ -17,6 +18,25 @@ import { matchSharedToken } from '../utils/crypto.util';
  * this service has.
  */
 export const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/health']);
+
+/**
+ * Paths that require the bearer token but NOT a gate proof.
+ *
+ * EMPTY here, and it must stay empty. This service mints nothing — `POST /gate/verify` lives in
+ * app-bff, which is the only reason that route is exempt over there. Every route in this service
+ * (`/xbs/*`, `/features/*`) is browser-driven and reaches the real Mastercard sandbox on
+ * live-default capabilities, so an exemption copied over from the sibling would be a hole into
+ * calls that spend the platform's credentials. The spec asserts the set is empty.
+ */
+export const GATE_EXEMPT_PATHS: ReadonlySet<string> = new Set<string>();
+
+/** `X-XBS-Gate` header value, normalized — express gives `string | string[] | undefined`. */
+function gateProofHeader(
+  raw: string | string[] | undefined,
+): string | undefined {
+  if (Array.isArray(raw)) return raw[0];
+  return raw;
+}
 
 /**
  * The single authentication boundary for the cross-border BFF: a shared bearer token,
@@ -32,10 +52,18 @@ export const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/health']);
  * the real Mastercard sandbox signed with the platform's OAuth1 key, so an open port here
  * spends the platform's credentials, not just demo rows.
  *
- * Scope, stated honestly: this is ONE trust boundary, not per-user authorization. The SPA
- * carries the same token in its bundle, so anyone who can load the UI can read it. What this
- * stops is unauthenticated direct access to the API (scanners, LAN neighbours, a stray
- * published port), which is what it was open to before.
+ * TWO factors, both required. The bearer token alone is NOT sufficient: it is served to every
+ * anonymous visitor in the frontend's `/config.js`, so on its own it stops scanners and stray
+ * published ports, not people. The second factor is the gate proof — HMAC-signed, minted only by
+ * app-bff's `POST /gate/verify` against `DEMO_GATE_PASSWORD`, and verified here with the SAME
+ * `DEMO_GATE_SECRET`. This service only ever verifies; it never mints.
+ *
+ * ⚠️ `DEMO_GATE_SECRET` must be byte-identical to app-bff's. If the two drift, the dashboard keeps
+ * working while every cross-border page 401s — a confusing partial failure, and the same class of
+ * mistake as GATEWAY_INTERNAL_TOKEN drifting from the gateway's MC_INTERNAL_TOKEN.
+ *
+ * Scope, stated honestly: still not per-user authorization. Everyone who knows the gate password
+ * sees everything. What the pair achieves is that passing the gate became a server-side fact.
  */
 @Injectable()
 export class DemoAuthGuard implements CanActivate {
@@ -52,6 +80,9 @@ export class DemoAuthGuard implements CanActivate {
 
     if (PUBLIC_PATHS.has(normalizePath(req.path))) return true;
 
+    // Bearer first, gate second — deliberately. Both are required, so the order does not change
+    // who gets in; checking the cheap shared token first means an unauthenticated caller probing
+    // with malformed proofs costs one hash instead of two.
     if (
       !matchSharedToken(
         bearerToken(req.headers.authorization),
@@ -59,6 +90,22 @@ export class DemoAuthGuard implements CanActivate {
       )
     ) {
       throw new UnauthorizedException('missing or invalid API token');
+    }
+
+    if (!GATE_EXEMPT_PATHS.has(normalizePath(req.path))) {
+      if (
+        !verifyGateProof(
+          gateProofHeader(req.headers['x-xbs-gate']),
+          this.config.demoGateSecret,
+        )
+      ) {
+        // A machine-readable code, not just a status: the SPA clears its stored proof on seeing
+        // this and returns the user to the gate screen, rather than 401ing forever in place.
+        throw new UnauthorizedException({
+          code: 'gate_required',
+          message: 'missing, invalid or expired gate proof',
+        });
+      }
     }
     return true;
   }

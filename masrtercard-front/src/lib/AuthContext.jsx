@@ -4,8 +4,17 @@ import { api } from '@/api/apiClient';
 // Auth context. In the standalone demo there is no remote auth backend, so we resolve the
 // (demo) user from our own BFF (`api.auth.me()` → demo-api /auth/me) and never block the app
 // on a remote auth check.
-// The de-facto "login" is the client-side PasswordGate; this context just exposes a user.
+// The de-facto "login" is the PasswordGate, whose password is verified server-side; this context
+// just exposes a user — except for the one case below, where the gate session has expired.
 const AuthContext = createContext();
+
+/** Did this request fail because the gate proof is missing, expired or rejected? */
+function isGateFailure(error) {
+  return (
+    /** @type {any} */ (error)?.status === 401 &&
+    String(/** @type {any} */ (error)?.body ?? '').includes('gate_required')
+  );
+}
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -26,6 +35,11 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Demo auth check failed:', error);
       setIsAuthenticated(false);
+      // An expired gate session is the one failure worth acting on rather than rendering through.
+      // Without this the app would come up looking normal with every panel quietly erroring; the
+      // proof has a 12 h lifetime, so this is a case a real reviewer will hit. demoApi has already
+      // discarded the dead proof, so this just returns them to the gate to type the password again.
+      if (isGateFailure(error)) navigateToLogin();
     } finally {
       setIsLoadingAuth(false);
       setAuthChecked(true);

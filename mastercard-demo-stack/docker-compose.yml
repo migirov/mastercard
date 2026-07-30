@@ -77,6 +77,11 @@ services:
       # stack that boots behind a login screen nobody can pass is worse than one that refuses.
       # Rotating it is a restart of this one service — no rebuild anywhere.
       DEMO_GATE_PASSWORD: ${DEMO_GATE_PASSWORD:?set DEMO_GATE_PASSWORD in mastercard-demo-stack/.env (see .env.example)}
+      # HMAC key for the gate proof this service issues on a correct password, and which BOTH BFFs
+      # then require on every request as a second factor alongside DEMO_API_TOKEN. The SAME
+      # variable feeds mastercard-bff below — it verifies what this service signs. If the two ever
+      # drift, the dashboard keeps working and every cross-border page 401s.
+      DEMO_GATE_SECRET: ${DEMO_GATE_SECRET:?set DEMO_GATE_SECRET in mastercard-demo-stack/.env (see .env.example)}
       NODE_ENV: development
       PORT: '4000'
     ports:
@@ -114,8 +119,12 @@ services:
       # /health still reports `live`. Its value MUST equal the gateway's MC_INTERNAL_TOKEN.
       GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:?set GATEWAY_INTERNAL_TOKEN in mastercard-demo-stack/.env, equal to the gateway MC_INTERNAL_TOKEN}
       GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
-      # Same shared token as app-bff and the frontend build — see the note there.
+      # Same shared token as app-bff and the frontend — see the note there.
       DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in mastercard-demo-stack/.env (see .env.example)}
+      # Same gate-proof key as app-bff, and it MUST match: this service only VERIFIES proofs,
+      # app-bff mints them. No DEMO_GATE_PASSWORD here on purpose — nothing in this service checks
+      # a password, and giving it one would spread the secret for no reason.
+      DEMO_GATE_SECRET: ${DEMO_GATE_SECRET:?set DEMO_GATE_SECRET in mastercard-demo-stack/.env (see .env.example)}
       # Sandbox-available capabilities call the live gateway; above-sandbox ones stay demo
       # until MTF/Prod is enabled — flip these to `live` then (no code change).
       XBS_QUOTE_MODE: ${XBS_QUOTE_MODE:-demo}

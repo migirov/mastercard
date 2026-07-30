@@ -46,9 +46,13 @@ docker compose ps             # all 5 should be running/healthy
 - **Web UI:** http://localhost:8080 — password: whatever you set as `DEMO_GATE_PASSWORD` in `mastercard-demo-stack/.env`
 - app-bff health: http://localhost:4010/health · mastercard-bff health (live/demo wiring): http://localhost:4011/health
 
-Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN`; `/health` is the only public
-route. The frontend container reads the same token from its environment at start, so rotating it
-is `docker compose up -d` — no rebuild, and the three cannot drift apart.
+Both BFF APIs require **two** factors on every route: `Authorization: Bearer $DEMO_API_TOKEN` and
+an `X-XBS-Gate` proof, which app-bff issues at `POST /demo-api/gate/verify` once the access-gate
+password checks out. `/health` is the only public route. The token alone is not enough — it is
+served to the browser in `/config.js` by design, so it keeps the APIs off the open internet rather
+than acting as a secret; the proof is the part that cannot be forged from anything the browser
+holds. The frontend container reads the token from its environment at start, so rotating it is
+`docker compose up -d` — no rebuild, and the three cannot drift apart.
 
 Full run/test walkthrough, page-by-page data sources, and the live-vs-demo matrix are in
 **[mastercard-demo-stack/README.md](mastercard-demo-stack/README.md)** and its

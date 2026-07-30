@@ -36,6 +36,45 @@ describe('AppConfig.demoGatePassword', () => {
   });
 });
 
+describe('AppConfig.demoGateSecret', () => {
+  it('returns the configured secret', () => {
+    expect(make({ DEMO_GATE_SECRET: 'sek' }).demoGateSecret).toBe('sek');
+  });
+
+  // '' is DENY for verifyGateProof, so a forgotten variable serves 401s instead of accepting
+  // forged proofs. A literal default would be published here and would forge cleanly.
+  it('returns an empty string when unset — never a default secret', () => {
+    expect(make().demoGateSecret).toBe('');
+  });
+
+  // The signing key and the human password are separate values; neither may stand in for the other.
+  it('is independent of DEMO_GATE_PASSWORD', () => {
+    const cfg = make({ DEMO_GATE_PASSWORD: 'pw' });
+    expect(cfg.demoGateSecret).toBe('');
+    expect(cfg.demoGatePassword).toBe('pw');
+  });
+});
+
+describe('AppConfig.demoGateTtlHours', () => {
+  it('defaults to 12 hours when unset', () => {
+    expect(make().demoGateTtlHours).toBe(12);
+  });
+
+  it('honours an override', () => {
+    expect(make({ DEMO_GATE_TTL_HOURS: '1' }).demoGateTtlHours).toBe(1);
+  });
+
+  // Number('') and Number('abc') are 0 and NaN — both falsy, so the `|| 12` keeps a bad value from
+  // producing a zero-second session that expires the instant it is issued.
+  it.each([
+    ['', 12],
+    ['abc', 12],
+    ['0', 12],
+  ])('falls back to 12 for a non-positive value (%s)', (raw, expected) => {
+    expect(make({ DEMO_GATE_TTL_HOURS: raw }).demoGateTtlHours).toBe(expected);
+  });
+});
+
 describe('AppConfig.corsOrigins', () => {
   it('falls back to the localhost dev origins when unset', () => {
     expect(make().corsOrigins).toEqual([...DEV_CORS_ORIGINS]);

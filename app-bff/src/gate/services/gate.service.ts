@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AppConfig } from '../../config/app-config';
 import { matchSharedToken } from '../../common/utils/crypto.util';
+import { GateProof, signGateProof } from '../../common/utils/gate-proof.util';
 
 /**
  * Verifies the UI access-gate password, server-side.
@@ -30,5 +31,18 @@ export class GateService {
    */
   verify(password: string): boolean {
     return matchSharedToken(password, this.config.demoGatePassword);
+  }
+
+  /**
+   * Mint the proof both BFFs require as their second auth factor.
+   *
+   * Call ONLY after `verify` returned true — signing here is unconditional, exactly so that the
+   * password check and the signing step stay separately testable.
+   */
+  issueProof(): GateProof {
+    return signGateProof(
+      this.config.demoGateSecret,
+      this.config.demoGateTtlHours * 3600,
+    );
   }
 }

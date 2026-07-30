@@ -62,10 +62,15 @@ docker compose ps                 # все 5 должны быть running/healt
 - app-bff (прямой API, для разработчика): http://localhost:4010/health
 - mastercard-bff (прямой API, разводка live/demo): http://localhost:4011/health
 
-API обоих BFF требуют заголовок `Authorization: Bearer $DEMO_API_TOKEN` на всех маршрутах;
-**публичный только `/health`** (его дёргает healthcheck docker-compose). Готовые примеры —
-в [docs/ru/test.md](docs/ru/test.md). Учтите: токен попадает и внутрь бандла SPA — он закрывает
-API от доступа извне, но это не авторизация по пользователям.
+API обоих BFF требуют на всех маршрутах **два** фактора — `Authorization: Bearer $DEMO_API_TOKEN`
+и proof в заголовке `X-XBS-Gate`; **публичный только `/health`** (его дёргает healthcheck
+docker-compose). Готовые примеры, включая получение proof — в [docs/ru/test.md](docs/ru/test.md).
+
+Факторы не равнозначны. Токен отдаётся в браузер в `/config.js`, то есть его может прочитать любой,
+кто дотянулся до UI: он закрывает API от доступа извне и не является авторизацией по пользователям.
+Proof выдаётся только через `POST /demo-api/gate/verify` по `DEMO_GATE_PASSWORD`, который не
+покидает бэкенд, — поэтому подделать его из того, что есть у браузера, нельзя. Именно это делает
+прохождение гейта фактом на стороне сервера, а не решением на стороне клиента.
 
 Остановить: `docker compose down` (данные сохраняются) или `docker compose down -v`
 (стереть данные — при следующем подъёме всё засеется заново).

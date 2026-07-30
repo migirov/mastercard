@@ -2,6 +2,7 @@
 // integrations) against our own demo BFF (demoApi). Exported as `api`; cross-border payment
 // operations live in ./xbs.
 import { demoApi } from './demoApi';
+import { clearProof } from './gateSession';
 
 const enc = encodeURIComponent;
 
@@ -43,20 +44,33 @@ const entities = new Proxy(
   { get: (_t, name) => (typeof name === 'string' ? entityClient(name) : undefined) },
 );
 
+/**
+ * Drop everything that says "this session passed the gate", then reload.
+ *
+ * A reload with no proof and no flag re-renders `<PasswordGate>`, and the branded gate screen IS
+ * the login page — so this needs no route and no router change. Clearing the PROOF is the part
+ * that has teeth: without it the API calls would keep succeeding, since the servers never saw the
+ * client-side flag in the first place.
+ */
+function endGateSession() {
+  clearProof();
+  try {
+    sessionStorage.removeItem('xbs_access_granted');
+  } catch {
+    /* ignore */
+  }
+  if (typeof window !== 'undefined') window.location.reload();
+}
+
 const auth = {
   me: () => demoApi.get('/auth/me'),
-  // The demo "login" is the client-side PasswordGate; logging out clears it and reloads.
-  logout: async () => {
-    try {
-      sessionStorage.removeItem('xbs_access_granted');
-    } catch {
-      /* ignore */
-    }
-    if (typeof window !== 'undefined') window.location.reload();
-  },
-  redirectToLogin: () => {
-    /* no-op: auth is not required in the demo */
-  },
+  // The demo "login" is the PasswordGate, verified server-side; logging out drops the proof it
+  // obtained, so the next request genuinely fails rather than merely looking logged out.
+  logout: async () => endGateSession(),
+  // No longer a no-op. Reached when a proof expires mid-session (12 h default): the API answers
+  // 401 gate_required, demoApi has already discarded the dead proof, and this returns the user to
+  // the gate instead of leaving an app in which every panel silently errors.
+  redirectToLogin: () => endGateSession(),
 };
 
 const integrations = {

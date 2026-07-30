@@ -41,6 +41,10 @@ const EnvSchema = z.object({
   // handled where the consequence can be stated — main.ts throws in production and warns
   // loudly otherwise, and the guard denies every request either way.
   DEMO_API_TOKEN: optionalNonEmpty,
+  // HMAC key for the access-gate proof (DemoAuthGuard's second factor). MUST equal app-bff's
+  // DEMO_GATE_SECRET — that service signs the proofs this one verifies. Optional HERE for the same
+  // reason as the token above; verifyGateProof denies everything when it is unset.
+  DEMO_GATE_SECRET: optionalNonEmpty,
   // Comma-separated browser origins allowed to call this API cross-origin. Unset → the
   // localhost dev defaults in McConfig. Only relevant to `npm run dev`: in the compose
   // stack the SPA reaches this service same-origin through nginx.

@@ -90,6 +90,9 @@ services:
       GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN:?} # must equal the gateway's MC_INTERNAL_TOKEN
       GATEWAY_TENANT_ID: ${GATEWAY_TENANT_ID:-platform}
       DEMO_API_TOKEN: ${DEMO_API_TOKEN:?set DEMO_API_TOKEN in .env}
+      # Same gate-proof key as app-bff, and it MUST match — this service only verifies proofs,
+      # app-bff mints them. No DEMO_GATE_PASSWORD here: nothing in this service checks a password.
+      DEMO_GATE_SECRET: ${DEMO_GATE_SECRET:?set DEMO_GATE_SECRET in .env}
       NODE_ENV: ${BFF_NODE_ENV:-}
       PORT: '4000'
       # Per-capability live|demo switches. `live` calls the real Mastercard API through the
@@ -118,6 +121,9 @@ services:
       # Password for the UI access gate, checked server-side by POST /gate/verify. THIS SERVICE
       # ONLY — never mastercard-bff, never the frontend: it must not reach the browser.
       DEMO_GATE_PASSWORD: ${DEMO_GATE_PASSWORD:?set DEMO_GATE_PASSWORD in .env}
+      # HMAC key for the gate proof. One value, TWO services (this one signs, mastercard-bff
+      # verifies) — they must not drift, or cross-border pages 401 while the dashboard works.
+      DEMO_GATE_SECRET: ${DEMO_GATE_SECRET:?set DEMO_GATE_SECRET in .env}
       # This service CREATEs its database on first boot, so the role needs CREATEDB (or the
       # database must be pre-created with this exact name).
       DEMO_DB_HOST: ${APP_DB_HOST:?}

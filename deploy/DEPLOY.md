@@ -160,9 +160,34 @@ docker compose exec mastercard-bff curl -fsS localhost:4000/health   # reports l
 docker compose exec gateway        curl -fsS localhost:3000/health
 ```
 
-The BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN` on every route; `/health` is the
-only public one. Then open the UI and run a payment through the Review step — an IBAN/address
-validation showing "Validated · Mastercard" is a real round-trip to Mastercard.
+The BFF APIs require **two** factors on every route — the bearer token and an `X-XBS-Gate` proof;
+`/health` is the only public one. To exercise them from a shell, exchange the gate password for a
+proof first:
+
+```bash
+# Wrong password → 401 {"code":"gate_bad_password"}; 10 attempts per 15 min per source.
+curl -i -X POST localhost:8080/demo-api/gate/verify \
+  -H "Authorization: Bearer $DEMO_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"password":"wrong"}'
+
+PROOF=$(curl -fsS -X POST localhost:8080/demo-api/gate/verify \
+  -H "Authorization: Bearer $DEMO_API_TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"password\":\"$DEMO_GATE_PASSWORD\"}" | sed -E 's/.*"proof":"([^"]*)".*/\1/')
+
+# The token ALONE now returns 401 {"code":"gate_required"} — that is the point.
+curl -i -H "Authorization: Bearer $DEMO_API_TOKEN" localhost:8080/demo-api/auth/me
+# With both factors: 200. Try it against the other BFF too, to confirm the shared secret matches.
+curl -fsS -H "Authorization: Bearer $DEMO_API_TOKEN" -H "X-XBS-Gate: $PROOF" \
+  localhost:8080/demo-api/auth/me
+curl -fsS -H "Authorization: Bearer $DEMO_API_TOKEN" -H "X-XBS-Gate: $PROOF" \
+  localhost:8080/demo-api/xbs/balances
+```
+
+If `/demo-api/auth/me` succeeds but `/demo-api/xbs/balances` returns 401, the two services'
+`DEMO_GATE_SECRET` values have drifted — that is the signature of exactly that mistake.
+
+Then open the UI and run a payment through the Review step — an IBAN/address validation showing
+"Validated · Mastercard" is a real round-trip to Mastercard.
 
 Startup order is handled by the compose file. Starting the BFF before the gateway is finished
 booting is safe: live capabilities degrade to demo responses and recover on their own.

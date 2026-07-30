@@ -159,9 +159,34 @@ docker compose exec mastercard-bff curl -fsS localhost:4000/health   # пока�
 docker compose exec gateway        curl -fsS localhost:3000/health
 ```
 
-API обоих BFF требуют `Authorization: Bearer $DEMO_API_TOKEN` на каждом маршруте; `/health` —
-единственный публичный. Дальше откройте UI и пройдите платёж до шага Review: бейдж
-«Validated · Mastercard» на проверке IBAN/адреса означает реальный round-trip до Mastercard.
+API обоих BFF требуют на каждом маршруте **два** фактора — bearer-токен и proof в заголовке
+`X-XBS-Gate`; `/health` — единственный публичный. Чтобы подёргать их из шелла, сначала обменяйте
+пароль гейта на proof:
+
+```bash
+# Неверный пароль → 401 {"code":"gate_bad_password"}; 10 попыток за 15 минут на источник.
+curl -i -X POST localhost:8080/demo-api/gate/verify \
+  -H "Authorization: Bearer $DEMO_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"password":"wrong"}'
+
+PROOF=$(curl -fsS -X POST localhost:8080/demo-api/gate/verify \
+  -H "Authorization: Bearer $DEMO_API_TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"password\":\"$DEMO_GATE_PASSWORD\"}" | sed -E 's/.*"proof":"([^"]*)".*/\1/')
+
+# Один токен теперь даёт 401 {"code":"gate_required"} — в этом и смысл.
+curl -i -H "Authorization: Bearer $DEMO_API_TOKEN" localhost:8080/demo-api/auth/me
+# С двумя факторами: 200. Проверьте и второй BFF — так видно, что общий секрет совпадает.
+curl -fsS -H "Authorization: Bearer $DEMO_API_TOKEN" -H "X-XBS-Gate: $PROOF" \
+  localhost:8080/demo-api/auth/me
+curl -fsS -H "Authorization: Bearer $DEMO_API_TOKEN" -H "X-XBS-Gate: $PROOF" \
+  localhost:8080/demo-api/xbs/balances
+```
+
+Если `/demo-api/auth/me` отвечает 200, а `/demo-api/xbs/balances` — 401, значит значения
+`DEMO_GATE_SECRET` у двух сервисов разошлись: это характерная подпись именно этой ошибки.
+
+Дальше откройте UI и пройдите платёж до шага Review: бейдж «Validated · Mastercard» на проверке
+IBAN/адреса означает реальный round-trip до Mastercard.
 
 Порядок старта задан в compose-файле. Запуск BFF раньше, чем догрузился гейтвей, безопасен:
 live-возможности временно деградируют до demo-ответов и восстанавливаются сами.

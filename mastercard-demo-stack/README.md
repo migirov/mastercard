@@ -62,10 +62,17 @@ docker compose ps                 # all 5 should be running/healthy
 - app-bff (direct API, for devs): http://localhost:4010/health
 - mastercard-bff (direct API, live/demo wiring): http://localhost:4011/health
 
-Both BFF APIs require `Authorization: Bearer $DEMO_API_TOKEN` on every route; **`/health` is the
-only public one** (docker-compose's healthcheck uses it). See [docs/en/test.md](docs/en/test.md)
-for ready-to-paste examples. Note that the token also ships inside the SPA bundle — it keeps the
-APIs off the open network, it is not per-user authorization.
+Both BFF APIs require **two** factors on every route — `Authorization: Bearer $DEMO_API_TOKEN` and
+an `X-XBS-Gate` proof — and **`/health` is the only public one** (docker-compose's healthcheck uses
+it). See [docs/en/test.md](docs/en/test.md) for ready-to-paste examples, including how to obtain a
+proof.
+
+The two factors are not interchangeable. The token is served to the browser in `/config.js`, so
+anyone who can reach the UI can read it: it keeps the APIs off the open network and is not per-user
+authorization. The proof is minted only by `POST /demo-api/gate/verify` against
+`DEMO_GATE_PASSWORD`, which never leaves the backend — so it cannot be forged from anything the
+browser holds. That is what makes passing the gate a server-side fact rather than a client-side
+decision.
 
 Stop: `docker compose down` (keep data) or `docker compose down -v` (wipe data + re-seed on next up).
 

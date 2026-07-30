@@ -10,6 +10,8 @@
 // The `import.meta.env` fallbacks keep `npm run dev` working (Vite serves the `public/config.js`
 // stub, which sets no values). The reference above is what teaches `checkJs` about
 // `import.meta.env` — jsconfig sets `"types": []`, so nothing is picked up implicitly.
+import { clearProof, getProof, hasLiveProof } from './gateSession';
+
 const RUNTIME = /** @type {any} */ (globalThis).__XBS_CONFIG__ ?? {};
 
 const BASE = (
@@ -20,10 +22,13 @@ const BASE = (
 
 // Shared bearer token for both BFFs.
 //
-// Reaching the browser means it is readable by anyone who can load the app — this is one trust
-// boundary keeping the APIs off the open internet, NOT per-user authorization. Do not treat it
-// as a user secret. Empty here → every call 401s, which is the intended failure: see the
-// entrypoint wiring in Dockerfile and docker-compose.yml.
+// Reaching the browser means it is readable by anyone who can load the app — and by anyone who
+// simply fetches /config.js. So it is NOT per-user authorization and NOT a user secret, and on its
+// own it is not sufficient either: both BFFs require a second factor, the gate proof below, which
+// is minted only against DEMO_GATE_PASSWORD server-side and cannot be forged from anything the
+// browser holds. What the token still does is keep the APIs off the open internet.
+// Empty here → every call 401s, which is the intended failure: see the entrypoint wiring in
+// Dockerfile and docker-compose.yml.
 const TOKEN = RUNTIME.apiToken || import.meta.env.VITE_DEMO_API_TOKEN || '';
 
 /**
@@ -37,6 +42,11 @@ async function req(method, path, { body, isForm } = {}) {
   // Set before the isForm branch so uploads carry it too, and never touch Content-Type —
   // FormData bodies need the browser to set their own multipart boundary.
   if (TOKEN) opts.headers.Authorization = `Bearer ${TOKEN}`;
+  // The gate proof, the SECOND factor both BFFs require. Set here for exactly the same reason as
+  // the line above: the RFI document upload is a FormData call, and a proof attached inside the
+  // isForm branch would be missing from it.
+  const proof = getProof();
+  if (proof) opts.headers['X-XBS-Gate'] = proof;
   if (body !== undefined) {
     if (isForm) {
       opts.body = body; // FormData — let the browser set the multipart boundary
@@ -54,6 +64,20 @@ async function req(method, path, { body, isForm } = {}) {
     // The message format is unchanged, so every existing call site behaves exactly as before.
     // Note a `fetch` REJECTION (DNS failure, connection refused, CSP block) throws a TypeError
     // with no `.status` at all — which is itself the "unreachable" signal.
+    // A DEAD proof cleans itself up, so the app stops re-sending a value that can never succeed:
+    // the next reload shows the gate screen (readGranted also checks hasLiveProof).
+    //
+    // The `!hasLiveProof()` condition is what keeps this narrow, and it matters. A `gate_required`
+    // 401 has two very different causes, and the expiry — which we can check locally — is what
+    // separates them:
+    //   - the proof has expired            → discard it; the user must retype the password.
+    //   - the proof is still live but one service rejected it → the two BFFs' DEMO_GATE_SECRET
+    //     values have drifted. Discarding here would take down the service that still ACCEPTS the
+    //     proof as well, converting a partial, diagnosable failure (cross-border pages 401, the
+    //     dashboard fine) into a total one. Leave it; let the 401s point at the real cause.
+    if (res.status === 401 && text.includes('gate_required') && !hasLiveProof()) {
+      clearProof();
+    }
     const err = /** @type {Error & { status?: number, body?: string }} */ (
       new Error(`demo-api ${method} ${path} → ${res.status} ${text}`)
     );

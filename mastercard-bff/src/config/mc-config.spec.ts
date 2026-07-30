@@ -19,6 +19,26 @@ describe('McConfig.demoApiToken', () => {
   });
 });
 
+describe('McConfig.demoGateSecret', () => {
+  it('returns the configured secret', () => {
+    expect(make({ DEMO_GATE_SECRET: 'sek' }).demoGateSecret).toBe('sek');
+  });
+
+  // '' is DENY for `verifyGateProof`. A literal fallback would be published in this repo and would
+  // let anyone forge a proof for routes that spend the platform's Mastercard credentials.
+  it('returns an empty string when unset — never a default secret', () => {
+    expect(make().demoGateSecret).toBe('');
+  });
+
+  // This service verifies only; it never signs, so there is deliberately no TTL counterpart to
+  // app-bff's demoGateTtlHours. Pinned so nobody "restores symmetry" by adding one.
+  it('exposes no TTL — this service does not mint proofs', () => {
+    expect(
+      (make() as unknown as Record<string, unknown>).demoGateTtlHours,
+    ).toBeUndefined();
+  });
+});
+
 describe('McConfig.corsOrigins', () => {
   it('falls back to the localhost dev origins when unset', () => {
     expect(make().corsOrigins).toEqual([...DEV_CORS_ORIGINS]);

@@ -76,6 +76,32 @@ export class AppConfig {
     return this.config.get<string>('DEMO_GATE_PASSWORD') ?? '';
   }
 
+  /**
+   * HMAC key used to sign and verify the gate proof issued by `POST /gate/verify`.
+   *
+   * MUST be byte-identical to `mastercard-bff`'s `DEMO_GATE_SECRET`: that service verifies the
+   * proofs this one mints. If they drift, the dashboard works and every cross-border page 401s.
+   *
+   * A different value from `demoGatePassword` on purpose — the password is a human-typed shared
+   * secret, this is a machine key. Returns '' when unset, and '' is DENY (`verifyGateProof`
+   * rejects everything), so a forgotten variable serves 401s instead of accepting forgeries.
+   */
+  get demoGateSecret(): string {
+    return this.config.get<string>('DEMO_GATE_SECRET') ?? '';
+  }
+
+  /**
+   * How long a gate proof stays valid, in hours. Default 12.
+   *
+   * Sized for how the demo is actually used: someone opening it in the morning is not re-prompted
+   * after lunch, while a captured proof is not useful indefinitely. There is deliberately no
+   * sliding refresh — on expiry the user retypes the password, which keeps refresh-token storage
+   * and cross-container rotation races out of a demo.
+   */
+  get demoGateTtlHours(): number {
+    return Number(this.config.get<string>('DEMO_GATE_TTL_HOURS')) || 12;
+  }
+
   /** Browser origins allowed to call this API cross-origin; unset → `DEV_CORS_ORIGINS`. */
   get corsOrigins(): string[] {
     const raw = this.config.get<string>('CORS_ORIGINS');

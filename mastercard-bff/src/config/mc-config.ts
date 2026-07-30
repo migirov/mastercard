@@ -72,6 +72,25 @@ export class McConfig {
     return this.config.get<string>('DEMO_API_TOKEN') ?? '';
   }
 
+  /**
+   * HMAC key for the access-gate proof the `DemoAuthGuard` demands as its second factor.
+   *
+   * ⚠️ MUST be byte-identical to app-bff's `DEMO_GATE_SECRET`. app-bff mints the proofs (it owns
+   * `POST /gate/verify`); this service only ever VERIFIES them — which is why there is no TTL
+   * getter here to match app-bff's `demoGateTtlHours`. Nothing here decides how long a proof
+   * lives; it only checks the expiry that was signed into one.
+   *
+   * If the two values drift, the dashboard keeps working while every cross-border page 401s — the
+   * same partial, confusing failure as `GATEWAY_INTERNAL_TOKEN` drifting from the gateway's
+   * `MC_INTERNAL_TOKEN`.
+   *
+   * Returns '' when unset, and '' is DENY — `verifyGateProof` rejects every proof, so a forgotten
+   * variable serves 401s rather than accepting forgeries. Never default it to a literal.
+   */
+  get demoGateSecret(): string {
+    return this.config.get<string>('DEMO_GATE_SECRET') ?? '';
+  }
+
   /** Browser origins allowed to call this API cross-origin; unset → `DEV_CORS_ORIGINS`. */
   get corsOrigins(): string[] {
     const raw = this.config.get<string>('CORS_ORIGINS');

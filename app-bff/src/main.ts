@@ -150,6 +150,25 @@ function assertGatePasswordConfigured(cfg: AppConfig, log: Logger): void {
   log.warn('Set DEMO_GATE_PASSWORD (see .env.example) and restart.');
 }
 
+/**
+ * And for the HMAC key that signs the gate proof. Unset means `verifyGateProof` rejects every
+ * proof, so the gate can be passed but every subsequent API call still 401s — a failure that looks
+ * like a broken app rather than a missing variable. Hence the same fail-fast treatment.
+ *
+ * Both compose files use `:?` so the stack refuses to start instead of reaching this at all; this
+ * covers `npm run dev` and any hand-rolled `docker run`.
+ */
+function assertGateSecretConfigured(cfg: AppConfig, log: Logger): void {
+  if (cfg.demoGateSecret) return;
+  const msg =
+    'DEMO_GATE_SECRET is not set — the gate can be passed but every API call will be rejected with 401.';
+  if (cfg.isProduction) throw new Error(msg);
+  log.warn(msg);
+  log.warn(
+    'Set DEMO_GATE_SECRET to the SAME value as mastercard-bff (see .env.example) and restart.',
+  );
+}
+
 async function bootstrap() {
   installCrashGuard();
   await ensureDatabase();
@@ -168,15 +187,17 @@ async function bootstrap() {
   const cfg = app.get(AppConfig);
   assertApiTokenConfigured(cfg, log);
   assertGatePasswordConfigured(cfg, log);
+  assertGateSecretConfigured(cfg, log);
   // An explicit origin allowlist, not `origin: true` (which reflects whatever Origin the
-  // caller sent — i.e. every site). `Authorization` MUST stay in allowedHeaders: naming the
-  // list at all disables cors's default reflection, so omitting it makes the browser reject
-  // every authenticated cross-origin call at preflight. Only affects split-origin dev; the
-  // compose stack serves the SPA same-origin through nginx.
+  // caller sent — i.e. every site). `Authorization` and `X-XBS-Gate` MUST stay in allowedHeaders:
+  // naming the list at all disables cors's default reflection, so omitting either makes the
+  // browser reject every authenticated cross-origin call at preflight. Drop `X-XBS-Gate` and the
+  // symptom is that `npm run dev` fails at preflight on EVERY call, with the gate itself looking
+  // fine. Only affects split-origin dev; the compose stack serves the SPA same-origin via nginx.
   app.enableCors({
     origin: cfg.corsOrigins,
     credentials: false,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-XBS-Gate'],
   });
   app.enableShutdownHooks();
   await app.listen(cfg.port);

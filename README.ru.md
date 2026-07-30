@@ -46,9 +46,13 @@ docker compose ps             # все 5 должны быть running/healthy
 - **Веб-интерфейс:** http://localhost:8080 — пароль: тот, что вы задали в `DEMO_GATE_PASSWORD` в `mastercard-demo-stack/.env`
 - health app-bff: http://localhost:4010/health · health mastercard-bff (разводка live/demo): http://localhost:4011/health
 
-API обоих BFF требуют `Authorization: Bearer $DEMO_API_TOKEN`; публичный маршрут только
-`/health`. Контейнер фронта читает тот же токен из окружения при старте, поэтому его ротация —
-это `docker compose up -d` без пересборки, и три сервиса не могут разойтись.
+API обоих BFF требуют на каждом маршруте **два** фактора: `Authorization: Bearer $DEMO_API_TOKEN`
+и proof в заголовке `X-XBS-Gate`, который app-bff выдаёт на `POST /demo-api/gate/verify` после
+проверки пароля гейта. Публичный маршрут только `/health`. Одного токена недостаточно: он по
+замыслу отдаётся в браузер в `/config.js`, поэтому держит API вне открытого интернета, но секретом
+не является; подделать нельзя именно proof — из того, что есть у браузера, его не собрать.
+Контейнер фронта читает токен из окружения при старте, поэтому его ротация — это
+`docker compose up -d` без пересборки, и три сервиса не могут разойтись.
 
 Полный гайд по запуску/тестированию, источники данных каждой страницы и матрица live-vs-demo —
 в **[mastercard-demo-stack/README.ru.md](mastercard-demo-stack/README.ru.md)** и гайдах

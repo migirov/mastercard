@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Lock } from 'lucide-react';
 import { verifyGatePassword } from '@/api/gate';
+import { hasLiveProof, setProof } from '@/api/gateSession';
 
 const STORAGE_KEY = 'xbs_access_granted';
 
@@ -18,9 +19,14 @@ const MESSAGES = {
 };
 
 // sessionStorage can throw (Safari private mode / hardened privacy) — never let that crash the app.
+//
+// BOTH conditions are required: the flag alone is forgeable in devtools, and a forged flag with no
+// live proof would render an app whose every request 401s. Checking the proof too means the gate
+// reappears instead, which is the honest outcome. Note the flag is now only a UX cache — the
+// boundary is the proof, and the servers are what enforce it.
 function readGranted() {
   try {
-    return sessionStorage.getItem(STORAGE_KEY) === 'true';
+    return sessionStorage.getItem(STORAGE_KEY) === 'true' && hasLiveProof();
   } catch {
     return false;
   }
@@ -51,7 +57,11 @@ export default function PasswordGate({ children }) {
 
     const result = await verifyGatePassword(value);
 
-    if (result === 'ok') {
+    if (result.status === 'ok') {
+      // Store the proof FIRST — every API call the app makes on mount needs it. Both writes are
+      // individually guarded: if storage throws (private mode) we still grant, and the user gets
+      // 401s on data calls rather than a blank screen with no explanation.
+      setProof(result.proof);
       try {
         sessionStorage.setItem(STORAGE_KEY, 'true');
       } catch {
@@ -61,10 +71,10 @@ export default function PasswordGate({ children }) {
       return;
     }
 
-    setStatus(result);
+    setStatus(result.status);
     // Clear the field only when the value was wrong. On a backend failure the value is still
     // correct, so keeping it means a retry after `docker compose up` needs no retyping.
-    if (result === 'bad-password') {
+    if (result.status === 'bad-password') {
       setValue('');
       if (clearTimer.current) clearTimeout(clearTimer.current);
       clearTimer.current = setTimeout(() => setStatus('idle'), 2000);

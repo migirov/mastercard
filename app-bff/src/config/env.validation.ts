@@ -38,6 +38,15 @@ const EnvSchema = z.object({
   // `.optional()`, so a compose `DEMO_GATE_PASSWORD=` reads as UNSET rather than as "configured
   // with an empty password" — which would otherwise be a gate that any empty submission opens.
   DEMO_GATE_PASSWORD: optionalNonEmpty,
+  // HMAC key for the gate proof. MUST match mastercard-bff's DEMO_GATE_SECRET — it verifies the
+  // proofs this service signs. Optional here for the same reason as the two above; main.ts states
+  // the consequence, and verifyGateProof denies everything when it is unset.
+  DEMO_GATE_SECRET: optionalNonEmpty,
+  // Gate proof lifetime in hours. Optional, defaults to 12 in AppConfig.
+  DEMO_GATE_TTL_HOURS: z
+    .string()
+    .regex(/^[1-9][0-9]*$/, 'must be a positive integer')
+    .optional(),
   // Comma-separated browser origins allowed to call this API cross-origin. Unset → the
   // localhost dev defaults in AppConfig. Only relevant to `npm run dev`: in the compose
   // stack the SPA reaches this service same-origin through nginx.
