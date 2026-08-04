@@ -1,4 +1,4 @@
-# XBS Embedded — Mastercard Cross-Border monorepo
+# XBS Embedded — Mastercard Cross-Border monorepo. 
 
 🇬🇧 English · [🇷🇺 Русский](README.ru.md)
 
