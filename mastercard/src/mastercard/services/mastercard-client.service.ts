@@ -96,6 +96,20 @@ export class MastercardClient implements OnApplicationShutdown, OnModuleInit {
       baseURL: this.baseUrl,
       timeout: MC_REQUEST_TIMEOUT_MS,
       httpsAgent: this.httpsAgent,
+      // Do NOT follow redirects. Unset, axios delegates to `follow-redirects`, and
+      // on a payment API that is three problems at once:
+      //  - a 307/308 REPLAYS the buffered request body verbatim, so a redirecting
+      //    edge would re-POST the payment to another host;
+      //  - `follow-redirects` only strips `authorization` when the redirect leaves
+      //    the superdomain, so our OAuth2 request token — which is bound to no URL,
+      //    method or body — would be handed to a sibling host;
+      //  - it wraps the request in a RedirectableRequest, which does not expose
+      //    `reusedSocket`, the one signal that says whether a TLS failure happened
+      //    on a fresh connection.
+      // A 3xx now arrives as an ordinary response and, not being forwardable, becomes
+      // a 502 with executed:'unknown' — the fail-safe answer for a redirect we did
+      // not expect.
+      maxRedirects: 0,
     });
     // Encryption (JWE) + authentication live in the axios interceptors (the request
     // interceptor encrypts then authenticates over the encrypted body; the response

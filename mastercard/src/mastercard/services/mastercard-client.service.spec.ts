@@ -287,6 +287,21 @@ describe('MastercardClient — decrypt-no-retry (regression)', () => {
   });
 });
 
+describe('MastercardClient — redirects', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('never follows a redirect — a 307/308 would replay the payment body', () => {
+    setup();
+
+    const createArgs = (axios.create as jest.Mock).mock.calls[0][0] as {
+      maxRedirects?: number;
+    };
+    // Unset means axios uses `follow-redirects`, which re-sends the buffered body
+    // to the new host and keeps `authorization` across a same-superdomain hop.
+    expect(createArgs.maxRedirects).toBe(0);
+  });
+});
+
 describe('MastercardClient — TLS floor', () => {
   afterEach(() => jest.clearAllMocks());
 
