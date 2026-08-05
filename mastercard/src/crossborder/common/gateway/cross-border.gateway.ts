@@ -12,6 +12,7 @@ import {
   McResponse,
   MastercardClient,
 } from '../../../mastercard/services/mastercard-client.service';
+import { NonRetryableMcError } from '../../../mastercard/services/mc.errors';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import {
   effectiveStatus,
@@ -156,7 +157,14 @@ export class CrossBorderGateway {
       );
       // Network/timeout/decryption drop — the outcome is UNKNOWN (MC may have accepted a
       // POST before the drop). Hold any idempotency slot (fail-safe), surface as 502.
-      throw new UpstreamUnavailableException('unknown');
+      //
+      // EXCEPT for the pre-send failures (auth-header construction, request encryption):
+      // those are raised in the request interceptor, before axios runs the adapter, so
+      // provably not a single byte reached Mastercard. Holding the slot for those would
+      // make a local defect look like an in-flight payment and 409 the merchant's retry
+      // for the full lock TTL.
+      const notSent = e instanceof NonRetryableMcError && !e.sent;
+      throw new UpstreamUnavailableException(notSent ? 'no' : 'unknown');
     }
 
     if (res.status >= 200 && res.status < 300) {
@@ -184,6 +192,17 @@ export class CrossBorderGateway {
     const executed =
       res.status === 401 || res.status === 403 ? 'no' : 'unknown';
     throw new UpstreamUnavailableException(executed);
+  }
+
+  /**
+   * Hostname of the Mastercard endpoint this deployment talks to. Exposed so callers
+   * can bind persisted state to the edge that produced it — a `payment_idempotency`
+   * row cached against one edge must not replay for another (different partner
+   * account, different contract), which would answer for a payment that never
+   * existed there.
+   */
+  upstreamHost(): string {
+    return this.client.upstreamHost;
   }
 
   /** partner-id safely substituted into the path (protects against path-injection in OWN). */
@@ -215,7 +234,7 @@ export class CrossBorderGateway {
   /**
    * Query string from the given parameters: only non-empty ones, values are
    * URL-encoded (anti query-injection — the values go into the URL of the request
-   * to MC, which is then signed with OAuth1). Returns `?k=v&...` or an empty
+   * to MC, which is then authenticated). Returns `?k=v&...` or an empty
    * string. We take only non-empty STRINGS (values from `?x[]=` and the like are
    * discarded); the keys are set by code.
    */

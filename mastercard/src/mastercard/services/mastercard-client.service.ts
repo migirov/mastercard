@@ -1,11 +1,19 @@
-import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+  OnModuleInit,
+} from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 import * as https from 'https';
 import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { MIN_TLS_VERSION } from '../../common/utils/tls';
-import { NonRetryableMcError } from './mc.errors';
+import { MC_AUTH_STRATEGY, McAuthStrategy } from '../auth/mc-auth.types';
+import { McAgentProvider } from './mc-agent.provider';
+import { asTlsHandshakeError, NonRetryableMcError } from './mc.errors';
 import { installMcInterceptors, McAxiosConfig } from './mc-interceptors';
 import {
   backoffMs,
@@ -39,7 +47,8 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Low-level Mastercard transport. Three responsibilities are split out for clarity/testing:
- *  - crypto (JWE) + OAuth1 signing → the axios interceptors (`installMcInterceptors`), so
+ *  - crypto (JWE) + authentication (via the injected McAuthStrategy) → the axios
+ *    interceptors (`installMcInterceptors`), so
  *    business logic passes a "clean" object and knows nothing about crypto;
  *  - the retry decision → `mc-retry.policy` (idempotent GET only);
  *  - the deterministic crypto-error taxonomy → `mc.errors`.
@@ -47,18 +56,27 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * `request()` dispatch loop. Public contract (`request`) is unchanged.
  */
 @Injectable()
-export class MastercardClient implements OnApplicationShutdown {
+export class MastercardClient implements OnApplicationShutdown, OnModuleInit {
   private readonly logger = new Logger(MastercardClient.name);
   private readonly http: AxiosInstance;
   private readonly baseUrl: string;
   private readonly httpsAgent: https.Agent;
+  private readonly authMode: string;
 
-  constructor(config: GatewayConfig, encryption: EncryptionService) {
+  constructor(
+    config: GatewayConfig,
+    encryption: EncryptionService,
+    @Inject(MC_AUTH_STRATEGY) auth: McAuthStrategy,
+    private readonly agents: McAgentProvider,
+  ) {
     const raw = config.baseUrl ?? '';
     if (!raw) {
       throw new Error('MastercardModule option "baseUrl" is not set');
     }
     this.baseUrl = raw.replace(/\/+$/, '');
+    // Instance default. The real per-request agent comes from McAgentProvider (it
+    // carries the client certificate and may differ per tenant); this one only
+    // guarantees the TLS floor for any direct use of `this.http`.
     this.httpsAgent = new https.Agent({
       keepAlive: true,
       maxSockets: 50,
@@ -79,9 +97,25 @@ export class MastercardClient implements OnApplicationShutdown {
       timeout: MC_REQUEST_TIMEOUT_MS,
       httpsAgent: this.httpsAgent,
     });
-    // Encryption (JWE) + OAuth1 signing live in the axios interceptors (the request
-    // interceptor encrypts then signs over the encrypted body; the response decrypts).
-    installMcInterceptors(this.http, encryption, this.logger);
+    // Encryption (JWE) + authentication live in the axios interceptors (the request
+    // interceptor encrypts then authenticates over the encrypted body; the response
+    // decrypts). The auth scheme itself is injected — see McAuthStrategy.
+    installMcInterceptors(this.http, encryption, auth, this.logger);
+    this.authMode = auth.mode;
+  }
+
+  /** Hostname of the configured Mastercard endpoint (e.g. `api.xbs.mastercard.eu`). */
+  get upstreamHost(): string {
+    return new URL(this.baseUrl).hostname;
+  }
+
+  /** Announce the active target once dependencies are wired — a side-effect-free
+   *  constructor is a Nest convention here (same as EncryptionService/AuditService),
+   *  and in an embedded host a constructor-time log bypasses its logger setup. */
+  onModuleInit(): void {
+    this.logger.log(
+      `Mastercard transport ready: ${this.baseUrl} (auth: ${this.authMode})`,
+    );
   }
 
   /** Release the keep-alive socket pool on shutdown — otherwise, on graceful
@@ -112,7 +146,7 @@ export class MastercardClient implements OnApplicationShutdown {
       // Don't let the abort timer hold the event loop open if the process is otherwise idle.
       killer.unref();
       // Build the config FRESH on every attempt: the request interceptor mutates
-      // config.data (encrypts + serializes) and sets a fresh OAuth1 signature.
+      // config.data (encrypts + serializes) and sets fresh auth headers.
       const config: McAxiosConfig = {
         url: req.path,
         method: req.method,
@@ -121,6 +155,10 @@ export class MastercardClient implements OnApplicationShutdown {
         validateStatus: () => true, // we interpret the status ourselves
         mcCreds: creds,
         signal: abort.signal,
+        // Per-request agent: carries the outbound client certificate, and picks the
+        // tenant's own one when it has one. axios merges a request-level httpsAgent
+        // over the instance default (mergeConfig `defaultToConfig2`).
+        httpsAgent: this.agents.agentFor(creds),
       };
       try {
         const res = await this.http.request<T>(config);
@@ -134,6 +172,13 @@ export class MastercardClient implements OnApplicationShutdown {
         // deterministic — do NOT retry (otherwise 2 extra signed round-trips to
         // MC and a delayed 502). Only a network failure is transient.
         if (e instanceof NonRetryableMcError) throw e;
+        // A failed TLS handshake is a configuration fact, not a blip: retrying it
+        // costs two more round-trips and still ends in a 502 — one that says nothing
+        // about WHICH certificate is at fault. Naming it is the difference between a
+        // one-line fix and an outage spent guessing. Nothing was sent, so the payment
+        // idempotency slot is released rather than held (see TlsHandshakeError.sent).
+        const tls = asTlsHandshakeError(e, this.upstreamHost);
+        if (tls) throw tls;
         lastErr = e; // network failure (an abort at MC_REQUEST_TIMEOUT_MS lands here too)
         if (attempt < maxAttempts) {
           await delay(backoffMs(attempt));

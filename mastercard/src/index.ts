@@ -18,3 +18,7 @@ export type { MastercardModuleOptions } from './config/gateway-config';
 // handling our responses) and enums for tenant onboarding via the admin API.
 export { ErrorResponseDto } from './common/dto/error-response.dto';
 export { CredentialMode, TenantStatus } from './tenants/tenant.types';
+// `MastercardModuleOptions.authMode` is typed with this union, so a host that builds
+// its options as a standalone const (rather than inline in a typed factory) needs to
+// be able to name it without a deep import.
+export type { McAuthMode } from './mastercard/auth/mc-auth.types';

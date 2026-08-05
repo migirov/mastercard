@@ -6,7 +6,7 @@ A multi-merchant gateway to **Mastercard Cross-Border Services** (NestJS, Node 2
 PostgreSQL). The platform's partners reach Mastercard through us — each with their own
 keys and `partner-id`, and only after dual approval (Mastercard + platform).
 
-- Every request is OAuth1-signed with the specific tenant's key (stateless).
+- Every request is authenticated with the specific tenant's key (stateless) — OAuth 1.0a on the global endpoints, an OAuth2 request token on the PSD2 `xbs` edges.
 - Field-level encryption (JWE) and signing are moved into an axios interceptor.
 - Persistence — PostgreSQL (designed for multi-pod deployment on Kubernetes).
 - Two access paths: external OAuth2 (merchants) and internal service token.
@@ -38,7 +38,7 @@ from [Mastercard Developers](https://developer.mastercard.com) there.
 
 | File | Purpose | `.env` variable |
 |---|---|---|
-| `Fintory-sandbox-signing.p12` | private **OAuth1 signing** key | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
+| `Fintory-sandbox-signing.p12` | private **signing** key (both auth modes) | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
 | `client-encryption-cert.pem` | public cert of the **Client Encryption Key** — encrypts REQUESTS (JWE) | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
 | our private **Mastercard Encryption key** (PEM) | decrypts RESPONSES | `MC_DECRYPTION_KEY_PATH` |
 
@@ -55,7 +55,7 @@ from [Mastercard Developers](https://developer.mastercard.com) there.
 Configuration and secrets — in `.env` (in `.gitignore`). Key variables:
 
 ```
-MC_BASE_URL, MC_CONSUMER_KEY, MC_PARTNER_ID
+MC_BASE_URL, MC_AUTH_MODE, MC_CONSUMER_KEY, MC_PARTNER_ID, MC_MTLS_* (outbound mTLS — MTF/prod on the PSD2 edges)
 MC_SIGNING_KEY_PATH, MC_SIGNING_KEY_PASSWORD
 MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # for MTF/Prod
@@ -92,7 +92,7 @@ docker compose up -d postgres   # Postgres 16, see docker-compose.yml
 npx ts-node src/harness/main.ts # http://localhost:3000, schema from migrations + platform seed
 ```
 
-Smoke test: `npm run ping` (balances through a test tenant). Swagger: `/api-docs`.
+Smoke test: `npm run ping` (balances through a test tenant) on the global endpoints; `npm run auth-mode-check` (one real quote, no money moved) on the PSD2 `xbs` endpoints, where Mastercard does not serve the Balance API. Swagger: `/api-docs`.
 
 > **Windows + project on WSL:** node runs from Windows, while a direct `npm run`
 > fails on UNC paths. Workaround:
@@ -154,7 +154,7 @@ certs/            Mastercard crypto material (NOT in the repo)
 imports: [
   MastercardModule.forRootAsync({
     inject: [ConfigService],
-    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), /* ...options... */ }),
+    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), authMode: c.get('MC_AUTH_MODE'), /* ...options... */ }),
   }),
 ]
 ```
@@ -165,7 +165,7 @@ the options object, not `process.env`.
 
 **Host integration checklist** — the contract is explicit, not runtime-policed: required
 *config* is enforced by `GatewayConfig` (fail-fast — it throws at startup on a missing
-required option or a weak production secret), and the host-provided *infrastructure* below
+required option, a weak production secret, or a baseUrl that does not match MC_AUTH_MODE), and the host-provided *infrastructure* below
 is what the module deliberately does not set up. The module does NOT introspect the host to
 warn about these; if an item is omitted, the affected feature fails as noted.
 
@@ -210,3 +210,17 @@ implemented. The remaining items are deploy-time — see
 [production-questions.md](docs/en/production-questions.md) (strong secrets, mTLS for
 MC webhooks, OWN keys loaded into AWS Secrets Manager, `migration:run`, and MTF
 confirmation of cross-tenant FLE + encrypted push).
+
+### One deployment = one Mastercard edge
+
+Every tenant in a deployment shares `MC_BASE_URL`, `MC_AUTH_MODE` and the outbound
+mTLS certificate. Per-tenant credentials (consumer key, partner id, signing and
+encryption keys, and an optional own client certificate) are resolved per request —
+but the endpoint and the auth scheme are process-wide.
+
+So partners contracted with the same Mastercard entity coexist in one deployment,
+each under their own partner id. A partner on a **different** edge — MTS UK
+(`api.xbs.mastercard.uk`) alongside MTS EU, or a global `.com` partner alongside
+either — needs its **own deployment**. The module refuses to start on a mismatched
+host/mode pairing rather than sending calls to an endpoint the credentials do not
+belong to.

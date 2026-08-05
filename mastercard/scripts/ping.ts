@@ -3,6 +3,11 @@
  *   npm run ping            — tenant 'platform'
  *   npm run ping -- acme    — a different tenant
  *   npm run ping -- own-demo — should be rejected (gating)
+ *
+ * NOTE: this probes the Balance API, which Mastercard does NOT serve on the PSD2
+ * edges (`*.api.xbs.mastercard.eu|uk`) — it routes balances through a different
+ * OAuth2 flow. On those endpoints use `npm run auth-mode-check` instead: it sends
+ * one real quote through the full stack and moves no money.
  */
 import { NestFactory } from '@nestjs/core';
 import { HttpException, Logger } from '@nestjs/common';

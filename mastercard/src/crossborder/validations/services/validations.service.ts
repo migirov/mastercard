@@ -18,7 +18,7 @@ export class ValidationsService {
   /**
    * Validate the recipient address (POST, before payment). MC uses its OWN base
    * (`/send/address-validation-service/...`) — without `/crossborder` and without
-   * a partner-id in the path; the OAuth1 signature is still applied from the
+   * a partner-id in the path; the outbound auth header is still applied from the
    * tenant's creds in the interceptor.
    */
   validateAddress(tenantId: string, body: AddressValidationRequestDto) {

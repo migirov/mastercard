@@ -29,6 +29,11 @@ startup*.log
 # agentic-security scanner output/cache (tooling, not versioned)
 .agentic-security/
 
+# Connectivity-report runs: real sandbox request/response payloads and the
+# generated report. Deliverables for Mastercard, not source — kept out of the
+# public repo. The scripts that produce them ARE versioned.
+reports/
+
 # Internal dev/process docs — kept locally, not versioned
 docs/*/memory.md
 docs/*/plan.md
@@ -37,3 +42,16 @@ docs/*/tests.md
 docs/*/tests-inner.md
 docs/*/client-questions.md
 docs/*/fund-operations.md
+docs/*/Carded-Rates-plan.md
+
+# Mastercard's OWN documentation — NEVER versioned. This repository is PUBLIC, and
+# these are Mastercard's materials, not ours:
+#   additional/            the Product Guide and Technical Deep Dive Workshop sent to
+#                          us directly, both stamped "Proprietary and Confidential",
+#                          plus real API and report samples;
+#   api-mastercard-oauth2/ and mc-oauth2/
+#                          pages mirrored from developer.mastercard.com.
+# Read them locally; cite them by page in our own docs instead of copying them in.
+docs/*/additional/
+docs/*/api-mastercard-oauth2/
+docs/*/mc-oauth2/

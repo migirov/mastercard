@@ -49,7 +49,8 @@ export { MASTERCARD_ENTITIES } from './mastercard.entities';
  * at runtime to warn about misconfiguration. What's required is stated where it's
  * enforced or consumed:
  *   - required config → typed `MastercardModuleOptions`, fail-fast in `GatewayConfig`
- *     (throws at startup on a missing required option / weak prod secret);
+ *     (throws at startup on a missing required option / weak prod secret / a baseUrl
+ *     whose family does not match the configured auth mode);
  *   - the TypeORM connection must include `MASTERCARD_ENTITIES` (the host spreads the
  *     exported list, or `autoLoadEntities: true`) — a missing entity throws
  *     `EntityMetadataNotFoundError` on first use, not silently;

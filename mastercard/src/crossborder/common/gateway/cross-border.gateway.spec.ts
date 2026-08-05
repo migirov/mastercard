@@ -5,6 +5,11 @@ import {
   McRequest,
   MastercardClient,
 } from '../../../mastercard/services/mastercard-client.service';
+import {
+  AuthHeaderError,
+  RequestEncryptError,
+  ResponseDecryptError,
+} from '../../../mastercard/services/mc.errors';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { Tenant } from '../../../tenants/tenant.types';
 import {
@@ -31,13 +36,16 @@ function make(opts?: {
   status?: number;
   data?: unknown;
   throws?: boolean;
+  rejectWith?: Error;
   tenant?: Tenant;
 }) {
   const client = {
     request: jest.fn(async (_c: McCredentials, _r: McRequest) => {
+      if (opts?.rejectWith) throw opts.rejectWith;
       if (opts?.throws) throw new Error('network');
       return { status: opts?.status ?? 200, data: opts?.data ?? { ok: true } };
     }),
+    upstreamHost: 'mc.test',
   };
   const registry = { get: jest.fn(async () => opts?.tenant ?? activeTenant) };
   const credentials = { resolve: jest.fn(async () => creds) };
@@ -93,6 +101,25 @@ describe('CrossBorderGateway — call() dispatch', () => {
       const { gw } = make({ status, data: { secret: 'x' } });
       await expect(ping(gw)).rejects.toMatchObject({ executed: 'unknown' });
     }
+  });
+
+  // The pre-send / post-send split decides whether a payment idempotency slot is
+  // released or held. Without these, inverting the classification in call() — or
+  // deleting the `sent` check entirely — passes the whole suite.
+  it('a PRE-SEND failure (auth header / request encryption) → executed=no, the slot is released', async () => {
+    for (const e of [
+      new AuthHeaderError('mint failed'),
+      new RequestEncryptError('per-tenant fail-loud'),
+    ]) {
+      const { gw } = make({ rejectWith: e });
+      await expect(ping(gw)).rejects.toMatchObject({ executed: 'no' });
+    }
+  });
+
+  it('a POST-SEND failure (response decryption) → executed=unknown, the slot is HELD', async () => {
+    // MC received the request and may have executed the payment.
+    const { gw } = make({ rejectWith: new ResponseDecryptError('bad key') });
+    await expect(ping(gw)).rejects.toMatchObject({ executed: 'unknown' });
   });
 
   it('network error/decryption failure → 502, executed=unknown', async () => {

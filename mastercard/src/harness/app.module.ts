@@ -13,6 +13,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv } from '../config/env.validation';
 import { MastercardModuleOptions } from '../config/gateway-config';
+import { McAuthMode } from '../mastercard/auth/mc-auth.types';
 import { DatabaseModule } from '../database/database.module';
 import { DevSeedService } from './dev-seed.service';
 import { HealthController } from '../health/controllers/health.controller';
@@ -101,6 +102,15 @@ function resolveAbs(p: string | undefined): string | undefined {
       inject: [ConfigService],
       useFactory: (c: ConfigService): MastercardModuleOptions => ({
         baseUrl: c.getOrThrow<string>('MC_BASE_URL'),
+        // Absent → 'oauth1'. The PSD2 edges need 'oauth2-request-token';
+        // GatewayConfig refuses a host/mode mismatch at startup.
+        authMode: c.get<McAuthMode>('MC_AUTH_MODE'),
+        mtlsEnabled: c.get<string>('MC_MTLS_ENABLED') === 'true',
+        mtlsClientCertPath: resolveAbs(
+          c.get<string>('MC_MTLS_CLIENT_CERT_PATH'),
+        ),
+        mtlsClientCertPassword: c.get<string>('MC_MTLS_CLIENT_CERT_PASSWORD'),
+        mtlsCaPath: resolveAbs(c.get<string>('MC_MTLS_CA_PATH')),
         consumerKey: c.getOrThrow<string>('MC_CONSUMER_KEY'),
         partnerId: c.getOrThrow<string>('MC_PARTNER_ID'),
         signingKeyPath: resolveAbs(c.get<string>('MC_SIGNING_KEY_PATH')),

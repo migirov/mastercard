@@ -6,7 +6,7 @@
 PostgreSQL). Партнёры платформы ходят в Mastercard через нас — каждый со своими
 ключами и `partner-id`, и только после двойного одобрения (Mastercard + платформа).
 
-- Подпись каждого запроса — OAuth1 ключом конкретного тенанта (stateless).
+- Подпись каждого запроса ключом конкретного тенанта (stateless): OAuth 1.0a на глобальных эндпоинтах, request-token OAuth2 на PSD2-эджах `xbs`.
 - Field-level encryption (JWE) и подпись вынесены в axios-интерцептор.
 - Persistence — PostgreSQL (рассчитано на многоподовый деплой в Kubernetes).
 - Два пути доступа: внешний OAuth2 (мерчанты) и внутренний service-token.
@@ -38,7 +38,7 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 
 | Файл | Назначение | Переменная `.env` |
 |---|---|---|
-| `Fintory-sandbox-signing.p12` | приватный ключ **подписи OAuth1** | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
+| `Fintory-sandbox-signing.p12` | приватный ключ **подписи** (для обоих режимов) | `MC_SIGNING_KEY_PATH` (+ `MC_SIGNING_KEY_PASSWORD`) |
 | `client-encryption-cert.pem` | публичный cert **Client Encryption Key** — им шифруются ЗАПРОСЫ (JWE) | `MC_ENCRYPTION_CERT_PATH` (+ `MC_ENCRYPTION_FINGERPRINT`) |
 | наш приватный **Mastercard Encryption key** (PEM) | расшифровка ОТВЕТОВ | `MC_DECRYPTION_KEY_PATH` |
 
@@ -55,7 +55,7 @@ PostgreSQL). Партнёры платформы ходят в Mastercard чер
 Конфигурация и секреты — в `.env` (в `.gitignore`). Ключевые переменные:
 
 ```
-MC_BASE_URL, MC_CONSUMER_KEY, MC_PARTNER_ID
+MC_BASE_URL, MC_AUTH_MODE, MC_CONSUMER_KEY, MC_PARTNER_ID, MC_MTLS_* (outbound mTLS — MTF/prod on the PSD2 edges)
 MC_SIGNING_KEY_PATH, MC_SIGNING_KEY_PASSWORD
 MC_ENCRYPTION_CERT_PATH, MC_ENCRYPTION_FINGERPRINT, MC_ENCRYPTION_ENABLED
 MC_DECRYPTION_KEY_PATH                  # для MTF/Prod
@@ -92,7 +92,7 @@ docker compose up -d postgres   # Postgres 16, см. docker-compose.yml
 npx ts-node src/harness/main.ts # http://localhost:3000, схема из миграций + сид platform
 ```
 
-Smoke-тест: `npm run ping` (балансы через тестового тенанта). Swagger: `/api-docs`.
+Smoke-тест: `npm run ping` (балансы через тестового тенанта) — на глобальных эндпоинтах; `npm run auth-mode-check` (одна настоящая котировка, деньги не двигаются) — на PSD2-эндпоинтах `xbs`, где Mastercard не отдаёт Balance API. Swagger: `/api-docs`.
 
 > **Windows + проект на WSL:** node запускается из Windows, а прямой `npm run`
 > падает на UNC-пути. Обход:
@@ -154,7 +154,7 @@ certs/            криптоматериал Mastercard (НЕ в репози�
 imports: [
   MastercardModule.forRootAsync({
     inject: [ConfigService],
-    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), /* ...опции... */ }),
+    useFactory: (c) => ({ baseUrl: c.get('MC_BASE_URL'), authMode: c.get('MC_AUTH_MODE'), /* ...опции... */ }),
   }),
 ]
 ```
@@ -207,3 +207,17 @@ imports: [
 деплойный: см. [production-questions.md](docs/ru/production-questions.md) (сильные
 секреты, mTLS для вебхуков MC, OWN-ключи в AWS Secrets Manager, `migration:run` и
 MTF-подтверждение кросс-тенант FLE + зашифрованного push).
+
+### Одно развёртывание = один эндпоинт Mastercard
+
+Все тенанты развёртывания делят `MC_BASE_URL`, `MC_AUTH_MODE` и клиентский
+сертификат исходящего mTLS. Пер-тенантные учётные данные (consumer key, partner id,
+ключи подписи и шифрования, при необходимости — свой клиентский сертификат)
+резолвятся на каждый запрос, но эндпоинт и схема авторизации — общие на процесс.
+
+Поэтому партнёры, контрактованные с одним юрлицом Mastercard, спокойно живут в одном
+развёртывании, каждый под своим partner id. Партнёру на **другом** эндпоинте — MTS UK
+(`api.xbs.mastercard.uk`) рядом с MTS EU, или глобальный `.com` рядом с любым из
+них — нужно **отдельное развёртывание**. Модуль откажется стартовать при
+несогласованной паре хост/режим, вместо того чтобы слать запросы туда, где эти
+учётные данные не действуют.

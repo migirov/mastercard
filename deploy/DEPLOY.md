@@ -263,3 +263,70 @@ docker compose up -d
 Pin an immutable tag. `latest` moves between deployments and makes a rollback ambiguous.
 Rolling back is the same operation with the previous tag; gateway schema migrations are
 forward-only, so check with us before rolling back across a release that changed the schema.
+
+## Outbound auth mode (`MC_AUTH_MODE`) — PSD2 / MTS EU-UK
+
+The gateway authenticates to Mastercard in one of two ways. The mode and the base URL
+are a **pair** — set both or neither; the service refuses to start on a mismatch.
+
+| `MC_AUTH_MODE` | `MC_BASE_URL` | Who |
+| --- | --- | --- |
+| `oauth1` (default) | `https://sandbox.api.mastercard.com`, `https://api.mastercard.com` | everyone not contracted with MTS EU / MTS UK |
+| `oauth2-request-token` | `https://sandbox.api.xbs.mastercard.eu` → `mtf.api.xbs.mastercard.eu` → `api.xbs.mastercard.eu` (or the `.uk` twins) | customers contracted with Mastercard MTS EU or MTS UK (PSD2 requirement) |
+
+Both modes use the **same** consumer key and the **same** signing `.p12`. No extra
+credentials. Two caveats for `oauth2-request-token`:
+
+- The `.p12` must contain its **certificate**, not just the private key — the token
+  carries the certificate's SHA-256 thumbprint. The service refuses to start otherwise
+  and says so.
+- **MTF and production additionally require mutual TLS** (a client certificate issued
+  through the Key Management Portal in Mastercard Connect). Sandbox does not. Configure
+  it with `MC_MTLS_*`; the gateway refuses to start on an `mtf.`/production `xbs` host
+  without it. Procurement is the long pole — see the open item below.
+
+`https://sandbox.api.mastercard.eu` — without the `xbs` segment — is a decommissioned
+Mastercard edge whose TLS certificate expired in January 2024. It is not a valid value.
+
+### Verifying the mode
+
+`npm run auth-mode-check` inside the gateway container sends one real quote through the
+full stack and prints the resulting proposal id. A quote moves no money, so it is safe
+to run against any environment. Prefer it over the balances smoke test on the `xbs`
+edges — Mastercard routes the Balance API through a different OAuth2 flow that this
+build does not implement.
+
+### When the TLS handshake fails
+
+Every Mastercard call surfacing as `502` with `TlsHandshakeError` in the log means the
+connection never completed, so nothing was sent and no payment can have been executed.
+The log line names which certificate is at fault, because the two are fixed in
+completely different places:
+
+| In the log | What it means | Where to fix it |
+|---|---|---|
+| `client-certificate` | Mastercard refused the certificate we presented, or we presented none | `MC_MTLS_ENABLED`, `MC_MTLS_CLIENT_CERT_PATH`, `MC_MTLS_CLIENT_CERT_PASSWORD` — and check the certificate is the one issued for THIS edge |
+| `server-certificate` | We could not verify Mastercard's own certificate | the host trust store, or `MC_MTLS_CA_PATH` if Mastercard supplied a private CA chain |
+| `handshake` | TLS negotiation failed for another reason (wrong port, protocol mismatch) | `MC_BASE_URL`, and any TLS-intercepting proxy on the path |
+
+These are not retried: the cause is configuration, so a retry only delays the error.
+Genuine network failures (`ECONNRESET`, timeouts) still retry on idempotent GETs.
+
+### Rolling back
+
+Change `MC_AUTH_MODE` **and** `MC_BASE_URL` back together and restart. Note that for a
+customer contracted with MTS EU the `.com` endpoints are a different contract, not a
+fallback — if the EU edge misbehaves, the kill switch is `XBS_*_MODE=demo` on the BFF,
+which stops calling Mastercard rather than calling it differently.
+
+### Open items before MTF / production
+
+- **mTLS client certificate** — required by Mastercard on MTF and production for the
+  `xbs` edges. The code now supports it (`MC_MTLS_*`, see `.env.example`) and the
+  gateway refuses to start on those hosts without it. What remains is procurement:
+  Mastercard Connect access, two active Security Officers in your organisation and a
+  certificate-management group e-mail; CSR CN "MTF XBS" / "PROD XBS". The lead time
+  is weeks — start it before you need the environment.
+- **Balance API** — Mastercard routes it through the OAuth2 Authorization Code flow on
+  these edges, which is interactive and not implemented here. Confirm with Mastercard
+  whether your contract includes it.

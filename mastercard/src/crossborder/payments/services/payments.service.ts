@@ -48,7 +48,21 @@ export class PaymentsService {
     // proxy, JSON round-trip). Hashing the canonical form makes a key-reordered-but-identical
     // body fingerprint the same → it replays instead of being rejected as "different body"
     // (422). A genuinely different payment still differs after sorting → still 422.
-    const fingerprint = sha256hex(stableStringify(body));
+    //
+    // The Mastercard IDENTITY is folded in alongside the body. A cached `done` row
+    // lives forever and replays without calling MC, so without this a payment
+    // submitted against one edge/partner (say the PSD2 `xbs.mastercard.eu` account)
+    // and retried after the deployment was pointed at another (`.com`, or a different
+    // partner id) would return the FIRST edge's response for a payment that does not
+    // exist on the second one. Including it turns that silent wrong answer into the
+    // 422 "different body" the mechanism already has for a mismatched retry.
+    const fingerprint = sha256hex(
+      stableStringify({
+        body,
+        mcHost: this.gw.upstreamHost(),
+        partnerId: creds.partnerId,
+      }),
+    );
     const result = await this.idempotency.run(
       tenantId,
       idemKey,

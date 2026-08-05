@@ -35,6 +35,18 @@ services:
     environment:
       # --- Mastercard API (all four REQUIRED — the service refuses to start without them) ---
       MC_BASE_URL: ${MC_BASE_URL:?}
+      # Outbound auth scheme. Must match the MC_BASE_URL family:
+      #   oauth1 (default)      → *.mastercard.com
+      #   oauth2-request-token  → *.api.xbs.mastercard.eu|uk (PSD2 / MTS EU-UK)
+      # The gateway refuses to start on a mismatch.
+      MC_AUTH_MODE: ${MC_AUTH_MODE:-oauth1}
+      # Outbound mTLS — the client certificate we present to Mastercard. Not needed
+      # on the sandbox PSD2 edge; REQUIRED on mtf.api.xbs.* and api.xbs.*, where the
+      # gateway refuses to start without it. Issued via the Key Management Portal.
+      MC_MTLS_ENABLED: ${MC_MTLS_ENABLED:-false}
+      MC_MTLS_CLIENT_CERT_PATH: ${MC_MTLS_CLIENT_CERT_PATH:-}
+      MC_MTLS_CLIENT_CERT_PASSWORD: ${MC_MTLS_CLIENT_CERT_PASSWORD:-}
+      MC_MTLS_CA_PATH: ${MC_MTLS_CA_PATH:-}
       MC_CONSUMER_KEY: ${MC_CONSUMER_KEY:?}
       MC_PARTNER_ID: ${MC_PARTNER_ID:?}
       MC_SIGNING_KEY_PATH: ${MC_SIGNING_KEY_PATH:?}

@@ -7,8 +7,11 @@ import {
 import { caching, MemoryCache } from 'cache-manager';
 import { GatewayConfig } from '../../config/gateway-config';
 import {
+  P12SigningMaterial,
   loadPrivateKeyFromP12,
   loadPrivateKeyFromP12Base64,
+  loadSigningMaterialFromP12,
+  loadSigningMaterialFromP12Base64,
 } from '../../common/utils/p12.util';
 import { Tenant } from '../../tenants/tenant.types';
 import {
@@ -93,19 +96,23 @@ export class OwnCredentialsProvider {
     const bundle = await this.secrets.getMerchantSecrets(secretRef);
     this.validateBundle(secretRef, bundle);
 
+    const signing = this.toSigningMaterial(bundle.signing);
     const creds: McCredentials = {
       consumerKey: bundle.consumerKey,
       // an explicit tenant partnerId wins, otherwise the one from the bundle
       partnerId: safePartnerId(tenant.partnerId ?? bundle.partnerId, tenant.id),
-      signingKeyPem: this.toPem(bundle.signing),
+      signingKeyPem: signing.privateKeyPem,
       encryptionCertPem: bundle.encryptionCertPem,
       encryptionFingerprint: bundle.encryptionFingerprint,
       decryptionKeyPem: bundle.decryption
         ? this.toPem(bundle.decryption)
         : undefined,
+      signingCertPem: signing.certPem,
+      signingCertThumbprintS256: signing.certThumbprintS256,
     };
 
     this.assertNotPlatformIdentity(tenant.id, creds);
+    this.assertUsableForAuthMode(tenant.id, creds);
 
     this.logger.log(`OWN credentials for tenant '${tenant.id}' cached`);
     return creds;
@@ -141,6 +148,32 @@ export class OwnCredentialsProvider {
     }
   }
 
+  /**
+   * The OAuth2 request token derives its `x5t#S256` from the signing certificate, so
+   * a key-only .p12 cannot authenticate on the PSD2 edges. Reject at resolution —
+   * cache-manager does not cache a rejection, so the tenant is not stuck with bad
+   * credentials for the whole TTL, and the merchant gets an actionable 422 rather
+   * than the opaque 502 the strategy would produce on every single call.
+   * (PLATFORM credentials get the equivalent check at boot.)
+   */
+  private assertUsableForAuthMode(
+    tenantId: string,
+    creds: McCredentials,
+  ): void {
+    if (
+      this.config.authMode === 'oauth2-request-token' &&
+      !creds.signingCertThumbprintS256
+    ) {
+      this.logger.error(
+        `Tenant '${tenantId}' (OWN): the signing .p12 carries no certificate, but ` +
+          `MC_AUTH_MODE=oauth2-request-token needs it to build the token's x5t#S256`,
+      );
+      throw new UnprocessableEntityException(
+        'tenant credentials are misconfigured',
+      );
+    }
+  }
+
   /** Secret-boundary validation: the bundle must hold the minimum to sign. */
   private validateBundle(ref: string, b: MerchantSecretBundle): void {
     if (!b.consumerKey) {
@@ -164,6 +197,20 @@ export class OwnCredentialsProvider {
     }
     if (key.p12Path) {
       return loadPrivateKeyFromP12(key.p12Path, key.password);
+    }
+    throw new UnprocessableEntityException('invalid key material');
+  }
+
+  /**
+   * Signing material (private key + leaf cert) from key material. Same parse as
+   * `toPem`, but also carries the certificate the OAuth2 request token needs.
+   */
+  private toSigningMaterial(key: KeyMaterial): P12SigningMaterial {
+    if (key.p12Base64) {
+      return loadSigningMaterialFromP12Base64(key.p12Base64, key.password);
+    }
+    if (key.p12Path) {
+      return loadSigningMaterialFromP12(key.p12Path, key.password);
     }
     throw new UnprocessableEntityException('invalid key material');
   }

@@ -8,10 +8,19 @@ import { CredentialMode, Tenant } from '../../tenants/tenant.types';
 import { OwnCredentialsProvider } from './own-credentials.provider';
 
 // p12 decode is stubbed — this spec is about fetch/validation, not forge.
-jest.mock('../../common/utils/p12.util', () => ({
-  loadPrivateKeyFromP12: jest.fn(() => 'PEM'),
-  loadPrivateKeyFromP12Base64: jest.fn(() => 'PEM'),
-}));
+jest.mock('../../common/utils/p12.util', () => {
+  const material = {
+    privateKeyPem: 'PEM',
+    certPem: 'CERT',
+    certThumbprintS256: 'THUMB',
+  };
+  return {
+    loadPrivateKeyFromP12: jest.fn(() => material.privateKeyPem),
+    loadPrivateKeyFromP12Base64: jest.fn(() => material.privateKeyPem),
+    loadSigningMaterialFromP12: jest.fn(() => material),
+    loadSigningMaterialFromP12Base64: jest.fn(() => material),
+  };
+});
 
 const bundle: MerchantSecretBundle = {
   consumerKey: 'ck',
@@ -44,6 +53,9 @@ describe('OwnCredentialsProvider — fetch & boundary validation', () => {
       consumerKey: 'ck',
       partnerId: 'PID12345',
       signingKeyPem: 'PEM',
+      // The OAuth2 request token needs these; dropping them makes every EU call fail.
+      signingCertPem: 'CERT',
+      signingCertThumbprintS256: 'THUMB',
     });
   });
 

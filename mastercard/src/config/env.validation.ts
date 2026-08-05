@@ -23,6 +23,17 @@ const EnvSchema = z.object({
   MC_ADMIN_TOKEN: z.string().min(1),
 
   // --- optional / defaulted (validate format only if present) ---
+  // Outbound auth to Mastercard. Absent = 'oauth1' (the `.com` endpoints).
+  // 'oauth2-request-token' is required by the PSD2 edges *.api.xbs.mastercard.eu/.uk.
+  // Both modes consume the SAME material (consumer key + the signing .p12), so no
+  // other variable becomes conditional on this.
+  MC_AUTH_MODE: z.enum(['oauth1', 'oauth2-request-token']).optional(),
+  // Outbound mTLS — the client certificate we PRESENT to Mastercard (KMP-issued).
+  // Direction map: MC_MTLS_* = us -> MC; MC_WEBHOOK_MTLS_* = MC -> us; TLS_* = our listener.
+  MC_MTLS_ENABLED: z.enum(['true', 'false']).optional(),
+  MC_MTLS_CLIENT_CERT_PATH: z.string().optional(),
+  MC_MTLS_CLIENT_CERT_PASSWORD: z.string().optional(),
+  MC_MTLS_CA_PATH: z.string().optional(),
   MC_ENCRYPTION_ENABLED: z.enum(['true', 'false']).optional(),
   MC_SECRET_STORE: z.enum(['local', 'aws-secrets-manager']).optional(),
   MC_SECRET_STORE_REGION: z.string().optional(),

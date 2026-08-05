@@ -4,6 +4,9 @@ import { GatewayConfig } from '../../config/gateway-config';
 import { EncryptionService } from '../../encryption/services/encryption.service';
 import { McCredentials } from '../../credentials/credentials.types';
 import { MIN_TLS_VERSION } from '../../common/utils/tls';
+import { OAuth1Strategy } from '../auth/services/oauth1.strategy';
+import { McAgentProvider } from './mc-agent.provider';
+import { TlsHandshakeError } from './mc.errors';
 import { MastercardClient } from './mastercard-client.service';
 
 jest.mock('axios');
@@ -83,11 +86,23 @@ function setup(decrypt?: (d: unknown) => unknown) {
   } as unknown as EncryptionService;
   const config = { baseUrl: 'https://mc.test' } as GatewayConfig;
 
-  const client = new MastercardClient(config, encryption);
+  // The REAL OAuth1 strategy (its signer module is mocked above) — so these tests
+  // still assert the actual signing call, not a stubbed-out seam.
+  // A real (mTLS-disabled) agent provider: the client must set config.httpsAgent
+  // from it on every attempt, and these tests assert it does.
+  const agents = new McAgentProvider({ mtlsEnabled: false } as GatewayConfig);
+  agents.onModuleInit();
+  const client = new MastercardClient(
+    config,
+    encryption,
+    new OAuth1Strategy(),
+    agents,
+  );
   return {
     client,
     httpRequest,
     encryptRequest,
+    agents,
     getResHandler: () => resHandler,
     getReqHandler: () => reqHandler,
   };
@@ -96,12 +111,12 @@ function setup(decrypt?: (d: unknown) => unknown) {
 describe('MastercardClient — request interceptor (encrypt + sign)', () => {
   afterEach(() => jest.clearAllMocks());
 
-  it('encrypts the body, then OAuth1-signs over the final (serialized) payload', () => {
+  it('encrypts the body, then OAuth1-signs over the final (serialized) payload', async () => {
     const { getReqHandler, encryptRequest } = setup();
     const body = { quoterequest: { transaction_reference: 'TX1' } };
     const cfg = reqConfig(body);
 
-    const out = getReqHandler()(cfg) as FakeReqConfig;
+    const out = (await getReqHandler()(cfg)) as FakeReqConfig;
 
     // encryption ran with the tenant creds + the original body
     expect(encryptRequest).toHaveBeenCalledWith(creds, body);
@@ -119,7 +134,7 @@ describe('MastercardClient — request interceptor (encrypt + sign)', () => {
     expect(cfg.headers.get('Content-Type')).toBe('application/json');
   });
 
-  it('sets x-encrypted when the body was actually encrypted', () => {
+  it('sets x-encrypted when the body was actually encrypted', async () => {
     const { getReqHandler, encryptRequest } = setup();
     encryptRequest.mockReturnValueOnce({
       body: 'JWE.compact.token',
@@ -127,7 +142,7 @@ describe('MastercardClient — request interceptor (encrypt + sign)', () => {
     });
     const cfg = reqConfig({ a: 1 });
 
-    const out = getReqHandler()(cfg) as FakeReqConfig;
+    const out = (await getReqHandler()(cfg)) as FakeReqConfig;
 
     expect(cfg.headers.get('x-encrypted')).toBe('true');
     // an already-string (JWE) payload is sent as-is, not re-serialized
@@ -148,6 +163,23 @@ describe('MastercardClient — request interceptor (encrypt + sign)', () => {
     ).rejects.toThrow('per-tenant fail-loud');
     // GET would normally retry, but a deterministic crypto error must not.
     expect(httpRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MastercardClient — outbound TLS agent', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  it('sets the per-request agent from McAgentProvider on every attempt', async () => {
+    const { client, httpRequest, agents } = setup();
+    httpRequest.mockResolvedValue({ status: 200, data: {} });
+
+    await client.request(creds, { method: 'GET', path: '/p' });
+
+    // The agent carries the outbound client certificate, so it must be the
+    // provider's — not the axios instance default.
+    expect(httpRequest.mock.calls[0][0].httpsAgent).toBe(
+      agents.agentFor(creds),
+    );
   });
 });
 
@@ -195,6 +227,27 @@ describe('MastercardClient — retry matrix', () => {
     const delays = setTimeoutSpy.mock.calls.map((c) => c[1]);
     expect(delays).toEqual(expect.arrayContaining([200, 400]));
     setTimeoutSpy.mockRestore();
+  });
+
+  it('a failed TLS handshake is NOT retried, and names which certificate is at fault', async () => {
+    const { client, httpRequest } = setup();
+    httpRequest.mockRejectedValue(
+      Object.assign(new Error('handshake failure'), {
+        code: 'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+      }),
+    );
+
+    const err = await client
+      .request(creds, { method: 'GET', path: '/p' })
+      .catch((e: unknown) => e);
+
+    // The control is the test below: the SAME method with a network code retries 3x.
+    expect(httpRequest).toHaveBeenCalledTimes(1);
+    expect(err).toBeInstanceOf(TlsHandshakeError);
+    expect((err as TlsHandshakeError).reason).toBe('client-certificate');
+    // The host must be in the message — with several edges configured, "handshake
+    // failed" without one sends you reading the wrong deployment's certificates.
+    expect((err as Error).message).toContain('mc.test');
   });
 
   it('network error on GET is retried; on POST — not', async () => {

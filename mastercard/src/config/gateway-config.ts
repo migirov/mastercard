@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { isWeakSecret } from '../common/utils/secret-strength';
+import { McAuthMode } from '../mastercard/auth/mc-auth.types';
 
 /**
  * Configuration for the embeddable module. The host application (b24club-api
@@ -10,6 +11,23 @@ import { isWeakSecret } from '../common/utils/secret-strength';
 export interface MastercardModuleOptions {
   /** Mastercard base URL (sandbox/MTF/prod). */
   readonly baseUrl: string;
+  /**
+   * Outbound auth scheme. Omitted = 'oauth1' (the `.com` endpoints). The PSD2 edges
+   * `*.api.xbs.mastercard.eu|uk` require 'oauth2-request-token'; the constructor
+   * enforces that pairing.
+   */
+  readonly authMode?: McAuthMode;
+  /**
+   * Outbound mTLS: the client certificate WE PRESENT to Mastercard, issued through
+   * their Key Management Portal. Required on the MTF and production PSD2 edges, not
+   * on sandbox. Do NOT confuse with `webhookMtls*` (validates Mastercard's cert on
+   * INBOUND push) or the harness `TLS_*` vars (our own HTTPS listener).
+   */
+  readonly mtlsEnabled?: boolean;
+  readonly mtlsClientCertPath?: string;
+  readonly mtlsClientCertPassword?: string;
+  /** Extra trust anchors for Mastercard's SERVER certificate. Usually unnecessary. */
+  readonly mtlsCaPath?: string;
   /** Platform credentials (PLATFORM mode; OWN demo seed in dev). */
   readonly consumerKey: string;
   readonly partnerId: string;
@@ -96,6 +114,10 @@ export class GatewayConfig {
         throw new Error(`MastercardModule: required option '${k}' is missing`);
       }
     }
+    // Order matters: a `.com` host on the wrong auth mode must report the auth-mode
+    // problem (the root cause), not a confusing mTLS one.
+    this.assertAuthModeMatchesHost();
+    this.assertMtlsMatchesHost();
     // Prod gates: the module itself refuses to start in prod with weak secrets
     // or a dev secret store — identically standalone and embedded.
     if (this.isProduction) {
@@ -148,6 +170,100 @@ export class GatewayConfig {
 
   get baseUrl(): string {
     return this.opts.baseUrl;
+  }
+
+  /** Outbound auth scheme. Defaults to OAuth 1.0a — the pre-existing behaviour. */
+  get authMode(): McAuthMode {
+    return this.opts.authMode ?? 'oauth1';
+  }
+
+  /**
+   * Refuse a host/mode mismatch at STARTUP rather than failing every call at
+   * runtime. Mastercard's PSD2 edges (`*.api.xbs.mastercard.eu|uk`) reject OAuth 1.0a
+   * with the same error they give an unauthenticated request, and the `.com`
+   * endpoints do not accept a request token — so the two must be changed together.
+   * Editing `MC_BASE_URL` and forgetting `MC_AUTH_MODE` is the likeliest way to
+   * break this, and it would otherwise surface as opaque 502s on every payment.
+   */
+  /** Hostname of the configured Mastercard endpoint, lower-cased. */
+  private get upstreamHost(): string {
+    try {
+      return new URL(this.opts.baseUrl).hostname.toLowerCase();
+    } catch {
+      throw new Error(
+        `MastercardModule: option 'baseUrl' is not a valid URL: ${this.opts.baseUrl}`,
+      );
+    }
+  }
+
+  /**
+   * A PSD2 edge (`*.api.xbs.mastercard.eu|uk`) — the endpoints Mastercard requires
+   * for customers contracted with MTS EU / MTS UK. One predicate, used by both the
+   * auth-mode gate and the mTLS gate, so the two cannot drift apart.
+   */
+  private get isPsd2Edge(): boolean {
+    return /\.xbs\.mastercard\.(eu|uk)$/.test(this.upstreamHost);
+  }
+
+  /**
+   * Whether Mastercard requires a client certificate on this endpoint.
+   *
+   * Derived from the hostname rather than `NODE_ENV`, and deliberately so: a
+   * production gate would demand a certificate on a `.com` production deployment
+   * (where Mastercard does not want one) and would NOT fire on MTF — which is not
+   * `NODE_ENV=production` but is exactly where the certificate first becomes
+   * mandatory. Only the sandbox edge is exempt (per Mastercard's own mTLS setup
+   * guide: "For Sandbox EU/UK domain testing, mTLS certificate is not needed").
+   *
+   * NB: this encodes Mastercard's per-ENVIRONMENT rule via the hostname, which is
+   * our proxy for it. Do not "improve" it into a NODE_ENV check.
+   */
+  get mtlsRequiredForHost(): boolean {
+    return this.isPsd2Edge && !this.upstreamHost.startsWith('sandbox.');
+  }
+
+  /** Outbound mTLS enabled — we present a client certificate to Mastercard. */
+  get mtlsEnabled(): boolean {
+    return this.opts.mtlsEnabled ?? false;
+  }
+
+  /** Extra trust anchors for Mastercard's SERVER certificate, if MC supplied any. */
+  get mtlsCaPath(): string | undefined {
+    return this.opts.mtlsCaPath;
+  }
+
+  /**
+   * Refuse a host that mandates mTLS while it is switched off — otherwise every
+   * call fails at the TLS handshake and surfaces as an opaque 502.
+   */
+  private assertMtlsMatchesHost(): void {
+    if (this.mtlsRequiredForHost && !this.mtlsEnabled) {
+      throw new Error(
+        `MastercardModule: baseUrl '${this.upstreamHost}' requires outbound mTLS — ` +
+          `set mtlsEnabled together with mtlsClientCertPath/mtlsClientCertPassword ` +
+          `(the client certificate issued through Mastercard's Key Management ` +
+          `Portal). Only the sandbox PSD2 edge may be reached without one.`,
+      );
+    }
+  }
+
+  private assertAuthModeMatchesHost(): void {
+    const host = this.upstreamHost;
+    const isPsd2Edge = this.isPsd2Edge;
+    const mode = this.authMode;
+
+    if (isPsd2Edge && mode !== 'oauth2-request-token') {
+      throw new Error(
+        `MastercardModule: baseUrl '${host}' is a PSD2 edge, which requires ` +
+          `MC_AUTH_MODE=oauth2-request-token (got '${mode}')`,
+      );
+    }
+    if (!isPsd2Edge && mode === 'oauth2-request-token') {
+      throw new Error(
+        `MastercardModule: MC_AUTH_MODE=oauth2-request-token is only accepted by ` +
+          `the PSD2 edges (*.api.xbs.mastercard.eu|uk), but baseUrl is '${host}'`,
+      );
+    }
   }
   get consumerKey(): string {
     return this.opts.consumerKey;

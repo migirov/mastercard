@@ -1,3 +1,5 @@
+import { NotImplementedException } from '@nestjs/common';
+import { GatewayConfig } from '../../../config/gateway-config';
 import { CredentialsService } from '../../../credentials/services/credentials.service';
 import { McCredentials } from '../../../credentials/credentials.types';
 import {
@@ -19,7 +21,7 @@ const activeTenant = {
   suspended: false,
 } as unknown as Tenant;
 
-function make() {
+function make(authMode: 'oauth1' | 'oauth2-request-token' = 'oauth1') {
   const client = {
     request: jest.fn(async () => ({ status: 200, data: { ok: true } })),
   };
@@ -30,7 +32,8 @@ function make() {
     credentials as unknown as CredentialsService,
     client as unknown as MastercardClient,
   );
-  return { svc: new AccountsService(gw), client };
+  const config = { authMode } as GatewayConfig;
+  return { svc: new AccountsService(gw, config), client };
 }
 
 const reqOf = (client: { request: jest.Mock }): McRequest =>
@@ -44,6 +47,17 @@ describe('AccountsService', () => {
       method: 'GET',
       path: `/send/partners/${PID}/crossborder/accounts?include_balance=true`,
     });
+  });
+
+  // Mastercard routes Balance through the interactive OAuth2 Authorization Code
+  // flow on the PSD2 edges, which this gateway does not implement. Refuse locally
+  // instead of sending a call that can only come back as an opaque 502.
+  it('balances on a PSD2 edge → 501 locally, Mastercard is NOT called', async () => {
+    const { svc, client } = make('oauth2-request-token');
+
+    expect(() => svc.getBalances('acme')).toThrow(NotImplementedException);
+    expect(() => svc.getBalances('acme')).toThrow(/Authorization Code flow/);
+    expect(client.request).not.toHaveBeenCalled();
   });
 
   it('rates (Carded/FX Rate Pull) — GET /send/v1/.../rates with no body', async () => {

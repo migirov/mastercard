@@ -1,7 +1,7 @@
 /**
  * Local types for the Mastercard CommonJS packages that ship without declarations.
  * Minimal signatures matching actual usage — to remove `any`/`require()` at the crypto
- * boundary (OAuth1 signature and JWE).
+ * boundary (outbound authentication and JWE).
  */
 declare module 'mastercard-oauth1-signer' {
   /** Builds the `Authorization: OAuth ...` header for a request to Mastercard. */
