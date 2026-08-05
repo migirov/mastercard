@@ -71,6 +71,34 @@ export type TlsHandshakeReason =
   | 'handshake';
 
 /**
+ * How much we can actually PROVE about whether request bytes left this process.
+ *
+ * "The handshake failed" is not the same claim as "nothing was sent", and the
+ * difference decides whether a payment idempotency slot is released or held.
+ * Measured on Node v20.20.2 against a local server that demands a client
+ * certificate, with a byte-counting TCP proxy in between (see
+ * `mc-agent.handshake.spec.ts`, which reproduces this):
+ *
+ *   - TLS 1.3, our certificate refused → `ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED`,
+ *     and a 4000-byte body produced 4003 MORE bytes on the wire than an empty one.
+ *     The client finishes its half of the handshake and flushes the request BEFORE
+ *     the server has validated the certificate, so the request IS transmitted.
+ *   - TLS 1.2, same rejection → `EPROTO`, delta 0 bytes. Nothing transmitted.
+ *   - We reject THEIR certificate → delta 0 bytes. Nothing transmitted.
+ *
+ * So the alert we receive tells us about the certificate, not about the wire. Only
+ * the two cases we can reason about from our own side are treated as provably
+ * unsent; everything else defaults to "sent" (fail-safe: hold the slot).
+ */
+export type TlsSendEvidence =
+  /** Our own key material never opened — no socket was ever created. */
+  | 'no-socket'
+  /** WE aborted on THEIR certificate, before writing the request. Measured: 0 bytes. */
+  | 'aborted-by-us'
+  /** An alert received from the peer, or anything else. Assume the request went out. */
+  | 'indeterminate';
+
+/**
  * The TLS handshake with Mastercard failed.
  *
  * Non-retryable on purpose: every code below is a configuration fact, not a blip, so
@@ -80,20 +108,26 @@ export type TlsHandshakeReason =
  */
 export class TlsHandshakeError extends NonRetryableMcError {
   /**
-   * The handshake never completed, so not one byte of the request was transmitted.
-   * That releases the payment idempotency slot instead of holding it for the full
-   * lock TTL over a failure that provably did not reach Mastercard.
+   * Declared WITHOUT an initializer and assigned in the constructor body. With
+   * `target: ES2021` and `useDefineForClassFields` off, a field declaration with no
+   * initializer emits nothing, so the base class's `sent = true` runs first and the
+   * assignment below overwrites it. An initializer here would run after `super()`
+   * and clobber the computed value; a `get sent()` override would throw at runtime
+   * under these same compiler settings.
    */
-  override readonly sent = false;
+  override readonly sent: boolean;
 
   constructor(
     message: string,
     readonly reason: TlsHandshakeReason,
     /** The Node/OpenSSL error code this was classified from. */
     readonly code: string,
+    /** What we can prove about the wire — see TlsSendEvidence. */
+    readonly evidence: TlsSendEvidence,
     cause?: unknown,
   ) {
     super(message, cause);
+    this.sent = evidence === 'indeterminate';
   }
 }
 
@@ -152,36 +186,63 @@ const CLIENT_CERT_ALERT_CODES = new Set([
  *
  * Each string is specific enough that it cannot match an ordinary network error.
  */
-const MESSAGE_SIGNATURES: ReadonlyArray<readonly [string, TlsHandshakeReason]> =
+const MESSAGE_SIGNATURES: ReadonlyArray<
+  readonly [string, TlsHandshakeReason, TlsSendEvidence]
+> = [
+  // Alerts RECEIVED from the peer. Under TLS 1.3 these arrive after we already
+  // flushed the request, so the wire state is not knowable from the alert.
+  ['alert certificate required', 'client-certificate', 'indeterminate'],
+  ['alert handshake failure', 'client-certificate', 'indeterminate'],
+  ['alert unknown ca', 'client-certificate', 'indeterminate'],
+  ['alert bad certificate', 'client-certificate', 'indeterminate'],
+  ['alert unsupported certificate', 'client-certificate', 'indeterminate'],
+  ['alert certificate revoked', 'client-certificate', 'indeterminate'],
+  ['alert certificate expired', 'client-certificate', 'indeterminate'],
+  ['alert certificate unknown', 'client-certificate', 'indeterminate'],
+  ['alert access denied', 'client-certificate', 'indeterminate'],
+  ['alert decrypt error', 'client-certificate', 'indeterminate'],
+  ['peer did not return a certificate', 'client-certificate', 'indeterminate'],
+  // Our own keystore could not be opened — thrown out of createSecureContext, so
+  // no socket was ever created. Same fix as a rejected certificate.
+  ['mac verify failure', 'client-certificate', 'no-socket'],
+  // We rejected THEIR certificate: we abort without writing the request.
   [
-    ['alert certificate required', 'client-certificate'],
-    ['alert handshake failure', 'client-certificate'],
-    ['alert unknown ca', 'client-certificate'],
-    ['alert bad certificate', 'client-certificate'],
-    ['alert unsupported certificate', 'client-certificate'],
-    ['alert certificate revoked', 'client-certificate'],
-    ['alert certificate expired', 'client-certificate'],
-    ['alert certificate unknown', 'client-certificate'],
-    ['alert access denied', 'client-certificate'],
-    ['alert decrypt error', 'client-certificate'],
-    ['peer did not return a certificate', 'client-certificate'],
-    // Our own keystore could not be opened — same fix as a rejected certificate.
-    ['mac verify failure', 'client-certificate'],
-    ['unable to verify the first certificate', 'server-certificate'],
-    ['self-signed certificate', 'server-certificate'],
-    ['certificate has expired', 'server-certificate'],
-  ];
+    'unable to verify the first certificate',
+    'server-certificate',
+    'aborted-by-us',
+  ],
+  ['self-signed certificate', 'server-certificate', 'aborted-by-us'],
+  ['certificate has expired', 'server-certificate', 'aborted-by-us'],
+];
 
-function reasonFor(code: string): TlsHandshakeReason | undefined {
-  if (SERVER_CERT_CODES.has(code)) return 'server-certificate';
-  if (CLIENT_CERT_ALERT_CODES.has(code)) return 'client-certificate';
+interface TlsVerdict {
+  readonly reason: TlsHandshakeReason;
+  readonly evidence: TlsSendEvidence;
+}
+
+function reasonFor(code: string): TlsVerdict | undefined {
+  // WE rejected THEIR certificate — raised by our own verification, before the
+  // request is written. Measured at 0 bytes on the wire.
+  if (SERVER_CERT_CODES.has(code)) {
+    return { reason: 'server-certificate', evidence: 'aborted-by-us' };
+  }
+  // An alert RECEIVED from Mastercard about our certificate. Says nothing about
+  // the wire: under TLS 1.3 the request is already gone by the time it arrives.
+  if (CLIENT_CERT_ALERT_CODES.has(code)) {
+    return { reason: 'client-certificate', evidence: 'indeterminate' };
+  }
   // Our own key material failed to load — a wrong MC_MTLS_CLIENT_CERT_PASSWORD
   // surfaces as ERR_OSSL_PKCS12_MAC_VERIFY_FAILURE, an unsupported cipher in the
-  // keystore as another ERR_OSSL_*. Same fix, same bucket.
-  if (code.startsWith('ERR_OSSL_')) return 'client-certificate';
+  // keystore as another ERR_OSSL_*. createSecureContext throws before connecting.
+  if (code.startsWith('ERR_OSSL_')) {
+    return { reason: 'client-certificate', evidence: 'no-socket' };
+  }
   // Any other OpenSSL-level negotiation failure (wrong port, protocol mismatch,
-  // an alert this list does not name yet). Still deterministic, still not sent.
-  if (code.startsWith('ERR_SSL_')) return 'handshake';
+  // an alert this list does not name yet). Deterministic, but the wire state is
+  // unknown — and on a keep-alive socket there was no handshake to fail at all.
+  if (code.startsWith('ERR_SSL_')) {
+    return { reason: 'handshake', evidence: 'indeterminate' };
+  }
   return undefined;
 }
 
@@ -193,7 +254,8 @@ const ADVICE: Record<TlsHandshakeReason, string> = {
   'server-certificate':
     "Could not verify Mastercard's server certificate. Check the host trust store, " +
     'or set MC_MTLS_CA_PATH if Mastercard supplied a private CA chain for this edge.',
-  handshake: 'TLS negotiation failed before any request data was sent.',
+  handshake:
+    'TLS negotiation failed. Check MC_BASE_URL and any TLS-intercepting proxy on the path.',
 };
 
 /**
@@ -215,19 +277,28 @@ export function asTlsHandshakeError(
   host: string,
 ): TlsHandshakeError | undefined {
   if (e instanceof TlsHandshakeError) return e;
+  // Never re-judge an error we already classified. `RequestEncryptError`,
+  // `AuthHeaderError` and `ResponseDecryptError` carry a deliberate `sent` value,
+  // and re-running them through this function could overwrite it — OpenSSL's
+  // `mac verify failure` text, for instance, is also what a JWE decryption failure
+  // can read like, and that one is `sent = true`. The caller happens to filter these
+  // out one line earlier; this makes the function safe on its own rather than
+  // leaving statement order load-bearing on a money path.
+  if (e instanceof NonRetryableMcError) return undefined;
   const err = e as {
     code?: unknown;
     message?: unknown;
     cause?: { code?: unknown; message?: unknown };
   };
-  const build = (reason: TlsHandshakeReason, code: string) =>
+  const build = ({ reason, evidence }: TlsVerdict, code: string) =>
     new TlsHandshakeError(
       // The verdict goes in the TEXT, not just the field: the gateway logs
       // `e.message` and nothing else, and `[client-certificate]` is what an operator
-      // greps for. DEPLOY.md documents the three values.
+      // greps for. deploy/DEPLOY.md documents the three values.
       `TLS handshake with ${host} failed [${reason}] (${code}). ${ADVICE[reason]}`,
       reason,
       code,
+      evidence,
       e,
     );
 
@@ -235,16 +306,18 @@ export function asTlsHandshakeError(
     (c): c is string => typeof c === 'string',
   );
   for (const code of codes) {
-    const reason = reasonFor(code);
-    if (reason) return build(reason, code);
+    const verdict = reasonFor(code);
+    if (verdict) return build(verdict, code);
   }
 
   const text = [err?.message, err?.cause?.message]
     .filter((m): m is string => typeof m === 'string')
     .join(' ')
     .toLowerCase();
-  for (const [signature, reason] of MESSAGE_SIGNATURES) {
-    if (text.includes(signature)) return build(reason, codes[0] ?? signature);
+  for (const [signature, reason, evidence] of MESSAGE_SIGNATURES) {
+    if (text.includes(signature)) {
+      return build({ reason, evidence }, codes[0] ?? signature);
+    }
   }
   return undefined;
 }

@@ -9,6 +9,7 @@ import {
   AuthHeaderError,
   RequestEncryptError,
   ResponseDecryptError,
+  TlsHandshakeError,
 } from '../../../mastercard/services/mc.errors';
 import { TenantRegistry } from '../../../tenants/services/tenant.registry';
 import { Tenant } from '../../../tenants/tenant.types';
@@ -120,6 +121,36 @@ describe('CrossBorderGateway — call() dispatch', () => {
     // MC received the request and may have executed the payment.
     const { gw } = make({ rejectWith: new ResponseDecryptError('bad key') });
     await expect(ping(gw)).rejects.toMatchObject({ executed: 'unknown' });
+  });
+
+  // A TLS failure is NOT one bucket. Under TLS 1.3 our request is flushed before the
+  // server validates our certificate, so a received alert leaves the outcome unknown;
+  // a keystore we could not even open never opened a socket. The gateway must carry
+  // that distinction through to `executed` — this is the chain nothing else covers.
+  it('a TLS alert RECEIVED from MC → executed=unknown, the slot is HELD', async () => {
+    const { gw } = make({
+      rejectWith: new TlsHandshakeError(
+        'refused',
+        'client-certificate',
+        'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+        'indeterminate',
+      ),
+    });
+    await expect(ping(gw)).rejects.toMatchObject({ executed: 'unknown' });
+  });
+
+  it('a TLS failure raised before any socket existed → executed=no, the slot is released', async () => {
+    for (const evidence of ['no-socket', 'aborted-by-us'] as const) {
+      const { gw } = make({
+        rejectWith: new TlsHandshakeError(
+          'bad keystore',
+          'client-certificate',
+          'ERR_OSSL_PKCS12_MAC_VERIFY_FAILURE',
+          evidence,
+        ),
+      });
+      await expect(ping(gw)).rejects.toMatchObject({ executed: 'no' });
+    }
   });
 
   it('network error/decryption failure → 502, executed=unknown', async () => {

@@ -179,17 +179,16 @@ describe('asTlsHandshakeError — handshake taxonomy', () => {
     );
   });
 
-  it('is non-retryable and marked NOT sent — the idempotency slot is released', () => {
+  it('is non-retryable and names the verdict in the message', () => {
     const err = asTlsHandshakeError(
       withCode('ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED'),
       HOST,
     );
     expect(err).toBeInstanceOf(NonRetryableMcError);
-    expect(err?.sent).toBe(false);
     expect(err?.name).toBe('TlsHandshakeError');
     expect(err?.message).toContain(HOST);
     // The gateway logs only `e.message`, so the verdict has to be IN it — this is
-    // the string DEPLOY.md tells operators to grep for.
+    // the string deploy/DEPLOY.md tells operators to grep for.
     expect(err?.message).toContain('[client-certificate]');
   });
 
@@ -197,7 +196,109 @@ describe('asTlsHandshakeError — handshake taxonomy', () => {
     const sock = withCode('UNABLE_TO_VERIFY_LEAF_SIGNATURE');
     expect(asTlsHandshakeError(sock, HOST)?.cause).toBe(sock);
 
-    const already = new TlsHandshakeError('x', 'handshake', 'ERR_SSL_X');
+    const already = new TlsHandshakeError(
+      'x',
+      'handshake',
+      'ERR_SSL_X',
+      'indeterminate',
+    );
     expect(asTlsHandshakeError(already, HOST)).toBe(already);
+  });
+});
+
+/**
+ * `sent` decides whether `PaymentIdempotencyStore` RELEASES a payment slot or HOLDS
+ * it, so "the TLS handshake failed" must not be confused with "nothing was sent".
+ *
+ * Measured on Node v20.20.2 with a byte-counting TCP proxy (reproduced live in
+ * `mc-agent.handshake.spec.ts`): when the server refuses our client certificate over
+ * TLS 1.3, a 4000-byte body puts 4003 MORE bytes on the wire than an empty one — the
+ * client flushes the request before the server has validated the certificate. Over
+ * TLS 1.2 the same rejection transmits nothing, and so does our own rejection of
+ * THEIR certificate.
+ *
+ * So a received alert proves nothing about the wire, and the fail-safe answer for it
+ * is `sent = true` (hold the slot). Only what we can reason about from our own side
+ * is treated as provably unsent.
+ */
+describe('asTlsHandshakeError — what we can prove about the wire', () => {
+  const HOST = 'mtf.api.xbs.mastercard.eu';
+  const withCode = (code: string) => Object.assign(new Error('sock'), { code });
+
+  it('an alert RECEIVED from Mastercard is treated as sent — the slot is HELD', () => {
+    for (const code of [
+      'ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED',
+      'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE',
+      'ERR_SSL_TLSV1_ALERT_ACCESS_DENIED',
+    ]) {
+      const err = asTlsHandshakeError(withCode(code), HOST);
+      expect(err?.evidence).toBe('indeterminate');
+      // Releasing here would let a merchant retry re-POST a payment Mastercard may
+      // already have executed.
+      expect(err?.sent).toBe(true);
+    }
+  });
+
+  it('an unopenable keystore is provably unsent — no socket was ever created', () => {
+    // createSecureContext throws before connecting, so there is nothing on the wire.
+    for (const e of [
+      withCode('ERR_OSSL_PKCS12_MAC_VERIFY_FAILURE'),
+      new Error('mac verify failure'),
+    ]) {
+      const err = asTlsHandshakeError(e, HOST);
+      expect(err?.evidence).toBe('no-socket');
+      expect(err?.sent).toBe(false);
+    }
+  });
+
+  it('rejecting THEIR certificate is provably unsent — we abort before writing', () => {
+    for (const code of [
+      'DEPTH_ZERO_SELF_SIGNED_CERT',
+      'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      'ERR_TLS_CERT_ALTNAME_INVALID',
+    ]) {
+      const err = asTlsHandshakeError(withCode(code), HOST);
+      expect(err?.evidence).toBe('aborted-by-us');
+      expect(err?.sent).toBe(false);
+    }
+  });
+
+  it('an unnamed OpenSSL failure defaults to sent — a keep-alive socket never handshook', () => {
+    const err = asTlsHandshakeError(
+      withCode('ERR_SSL_WRONG_VERSION_NUMBER'),
+      HOST,
+    );
+    expect(err?.evidence).toBe('indeterminate');
+    expect(err?.sent).toBe(true);
+  });
+
+  it('never re-judges an error we already classified', () => {
+    // OpenSSL's `mac verify failure` is also what a JWE decryption failure can read
+    // like, and that one is sent=true. Without this guard the classifier would flip
+    // it to sent=false and release the slot for a payment Mastercard already saw.
+    expect(
+      asTlsHandshakeError(new ResponseDecryptError('mac verify failure'), HOST),
+    ).toBeUndefined();
+    expect(
+      asTlsHandshakeError(new AuthHeaderError('alert unknown ca'), HOST),
+    ).toBeUndefined();
+    expect(
+      asTlsHandshakeError(new RequestEncryptError('boom'), HOST),
+    ).toBeUndefined();
+  });
+
+  it('derives `sent` from the evidence, not from a field initializer', () => {
+    // Pins the compiler property this depends on: with `useDefineForClassFields`
+    // turned on, a subclass field would clobber the constructor's assignment and
+    // every value above would silently become the base class default.
+    expect(
+      new TlsHandshakeError('m', 'handshake', 'C', 'indeterminate').sent,
+    ).toBe(true);
+    expect(new TlsHandshakeError('m', 'handshake', 'C', 'no-socket').sent).toBe(
+      false,
+    );
+    expect(
+      new TlsHandshakeError('m', 'handshake', 'C', 'aborted-by-us').sent,
+    ).toBe(false);
   });
 });

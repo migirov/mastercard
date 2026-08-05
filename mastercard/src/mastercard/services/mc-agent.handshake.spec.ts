@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import * as forge from 'node-forge';
@@ -93,6 +94,73 @@ const creds = () =>
     signingKeyPem: 'pem',
     partnerId: 'P',
   }) as McCredentials;
+
+/** Request body size for the wire measurement — large enough to be unmistakable. */
+const BODY_BYTES = 4000;
+
+/**
+ * A TCP proxy that counts every byte flowing client → server. The only way to tell
+ * "the handshake failed" apart from "nothing was transmitted".
+ */
+async function startCountingProxy(targetPort: number): Promise<{
+  port: number;
+  bytes: () => number;
+  reset: () => void;
+  close: () => Promise<void>;
+}> {
+  let count = 0;
+  const server = net.createServer((client) => {
+    const upstream = net.connect(targetPort, '127.0.0.1');
+    client.on('data', (b: Buffer) => {
+      count += b.length;
+      upstream.write(b);
+    });
+    upstream.on('data', (b: Buffer) => client.write(b));
+    const close = () => {
+      client.destroy();
+      upstream.destroy();
+    };
+    for (const ev of ['error', 'close'] as const) {
+      client.on(ev, close);
+      upstream.on(ev, close);
+    }
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    port: (server.address() as { port: number }).port,
+    bytes: () => count,
+    reset: () => {
+      count = 0;
+    },
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
+/** POST with a body of `bodyBytes`; resolves either way — the counter is the assertion. */
+function post(
+  agent: https.Agent,
+  port: number,
+  bodyBytes: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        host: 'localhost',
+        port,
+        path: '/pay',
+        method: 'POST',
+        agent,
+        headers: { 'content-type': 'application/json' },
+      },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve());
+      },
+    );
+    req.on('error', reject);
+    req.end('x'.repeat(bodyBytes));
+  });
+}
 
 /** One request through the given agent; resolves the body, rejects the socket error. */
 function get(agent: https.Agent, port: number): Promise<string> {
@@ -221,10 +289,58 @@ describe('McAgentProvider — real TLS handshake', () => {
 
       // The raw code differs per protocol version; the verdict must not.
       expect(classified?.reason).toBe('client-certificate');
-      // Nothing was transmitted ⇒ a payment idempotency slot is released, not held.
-      expect(classified?.sent).toBe(false);
+      // But the WIRE state is not knowable from a received alert — see the
+      // byte-count test below, which is why this is `true` and not `false`.
+      expect(classified?.evidence).toBe('indeterminate');
+      expect(classified?.sent).toBe(true);
 
       p.onApplicationShutdown();
+    },
+    30_000,
+  );
+
+  /**
+   * The measurement the whole `sent` design rests on.
+   *
+   * Everything else here asserts a VERDICT; this asserts the wire. A byte-counting
+   * TCP proxy sits between the client and the server, and the same rejected request
+   * is made twice — once empty, once with a 4 KB body. If the delta is the body, the
+   * request was transmitted before the server refused our certificate, and calling
+   * that failure "provably not sent" would release a payment idempotency slot for a
+   * payment Mastercard may already hold.
+   *
+   * Asserted on the byte delta rather than on an error code so that it keeps meaning
+   * the same thing when Node renames its OpenSSL alerts.
+   */
+  it.each([
+    ['tls1.3', true],
+    ['tls1.2', false],
+  ])(
+    'over %s the request body reaching the wire before the rejection is %s',
+    async (edge, expectedOnWire) => {
+      const proxy = await startCountingProxy(servers[edge as string].port);
+      const p = new McAgentProvider(configWith({ mtlsCaPath: serverCertFile }));
+      p.onModuleInit();
+
+      proxy.reset();
+      await post(p.agentFor(creds()), proxy.port, 0).catch(() => undefined);
+      const empty = proxy.bytes();
+
+      proxy.reset();
+      await post(p.agentFor(creds()), proxy.port, BODY_BYTES).catch(
+        () => undefined,
+      );
+      const withBody = proxy.bytes();
+
+      const delta = withBody - empty;
+      if (expectedOnWire) {
+        expect(delta).toBeGreaterThanOrEqual(BODY_BYTES);
+      } else {
+        expect(delta).toBe(0);
+      }
+
+      p.onApplicationShutdown();
+      await proxy.close();
     },
     30_000,
   );

@@ -175,8 +175,12 @@ export class MastercardClient implements OnApplicationShutdown, OnModuleInit {
         // A failed TLS handshake is a configuration fact, not a blip: retrying it
         // costs two more round-trips and still ends in a 502 — one that says nothing
         // about WHICH certificate is at fault. Naming it is the difference between a
-        // one-line fix and an outage spent guessing. Nothing was sent, so the payment
-        // idempotency slot is released rather than held (see TlsHandshakeError.sent).
+        // one-line fix and an outage spent guessing.
+        //
+        // Whether the payment idempotency slot is released is decided per error, NOT
+        // by the fact that TLS failed: under TLS 1.3 our request is flushed before the
+        // server has validated our certificate, so a received alert arrives with the
+        // body already on the wire. See TlsSendEvidence for the measurements.
         const tls = asTlsHandshakeError(e, this.upstreamHost);
         if (tls) throw tls;
         lastErr = e; // network failure (an abort at MC_REQUEST_TIMEOUT_MS lands here too)
