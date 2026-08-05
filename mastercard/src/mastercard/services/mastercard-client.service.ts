@@ -141,6 +141,11 @@ export class MastercardClient implements OnApplicationShutdown, OnModuleInit {
       // it — neither bounds wall-clock time. This call runs inside the payment idempotency lock
       // (LOCK_TTL 120s) and MUST finish well before it, or another pod re-claims the slot and
       // re-POSTs the payment, so we abort at MC_REQUEST_TIMEOUT_MS regardless.
+      // Resolve the outbound TLS identity BEFORE arming the timer below: this can
+      // refuse (an OWN tenant with no client certificate on an endpoint that requires
+      // one), and a throw between `setTimeout` and the `try` would leave the timer
+      // armed with nothing to clear it.
+      const httpsAgent = this.agents.agentFor(creds);
       const abort = new AbortController();
       const killer = setTimeout(() => abort.abort(), MC_REQUEST_TIMEOUT_MS);
       // Don't let the abort timer hold the event loop open if the process is otherwise idle.
@@ -158,7 +163,7 @@ export class MastercardClient implements OnApplicationShutdown, OnModuleInit {
         // Per-request agent: carries the outbound client certificate, and picks the
         // tenant's own one when it has one. axios merges a request-level httpsAgent
         // over the instance default (mergeConfig `defaultToConfig2`).
-        httpsAgent: this.agents.agentFor(creds),
+        httpsAgent,
       };
       try {
         const res = await this.http.request<T>(config);

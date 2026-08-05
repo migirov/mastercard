@@ -90,6 +90,16 @@ export interface MastercardModuleOptions {
 const DEFAULT_CREDS_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * The only PSD2 hosts where Mastercard does NOT want a client certificate ("For
+ * Sandbox EU/UK domain testing, mTLS certificate is not needed"). Everything else
+ * under `xbs.mastercard.eu|uk` — MTF and production — requires one.
+ */
+const SANDBOX_PSD2_HOSTS: ReadonlySet<string> = new Set([
+  'sandbox.api.xbs.mastercard.eu',
+  'sandbox.api.xbs.mastercard.uk',
+]);
+
+/**
  * Typed access to module options. Replaces scattered `ConfigService.get(...)`
  * calls in the internal services — a single source of module configuration.
  * Provided globally by the umbrella `MastercardModule`, so it is available to
@@ -185,21 +195,49 @@ export class GatewayConfig {
    * Editing `MC_BASE_URL` and forgetting `MC_AUTH_MODE` is the likeliest way to
    * break this, and it would otherwise surface as opaque 502s on every payment.
    */
-  /** Hostname of the configured Mastercard endpoint, lower-cased. */
+  /**
+   * Hostname of the configured Mastercard endpoint, NORMALISED for the gates below.
+   *
+   * Two normalisations, both of which are the difference between a gate that fires
+   * and one that silently does not:
+   *
+   *  - the scheme must be `https:`. On `http://` axios uses the http adapter and
+   *    ignores `httpsAgent` entirely — so the client certificate would not be
+   *    presented while `mtlsRequiredForHost` cheerfully reported "satisfied", and
+   *    every request token would go out in cleartext.
+   *  - a trailing dot is stripped. `api.xbs.mastercard.eu.` is a valid absolute FQDN
+   *    that resolves to the very same host, but it matches neither the PSD2 pattern
+   *    nor the sandbox exemption — so the deployment would boot against PRODUCTION
+   *    with OAuth 1.0a and no client certificate, and both gates would stay quiet.
+   */
   private get upstreamHost(): string {
+    let url: URL;
     try {
-      return new URL(this.opts.baseUrl).hostname.toLowerCase();
+      url = new URL(this.opts.baseUrl);
     } catch {
       throw new Error(
         `MastercardModule: option 'baseUrl' is not a valid URL: ${this.opts.baseUrl}`,
       );
     }
+    if (url.protocol !== 'https:') {
+      throw new Error(
+        `MastercardModule: option 'baseUrl' must use https (got '${url.protocol}' ` +
+          `in '${this.opts.baseUrl}'). Over plain http the outbound client ` +
+          'certificate is silently ignored and credentials travel in cleartext.',
+      );
+    }
+    return url.hostname.toLowerCase().replace(/\.+$/, '');
   }
 
   /**
-   * A PSD2 edge (`*.api.xbs.mastercard.eu|uk`) — the endpoints Mastercard requires
-   * for customers contracted with MTS EU / MTS UK. One predicate, used by both the
+   * A PSD2 edge (`*.xbs.mastercard.eu|uk`) — the endpoints Mastercard requires for
+   * customers contracted with MTS EU / MTS UK. One predicate, used by both the
    * auth-mode gate and the mTLS gate, so the two cannot drift apart.
+   *
+   * Deliberately broader than the `*.api.xbs.…` hosts Mastercard publishes today:
+   * matching any host under `xbs.mastercard.eu|uk` fails CLOSED, so a future or
+   * regional edge still gets the request token and the certificate requirement.
+   * Narrowing this to the documented shape would re-open exactly that hole.
    */
   private get isPsd2Edge(): boolean {
     return /\.xbs\.mastercard\.(eu|uk)$/.test(this.upstreamHost);
@@ -217,9 +255,14 @@ export class GatewayConfig {
    *
    * NB: this encodes Mastercard's per-ENVIRONMENT rule via the hostname, which is
    * our proxy for it. Do not "improve" it into a NODE_ENV check.
+   *
+   * The exemption is an EXACT host list, not a `sandbox.` prefix test: a prefix
+   * matches anything merely beginning with it — `sandbox.mtf.api.xbs.mastercard.eu`
+   * would be waved through — and the exemption is the one place here where being
+   * wrong means presenting no certificate at all.
    */
   get mtlsRequiredForHost(): boolean {
-    return this.isPsd2Edge && !this.upstreamHost.startsWith('sandbox.');
+    return this.isPsd2Edge && !SANDBOX_PSD2_HOSTS.has(this.upstreamHost);
   }
 
   /** Outbound mTLS enabled — we present a client certificate to Mastercard. */

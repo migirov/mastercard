@@ -12,7 +12,10 @@ import { z } from 'zod';
  */
 const EnvSchema = z.object({
   // --- always required ---
-  MC_BASE_URL: z.string().min(1),
+  // A full absolute URL, not just a non-empty string: GatewayConfig derives the
+  // auth-mode and mTLS gates from this hostname, so a malformed value should fail
+  // here with the variable's name rather than later inside the module.
+  MC_BASE_URL: z.string().url(),
   MC_CONSUMER_KEY: z.string().min(1),
   MC_PARTNER_ID: z.string().min(1),
   MC_SIGNING_KEY_PATH: z.string().min(1),
@@ -41,6 +44,14 @@ const EnvSchema = z.object({
   // the old @IsNumberString, which also accepted floats/signs (e.g. '-3.5') that
   // make no sense as a pool max — fail fast on those instead.
   DB_POOL_MAX: z
+    .string()
+    .regex(/^[1-9][0-9]*$/, 'must be a positive integer')
+    .optional(),
+  // OWN-credentials cache TTL. Read as `Number(...) || undefined`, so anything
+  // unparseable silently reverts to the 10-minute default — validate it here
+  // instead, or a typo means credentials are cached for a different span than
+  // the operator believes.
+  MC_CREDS_CACHE_TTL_MS: z
     .string()
     .regex(/^[1-9][0-9]*$/, 'must be a positive integer')
     .optional(),

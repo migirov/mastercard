@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
 import {
@@ -10,6 +11,7 @@ import { MIN_TLS_VERSION } from '../../common/utils/tls';
 import { loadSigningMaterialFromP12 } from '../../common/utils/p12.util';
 import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
+import { TenantMtlsUnavailableError } from './mc.errors';
 
 /**
  * Hard ceiling on cached per-tenant agents. Deliberately smaller than the other
@@ -68,8 +70,10 @@ export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(McAgentProvider.name);
   /** Shared agent: the platform certificate, or none when mTLS is off. */
   private base!: https.Agent;
-  /** Per-tenant agents, keyed by client-certificate thumbprint (LRU). */
+  /** Per-tenant agents, keyed by a hash of the certificate bytes (LRU). */
   private readonly perTenant = new Map<string, https.Agent>();
+  /** Extra trust anchors for MASTERCARD'S server certificate — shared by all agents. */
+  private ca?: Buffer[];
   private platformCert?: McCertStatus;
 
   constructor(private readonly config: GatewayConfig) {}
@@ -80,6 +84,9 @@ export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {
     const ca = this.config.mtlsCaPath
       ? [fs.readFileSync(this.config.mtlsCaPath)]
       : undefined;
+    // Kept for the per-tenant agents too: which server certificates we accept is a
+    // property of the ENDPOINT, not of whose client certificate we present.
+    this.ca = ca;
 
     if (!this.config.mtlsEnabled) {
       this.base = new https.Agent({
@@ -129,9 +136,42 @@ export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {
     );
   }
 
-  /** The agent to use for this tenant's call. */
+  /**
+   * The agent to use for this tenant's call.
+   *
+   * NOTE ON THE STATE OF THIS FEATURE: nothing populates `creds.mtls` today —
+   * `MerchantSecretBundle` has no field for a client certificate, so neither
+   * credentials provider can set one. The per-tenant branch below is therefore
+   * dormant, kept because the selection idiom is right and a certificate is coming.
+   * What is NOT dormant is the guard: without it an OWN tenant would silently
+   * transact under the platform's TLS identity the day mTLS is switched on.
+   */
   agentFor(creds: McCredentials): https.Agent {
-    return creds.mtls ? this.tenantAgentFor(creds.mtls) : this.base;
+    if (creds.mtls) return this.tenantAgentFor(creds.mtls);
+    if (this.config.mtlsRequiredForHost && this.isOwnIdentity(creds)) {
+      throw new TenantMtlsUnavailableError(
+        `Tenant credentials use their own Mastercard identity (consumer key / ` +
+          `partner-id '${creds.partnerId}') but carry no client certificate, and ` +
+          `${this.config.baseUrl} requires outbound mTLS. Refusing to present the ` +
+          'platform certificate on their behalf: Mastercard would see one ' +
+          "organisation's certificate authenticating another's partner account.",
+      );
+    }
+    return this.base;
+  }
+
+  /**
+   * Whether these credentials are a tenant's OWN Mastercard identity rather than the
+   * platform's. The same comparison `OwnCredentialsProvider.assertNotPlatformIdentity`
+   * already trusts, inverted — `McCredentials` carries no credential mode, and
+   * threading one through purely for this would touch the whole credentials surface
+   * without making the answer any more certain.
+   */
+  private isOwnIdentity(creds: McCredentials): boolean {
+    return (
+      creds.consumerKey !== this.config.consumerKey ||
+      creds.partnerId !== this.config.partnerId
+    );
   }
 
   /** Expiry of the platform client certificate, for health/observability. */
@@ -150,7 +190,19 @@ export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {
   private tenantAgentFor(
     mtls: NonNullable<McCredentials['mtls']>,
   ): https.Agent {
-    const key = mtls.thumbprintS256;
+    // Keyed on the certificate BYTES, never on the `thumbprintS256` string that
+    // arrives with the credentials. That string comes from a merchant secret bundle,
+    // and this key decides which TLS identity a request is made under: two tenants
+    // carrying the same string — by mistake or otherwise — would share an agent, and
+    // one would present the other merchant's client certificate to Mastercard.
+    // The passphrase is folded in because the same bytes with a different passphrase
+    // are a different, and unopenable, keystore. Same idiom as `p12.util`'s
+    // content-addressed PEM cache.
+    const key = createHash('sha256')
+      .update(mtls.pfx)
+      .update('\0')
+      .update(mtls.passphrase)
+      .digest('hex');
     const cached = this.perTenant.get(key);
     if (cached) {
       // Recency: re-insert so the LRU eviction below drops the coldest entry.
@@ -166,6 +218,7 @@ export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {
       scheduling: 'lifo',
       pfx: mtls.pfx,
       passphrase: mtls.passphrase,
+      ca: this.ca,
       minVersion: MIN_TLS_VERSION,
     });
     this.perTenant.set(key, agent);

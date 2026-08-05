@@ -74,6 +74,55 @@ describe('GatewayConfig — outbound mTLS / host pairing', () => {
     }
   });
 
+  /**
+   * The gates are derived from the hostname, so anything that changes how the
+   * hostname reads changes whether they fire at all. These are the two spellings
+   * that resolve to a REAL Mastercard production edge while slipping past both
+   * gates — a deployment that boots clean, signs with OAuth 1.0a and presents no
+   * client certificate.
+   */
+  it('a trailing dot does not smuggle a production edge past the gates', () => {
+    // `api.xbs.mastercard.eu.` is a valid absolute FQDN for the very same host.
+    expect(() => new GatewayConfig(psd2('api.xbs.mastercard.eu.'))).toThrow(
+      /requires outbound mTLS/,
+    );
+    // And with the mode left at its default, the auth-mode gate must catch it too.
+    expect(
+      () =>
+        new GatewayConfig(opts({ baseUrl: 'https://api.xbs.mastercard.eu.' })),
+    ).toThrow(/oauth2-request-token/);
+  });
+
+  it('only the exact sandbox hosts are exempt, not anything starting with "sandbox."', () => {
+    // A prefix test would wave this through, and it is an MTF host.
+    expect(
+      () => new GatewayConfig(psd2('sandbox.mtf.api.xbs.mastercard.eu')),
+    ).toThrow(/requires outbound mTLS/);
+    // Regression guard: the real sandbox hosts must still boot without a certificate.
+    for (const host of [
+      'sandbox.api.xbs.mastercard.eu',
+      'sandbox.api.xbs.mastercard.uk',
+    ]) {
+      expect(new GatewayConfig(psd2(host)).mtlsRequiredForHost).toBe(false);
+    }
+  });
+
+  it('refuses plain http — the client certificate would be silently ignored', () => {
+    // On http axios uses the http adapter and drops httpsAgent entirely, so mTLS
+    // would report "satisfied" while presenting nothing and sending tokens in clear.
+    expect(
+      () =>
+        new GatewayConfig(
+          psd2('api.xbs.mastercard.eu', {
+            baseUrl: 'http://api.xbs.mastercard.eu',
+            mtlsEnabled: true,
+            mtlsClientCertPath: '/certs/mc-mtls.p12',
+            mtlsClientCertPassword: 'pw',
+          }),
+        ),
+    ).toThrow(/must use https/);
+  });
+
   it('does not treat the decommissioned sandbox.api.mastercard.eu as a PSD2 edge', () => {
     // No `xbs` segment: a dead legacy host whose certificate expired in 2024. It must
     // not silently satisfy either pairing.

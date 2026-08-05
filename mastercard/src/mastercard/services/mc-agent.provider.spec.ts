@@ -7,6 +7,7 @@ import { GatewayConfig } from '../../config/gateway-config';
 import { McCredentials } from '../../credentials/credentials.types';
 import { MIN_TLS_VERSION } from '../../common/utils/tls';
 import { McAgentProvider } from './mc-agent.provider';
+import { TenantMtlsUnavailableError } from './mc.errors';
 
 /**
  * The real KMP-issued client certificate is weeks away, so everything here runs on
@@ -143,7 +144,7 @@ describe('McAgentProvider', () => {
       const b = p.agentFor(creds(mtlsOf(tenantB.der, 'thumb-b')));
 
       expect(a1).not.toBe(shared);
-      expect(a1).toBe(a2); // cached by thumbprint
+      expect(a1).toBe(a2); // cached by keystore content
       expect(b).not.toBe(a1);
       // A per-tenant pool is deliberately smaller than the shared one.
       expect(optsOf(a1).maxSockets).toBe(16);
@@ -156,12 +157,66 @@ describe('McAgentProvider', () => {
 
       const first = p.agentFor(creds(mtlsOf(tenantA.der, 'thumb-0')));
       const destroy = jest.spyOn(first, 'destroy');
-      // Fill well past MTLS_AGENT_CACHE_MAX (32).
+      // Each entry must be DISTINCT MATERIAL, not just a distinct label: the cache
+      // is keyed on sha256(pfx + passphrase). Varying the passphrase is enough and
+      // is genuine — the same bytes under another passphrase are another keystore.
+      // (Building 40 real PKCS#12 bundles would add ~40 RSA keygens to the suite.)
       for (let i = 1; i <= 40; i++) {
-        p.agentFor(creds(mtlsOf(tenantB.der, `thumb-${i}`)));
+        p.agentFor(
+          creds({
+            pfx: tenantB.der,
+            passphrase: `${PASSWORD}-${i}`,
+            thumbprintS256: `thumb-${i}`,
+          }),
+        );
       }
 
       expect(destroy).toHaveBeenCalled();
+      p.onApplicationShutdown();
+    });
+
+    it('keys the cache on the certificate BYTES, not on the supplied thumbprint', () => {
+      const p = new McAgentProvider(enabled());
+      p.onModuleInit();
+
+      // Two DIFFERENT keystores arriving with the SAME thumbprint string. That
+      // string comes from a merchant secret bundle; if it were the cache key, the
+      // second tenant would be handed the first one's agent and would present the
+      // wrong organisation's certificate to Mastercard.
+      const a = p.agentFor(creds(mtlsOf(tenantA.der, 'same-string')));
+      const b = p.agentFor(creds(mtlsOf(tenantB.der, 'same-string')));
+      expect(a).not.toBe(b);
+
+      // Same bytes, same passphrase → still one agent (the cache must still work).
+      expect(p.agentFor(creds(mtlsOf(tenantA.der, 'a-different-string')))).toBe(
+        a,
+      );
+      p.onApplicationShutdown();
+    });
+
+    it('gives per-tenant agents the same server trust anchors as the shared one', () => {
+      // `ca` says which SERVER certificates we accept — a property of the endpoint,
+      // not of whose client certificate we present. Dropping it for tenant agents
+      // would fail verification for exactly the tenants that have their own cert.
+      const caFile = path.join(os.tmpdir(), `mc-ca-${Date.now()}.pem`);
+      fs.writeFileSync(
+        caFile,
+        '-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n',
+      );
+      tmp.push(caFile);
+      const p = new McAgentProvider(
+        configWith({
+          mtlsEnabled: true,
+          mtlsCaPath: caFile,
+          _mtlsClientCertPath: platform.file,
+          _mtlsClientCertPassword: PASSWORD,
+        } as unknown as Partial<GatewayConfig>),
+      );
+      p.onModuleInit();
+
+      const tenant = p.agentFor(creds(mtlsOf(tenantA.der, 'thumb-ca')));
+      expect(optsOf(tenant).ca).toEqual(optsOf(p.agentFor(creds())).ca);
+      expect(optsOf(tenant).ca).toBeDefined();
       p.onApplicationShutdown();
     });
 
@@ -178,6 +233,81 @@ describe('McAgentProvider', () => {
       p.onApplicationShutdown();
 
       for (const s of spies) expect(s).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Nothing populates `creds.mtls` yet — no secret bundle carries a client
+   * certificate — so every tenant currently falls through to the shared agent.
+   * That is harmless on sandbox, where no certificate is presented at all, and
+   * becomes an identity leak the moment mTLS is switched on: an OWN tenant would
+   * authenticate its own partner account with the PLATFORM's certificate.
+   *
+   * The guard cannot fire on any configuration that exists today. It exists so the
+   * day the configuration first becomes dangerous is loud rather than silent.
+   */
+  describe('an OWN tenant may not borrow the platform certificate', () => {
+    const onMtfHost = (over: Record<string, unknown> = {}) =>
+      configWith({
+        mtlsEnabled: true,
+        mtlsRequiredForHost: true,
+        baseUrl: 'https://mtf.api.xbs.mastercard.eu',
+        // Matches the `creds()` helper — these ARE the platform's identity.
+        consumerKey: 'ck',
+        partnerId: 'P',
+        _mtlsClientCertPath: platform.file,
+        _mtlsClientCertPassword: PASSWORD,
+        ...over,
+      } as unknown as Partial<GatewayConfig>);
+
+    const ownCreds = () =>
+      ({
+        consumerKey: 'own-key',
+        signingKeyPem: 'pem',
+        partnerId: 'OWN_PARTNER',
+      }) as McCredentials;
+
+    it('refuses, rather than silently presenting the platform certificate', () => {
+      const p = new McAgentProvider(onMtfHost());
+      p.onModuleInit();
+
+      expect(() => p.agentFor(ownCreds())).toThrow(TenantMtlsUnavailableError);
+      // Nothing was transmitted, so a payment idempotency slot is released.
+      try {
+        p.agentFor(ownCreds());
+      } catch (e) {
+        expect((e as TenantMtlsUnavailableError).sent).toBe(false);
+      }
+      p.onApplicationShutdown();
+    });
+
+    it('does not block the PLATFORM tenant on the same host', () => {
+      const p = new McAgentProvider(onMtfHost());
+      p.onModuleInit();
+
+      expect(() => p.agentFor(creds())).not.toThrow();
+      p.onApplicationShutdown();
+    });
+
+    it('does not block an OWN tenant that brought its own certificate', () => {
+      const p = new McAgentProvider(onMtfHost());
+      p.onModuleInit();
+
+      const own = { ...ownCreds(), mtls: mtlsOf(tenantA.der, 'own') };
+      expect(() => p.agentFor(own as McCredentials)).not.toThrow();
+      p.onApplicationShutdown();
+    });
+
+    it('stays inert where Mastercard does not require a certificate', () => {
+      // Sandbox and the .com endpoints: no certificate is presented by anyone, so
+      // there is no identity to borrow and nothing to refuse.
+      const p = new McAgentProvider(
+        onMtfHost({ mtlsRequiredForHost: false, mtlsEnabled: false }),
+      );
+      p.onModuleInit();
+
+      expect(() => p.agentFor(ownCreds())).not.toThrow();
+      p.onApplicationShutdown();
     });
   });
 });

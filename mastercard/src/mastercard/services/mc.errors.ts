@@ -57,6 +57,23 @@ export class AuthHeaderError extends NonRetryableMcError {
 }
 
 /**
+ * An OWN tenant would have had to borrow the PLATFORM client certificate on an
+ * endpoint where Mastercard requires one.
+ *
+ * Refusing is the point. An OWN tenant is a Mastercard partner in its own right —
+ * its own consumer key, its own partner-id — and letting it transact under the
+ * platform's TLS identity is the identity mixing `assertNotPlatformIdentity` exists
+ * to prevent, just one layer lower and without the 422. Silence here would look like
+ * a working integration right up until Mastercard asked whose certificate that was.
+ *
+ * Raised while assembling the request, before the transport runs, so nothing was
+ * transmitted and the idempotency slot is released.
+ */
+export class TenantMtlsUnavailableError extends NonRetryableMcError {
+  override readonly sent = false;
+}
+
+/**
  * Which side of the handshake is at fault. The two are fixed in completely different
  * places, and telling them apart is the entire point of this taxonomy — on MTF, where
  * mTLS first becomes mandatory, "Mastercard is down" and "our certificate is wrong"
