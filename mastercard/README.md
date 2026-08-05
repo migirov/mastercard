@@ -215,8 +215,14 @@ confirmation of cross-tenant FLE + encrypted push).
 
 Every tenant in a deployment shares `MC_BASE_URL`, `MC_AUTH_MODE` and the outbound
 mTLS certificate. Per-tenant credentials (consumer key, partner id, signing and
-encryption keys, and an optional own client certificate) are resolved per request —
-but the endpoint and the auth scheme are process-wide.
+encryption keys) are resolved per request — but the endpoint and the auth scheme are
+process-wide.
+
+The outbound client certificate is currently **platform-wide only**: the merchant
+secret bundle has no field for one, so a tenant cannot bring its own. Where Mastercard
+requires mTLS, an OWN tenant without its own certificate is therefore **refused**
+rather than transacting under the platform's TLS identity — Mastercard would otherwise
+see one organisation's certificate authenticating another's partner account.
 
 So partners contracted with the same Mastercard entity coexist in one deployment,
 each under their own partner id. A partner on a **different** edge — MTS UK

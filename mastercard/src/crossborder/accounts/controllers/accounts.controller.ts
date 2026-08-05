@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOperation } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse } from '@nestjs/swagger';
 import {
   CurrentTenant,
   TenantContext,
@@ -15,6 +15,16 @@ export class AccountsController {
   @Get('balances')
   @ApiOperation({
     summary: 'Tenant accounts and balances (passthrough from MC).',
+    description:
+      'Not available on the PSD2 edges (*.xbs.mastercard.eu|uk): Mastercard serves ' +
+      'the Balance API there through the interactive OAuth2 Authorization Code flow, ' +
+      'which this gateway does not implement. Balances also apply only to the ' +
+      'Prefunding and Collateral settlement models.',
+  })
+  @ApiResponse({
+    status: 501,
+    description:
+      'The deployment targets a PSD2 edge, where this endpoint is not implemented.',
   })
   balances(@CurrentTenant() ctx: TenantContext) {
     return this.svc.getBalances(ctx.tenantId);

@@ -53,17 +53,23 @@ function daysUntil(d: Date): number {
  * Mastercard (mTLS).
  *
  * Mastercard requires mTLS on the MTF and production PSD2 edges but not on sandbox.
- * Certificates are issued per organisation through their Key Management Portal, and
- * an OWN tenant with its own Mastercard project gets its own — so agents are keyed
- * by certificate, mirroring `EncryptionService`'s per-tenant `JweEncryption` cache.
+ * Certificates are issued per organisation through their Key Management Portal.
  *
- * Selection is by PRESENCE of material on the credentials, exactly like
- * `EncryptionService.jweFor`: a tenant carrying its own certificate gets its own
- * agent, everyone else shares the platform one.
+ * WHAT IS ACTUALLY WIRED TODAY: the platform certificate, and only that. The
+ * per-tenant branch below has NO producer — `MerchantSecretBundle` carries no client
+ * certificate, so neither credentials provider can populate `McCredentials.mtls`,
+ * and `agentFor` always returns the shared agent. The branch is kept because the
+ * selection idiom is right (by PRESENCE of material on the credentials, exactly like
+ * `EncryptionService.jweFor`) and a real certificate is weeks away, not years.
  *
- * A side benefit worth stating: sockets are never shared between tenants, so a
- * resumed TLS session can never carry one merchant's connection identity into
- * another merchant's request.
+ * What that dormancy would otherwise cost is covered by the guard in `agentFor`: an
+ * OWN tenant is refused rather than quietly given the platform's TLS identity.
+ *
+ * When the per-tenant path is finally fed, two properties here are load-bearing and
+ * must survive: agents are keyed on the certificate CONTENT (never on a string that
+ * arrived with the credentials), and sockets are never shared between tenants, so a
+ * resumed TLS session cannot carry one merchant's connection identity into another
+ * merchant's request.
  */
 @Injectable()
 export class McAgentProvider implements OnModuleInit, OnApplicationShutdown {

@@ -312,6 +312,26 @@ completely different places:
 These are not retried: the cause is configuration, so a retry only delays the error.
 Genuine network failures (`ECONNRESET`, timeouts) still retry on idempotent GETs.
 
+### After changing `MC_BASE_URL` or a tenant's partner id
+
+The payment idempotency fingerprint binds the Mastercard identity a payment was made
+under — the edge hostname and the partner id — alongside the request body. That is
+deliberate: a completed row replays forever without calling Mastercard, so without it
+a payment made against one edge and retried after a repoint would return the first
+edge's stored response for a payment that does not exist on the second.
+
+The cost is that an **in-progress** lock left behind by a crashed or timed-out request
+can no longer be re-claimed once the identity changes, and that `transaction_reference`
+answers 422 ("reused with a different request body") even though the body is identical.
+Clear those once, after the cutover:
+
+```sql
+DELETE FROM payment_idempotency WHERE done = false;
+```
+
+Only `done = false` rows. They expire at the 120-second lock TTL anyway, so deleting
+them is safe. **Never delete completed rows** — those are the double-charge protection.
+
 ### Rolling back
 
 Change `MC_AUTH_MODE` **and** `MC_BASE_URL` back together and restart. Note that for a

@@ -24,7 +24,15 @@ const activeTenant = {
   suspended: false,
 } as unknown as Tenant;
 
-function make(opts?: { tenant?: Tenant; owns?: boolean; paid?: boolean }) {
+function make(opts?: {
+  tenant?: Tenant;
+  owns?: boolean;
+  paid?: boolean;
+  /** The Mastercard edge this deployment talks to — folded into the fingerprint. */
+  upstreamHost?: string;
+  /** The tenant's partner-id — also folded into the fingerprint. */
+  partnerId?: string;
+}) {
   const client = {
     request: jest.fn(
       async (): Promise<{ status: number; data: unknown }> => ({
@@ -32,9 +40,20 @@ function make(opts?: { tenant?: Tenant; owns?: boolean; paid?: boolean }) {
         data: { ok: true },
       }),
     ),
+    // MUST be present: `PaymentsService` folds the edge identity into the body
+    // fingerprint via `gw.upstreamHost()`. A stub without it returns `undefined`,
+    // JSON.stringify drops the key, and every fingerprint assertion silently runs
+    // with the identity contribution absent — testing the code as it was BEFORE
+    // the fold was added.
+    upstreamHost: opts?.upstreamHost ?? 'sandbox.api.mastercard.com',
   };
   const registry = { get: jest.fn(async () => opts?.tenant ?? activeTenant) };
-  const credentials = { resolve: jest.fn(async () => creds) };
+  const credentials = {
+    resolve: jest.fn(async () => ({
+      ...creds,
+      ...(opts?.partnerId ? { partnerId: opts.partnerId } : {}),
+    })),
+  };
   const idempotency = {
     run: jest.fn(
       (_t: string, _k: string | undefined, producer: () => unknown) =>
@@ -133,6 +152,44 @@ describe('PaymentsService — path & idempotency', () => {
       },
     } as never);
     expect(fp(c.idempotency)).not.toBe(fp(a.idempotency));
+  });
+
+  /**
+   * The fingerprint also binds the Mastercard IDENTITY the payment was made under.
+   *
+   * A `done` idempotency row lives forever and replays without calling Mastercard.
+   * Without this, a payment submitted against one edge (or one partner account) and
+   * retried after the deployment was repointed would return the FIRST edge's stored
+   * response for a payment that does not exist on the second — a silent wrong answer
+   * about money. With it, the mismatch is a loud 422 instead.
+   */
+  it('the same body under a different Mastercard identity is a DIFFERENT fingerprint', async () => {
+    const fp = (idem: { run: jest.Mock }) =>
+      idem.run.mock.calls[0][3] as string;
+    const body = {
+      paymentrequest: {
+        transaction_reference: 'TX',
+        payment_amount: { amount: '10', currency: 'USD' },
+      },
+    } as never;
+
+    const base = make();
+    await base.svc.createPayment('acme', body);
+
+    // Same body, different edge (the .com -> PSD2 repoint).
+    const otherEdge = make({ upstreamHost: 'sandbox.api.xbs.mastercard.eu' });
+    await otherEdge.svc.createPayment('acme', body);
+    expect(fp(otherEdge.idempotency)).not.toBe(fp(base.idempotency));
+
+    // Same body, same edge, different partner account.
+    const otherPartner = make({ partnerId: 'OTHER_PARTNER' });
+    await otherPartner.svc.createPayment('acme', body);
+    expect(fp(otherPartner.idempotency)).not.toBe(fp(base.idempotency));
+
+    // And unchanged identity still replays rather than 422-ing.
+    const same = make();
+    await same.svc.createPayment('acme', body);
+    expect(fp(same.idempotency)).toBe(fp(base.idempotency));
   });
 
   it('id in the path — encodeURIComponent (anti structural injection)', async () => {

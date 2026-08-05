@@ -132,10 +132,18 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
   }
 
   // --- response-mapping branches (the live suite cannot reach them) ---
+  //
+  // Carried on /crossborder/rates rather than /crossborder/balances. Both take the
+  // same gw.run -> gw.call path, so the mapping under test is identical — but
+  // balances now answers 501 on the PSD2 edges (Mastercard serves them through an
+  // interactive OAuth2 flow we do not implement). These tests are about response
+  // mapping, not about balances, and they must not turn red the day someone points
+  // .env at the EU sandbox to work on PSD2.
+  const MAPPING_ROUTE = '/crossborder/rates';
 
   it('MC 2xx → data to the merchant as-is', async () => {
     stubMc.next = { status: 200, data: { accounts: [{ id: 'a' }] } };
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(200);
     expect(r.data).toEqual({ accounts: [{ id: 'a' }] });
   });
@@ -143,7 +151,7 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
   it('MC business 4xx (object) → 422 with the single envelope and an upstream body', async () => {
     const mcBody = { Errors: { Error: { ReasonCode: 'DECLINE' } } };
     stubMc.next = { status: 422, data: mcBody };
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(422);
     expect(r.data.error).toBe('Upstream Error');
     expect(r.data.upstream).toEqual(mcBody);
@@ -151,27 +159,27 @@ describe('Mastercard gateway (e2e, hermetic/stubbed MC)', () => {
 
   it('MC 401 → 502, the body/details do NOT leak', async () => {
     stubMc.next = { status: 401, data: { secret: 'internal-cred-detail' } };
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(502);
     expect(JSON.stringify(r.data)).not.toContain('internal-cred-detail');
   });
 
   it('MC 4xx with a NON-object body (HTML) → 502 (not forwarded)', async () => {
     stubMc.next = { status: 429, data: '<html>rate limited</html>' };
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(502);
     expect(JSON.stringify(r.data)).not.toContain('<html>');
   });
 
   it('MC 5xx → 502', async () => {
     stubMc.next = { status: 503, data: { boom: 1 } };
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(502);
   });
 
   it('a network failure to MC → 502', async () => {
     stubMc.shouldThrow = true;
-    const r = await http.get('/crossborder/balances', { headers: internal });
+    const r = await http.get(MAPPING_ROUTE, { headers: internal });
     expect(r.status).toBe(502);
   });
 
